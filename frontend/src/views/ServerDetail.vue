@@ -87,8 +87,8 @@
         </div>
       </el-card>
 
-      <!-- ===== GPU cards ===== -->
-      <el-card class="page-card">
+      <!-- ===== GPU cards (GPU servers only) ===== -->
+      <el-card v-if="isGpuServer" class="page-card">
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>GPU ({{ gpus.length }})</span>
@@ -281,12 +281,12 @@
           </div>
         </template>
         <el-row :gutter="14">
-          <el-col :span="12">
+          <el-col v-if="isGpuServer" :span="12">
             <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
             <v-chart v-if="history.length" :option="gpuChartOption" class="chart-box" autoresize />
             <el-empty v-else description="暂无历史数据" :image-size="50" />
           </el-col>
-          <el-col :span="12">
+          <el-col :span="isGpuServer ? 12 : 24">
             <div class="chart-sub-title">CPU / 内存 / Swap / 每核负载</div>
             <v-chart v-if="history.length" :option="sysChartOption" class="chart-box" autoresize />
             <el-empty v-else description="暂无历史数据" :image-size="50" />
@@ -496,6 +496,7 @@ const route = useRoute()
 const serverId = Number(route.params.id)
 const loading = ref(false)
 const server = ref(null)
+const isGpuServer = computed(() => (server.value?.server_type ?? 'gpu') === 'gpu')
 const metric = ref(null)
 const unitEpoch = ref(0)
 function onUnitChange() { unitEpoch.value++ }

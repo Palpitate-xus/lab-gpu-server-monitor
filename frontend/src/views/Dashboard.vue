@@ -57,7 +57,8 @@
         </el-table-column>
         <el-table-column label="GPU" width="150">
           <template #default="{ row }">
-            <el-progress v-if="row.gpu_count" :percentage="pct(row.avgGpuUtil)" :color="cpuColor(row.avgGpuUtil)" :stroke-width="10" />
+            <el-progress v-if="!row.is_cpu_server && row.gpu_count" :percentage="pct(row.avgGpuUtil)" :color="cpuColor(row.avgGpuUtil)" :stroke-width="10" />
+            <span v-else-if="row.is_cpu_server" style="color:var(--csub)">CPU 服务器</span>
             <span v-else style="color:var(--csub)">无</span>
           </template>
         </el-table-column>
@@ -108,6 +109,7 @@ const rows = computed(() => metrics.value.map(m => {
     ...m,
     server_name: server?.name || `#${m.server_id}`,
     server_enabled: server?.enabled ?? true,
+    is_cpu_server: (server?.server_type ?? 'gpu') === 'cpu',
     avgGpuUtil: Math.round(avgGpuUtil * 10) / 10,
     gpuMemUsed,
     gpuMemTotal
