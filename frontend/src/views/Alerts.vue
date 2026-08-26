@@ -118,7 +118,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
@@ -145,6 +145,7 @@ const loadingRules = ref(false)
 const loadingEvents = ref(false)
 const rules = ref([])
 const events = ref([])
+let pollTimer = null
 const servers = ref([])
 const eventFilter = ref(false)
 const dlg = ref(false)
@@ -244,6 +245,12 @@ async function ack(row) {
     ElMessage.error(e.friendlyMessage || '操作失败')
   }
 }
+
+onMounted(() => {
+  loadAll()
+  pollTimer = setInterval(loadAll, 30000)  // keep event stream live without manual refresh
+})
+onUnmounted(() => clearInterval(pollTimer))
 
 defineExpose({ eventFilter, loadAll })
 </script>
