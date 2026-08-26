@@ -28,8 +28,7 @@ async def lifespan(app):
     try:
         from .migrate import run_migrations
 
-        db_path = (settings.DATA_DIR or "./data") + "/gpu_monitor.db"
-        applied = run_migrations(db_path)
+        applied = run_migrations()
         if applied:
             logger.info("applied migrations: %s", ", ".join(applied))
     except Exception:
