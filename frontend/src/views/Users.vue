@@ -97,6 +97,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
+import { getSession } from '../composables'
 import { fmtTime } from '../format'
 
 const loading = ref(false)
@@ -111,7 +112,7 @@ const savingPwd = ref(false)
 const pwdFormRef = ref()
 const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
 
-const me = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
+const me = computed(() => getSession().user)
 
 const blank = () => ({ username: '', password: '', display_name: '', email: '', role: 'viewer' })
 const form = reactive(blank())

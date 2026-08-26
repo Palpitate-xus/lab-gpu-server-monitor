@@ -32,6 +32,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import api from '../api'
+import { setSession } from '../composables'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import '../cockpit.css'
 
@@ -50,9 +51,7 @@ async function submit() {
   loading.value = true
   try {
     const { data } = await api.post('/auth/login', new URLSearchParams(form))
-    localStorage.setItem('token', data.access_token)
-    localStorage.setItem('user', JSON.stringify(data.user))
-    localStorage.setItem('role', data.user.role)
+    setSession(data.access_token, data.user)
     ElMessage.success(`欢迎，${data.user.display_name || data.user.username}`)
     router.push(route.query.redirect || '/cockpit')
   } catch (e) {

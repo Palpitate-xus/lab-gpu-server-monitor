@@ -122,9 +122,10 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
+import { isAdminSession } from '../composables'
 import { fmtTime } from '../format'
 
-const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
+const isAdmin = computed(() => isAdminSession())
 
 const METRICS = {
   cpu_percent: 'CPU 使用率',

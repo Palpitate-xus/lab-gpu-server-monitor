@@ -486,6 +486,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import api from '../api'
+import { isAdminSession } from '../composables'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
 import { diskAxisFormatter, fmtDiskRate, fmtDuration, fmtFreq, fmtNetRate, fmtSizeMB, fmtTime, fmtUptime, netAxisFormatter, pct } from '../format'
 import { chartTheme } from '../theme'
@@ -565,7 +566,7 @@ function overallTag(s) { return s === 'critical' ? 'danger' : s === 'warning' ? 
 function overallLabel(s) { return { critical: '危急', warning: '警告', ok: '健康', unknown: '未知' }[s] || s }
 function statusLabel(s) { return { critical: '危急', warning: '警告', ok: '正常' }[s] || s }
 
-const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
+const isAdmin = computed(() => isAdminSession())
 const gpus = computed(() => metric.value?.gpus || [])
 const cores = computed(() => metric.value?.cores || [])
 

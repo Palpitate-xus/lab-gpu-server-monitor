@@ -53,13 +53,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import api from '../api'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
+import { clearSession, getSession, isAdminSession } from '../composables'
 import { uiTheme } from '../theme'
 import '../cockpit.css'
 
 const route = useRoute()
 const router = useRouter()
-const user = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
-const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
+const user = computed(() => getSession().user)
+const isAdmin = computed(() => isAdminSession())
 const active = computed(() => route.path)
 const pageTitle = computed(() => route.meta.title || '')
 const avatarChar = computed(() => (user.value?.username || '?').charAt(0).toUpperCase())
@@ -84,7 +85,7 @@ function onCommand(cmd) {
   if (cmd === 'logout') {
     ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
       .then(() => {
-        localStorage.clear()
+        clearSession()
         router.push('/login')
       })
       .catch(() => {})

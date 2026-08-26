@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getSession } from './composables'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { public: true } },
@@ -23,10 +24,10 @@ const routes = [
 const router = createRouter({ history: createWebHistory(), routes })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('token')
+  const token = getSession().token
   if (!to.meta.public && !token) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.name === 'login' && token) return { name: 'cockpit' }
-  if (to.meta.admin && localStorage.getItem('role') !== 'admin') return { name: 'cockpit' }
+  if (to.meta.admin && getSession().user?.role !== 'admin') return { name: 'cockpit' }
   return true
 })
 

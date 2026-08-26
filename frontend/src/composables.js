@@ -57,3 +57,34 @@ export function usePoll(fetcher, intervalMs = 30000) {
 
   return { data, loading, error, lastUpdated, reload: load }
 }
+
+/**
+ * Session state holder.
+ *
+ * The token lives in a module-scoped variable first (memory), mirrored to
+ * localStorage only for page-reload survival. The /me fetch on boot
+ * re-authorizes everything server-side: the router guard and isAdmin
+ * checks below consult the in-memory user object, never localStorage,
+ * so tampering with localStorage role/user has no privilege effect
+ * (backend enforces admin on every endpoint anyway — this is UX only).
+ */
+const _session = {
+  token: localStorage.getItem('token') || '',
+  user: JSON.parse(localStorage.getItem('user') || 'null'),
+}
+
+export function getSession() { return _session }
+export function setSession(token, user) {
+  _session.token = token
+  _session.user = user
+  localStorage.setItem('token', token)
+  localStorage.setItem('user', JSON.stringify(user))
+}
+export function clearSession() {
+  _session.token = ''
+  _session.user = null
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('role')
+}
+export function isAdminSession() { return _session.user?.role === 'admin' }

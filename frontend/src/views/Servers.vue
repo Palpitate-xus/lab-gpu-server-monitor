@@ -127,8 +127,9 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import api from '../api'
+import { isAdminSession } from '../composables'
 
-const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
+const isAdmin = computed(() => isAdminSession())
 const loading = ref(false)
 const serversList = ref([])
 const keyword = ref('')
