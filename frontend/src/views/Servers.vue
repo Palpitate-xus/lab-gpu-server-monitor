@@ -4,6 +4,15 @@
       <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">添加服务器</el-button>
       <el-button :icon="Refresh" @click="load">刷新</el-button>
       <el-input v-model="keyword" placeholder="搜索名称 / IP" clearable style="width: 220px" :prefix-icon="Search" />
+      <el-select v-model="tagFilter" placeholder="按标签筛选" clearable style="width:160px">
+        <el-option v-for="t in allTags" :key="t" :value="t" :label="t" />
+      </el-select>
+      <el-select v-model="statusFilter" placeholder="按状态筛选" clearable style="width:150px">
+        <el-option value="active" label="运行中" />
+        <el-option value="maintenance" label="维护中" />
+        <el-option value="drained" label="已排空" />
+        <el-option value="rma" label="返修中" />
+      </el-select>
     </div>
 
     <el-card>
@@ -33,6 +42,14 @@
         <el-table-column label="标签" min-width="140">
           <template #default="{ row }">
             <el-tag v-for="t in row.tags" :key="t" size="small" style="margin-right:4px">{{ t }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.status_reason" :content="row.status_reason" placement="top">
+              <el-tag :type="statusTagType(row.status)" size="small" effect="dark">{{ statusCn[row.status] || row.status || '运行中' }}</el-tag>
+            </el-tooltip>
+            <el-tag v-else :type="statusTagType(row.status)" size="small" effect="dark">{{ statusCn[row.status] || '运行中' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="启用" width="80">
@@ -80,8 +97,9 @@
             <el-radio value="key">SSH 密钥</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="!editId" label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="root" />
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="form.username"
+            :placeholder="editId ? '留空保持不变' : 'root'" />
         </el-form-item>
         <template v-if="form.auth_type === 'password'">
           <el-form-item label="密码" prop="password">
@@ -133,6 +151,12 @@ const isAdmin = computed(() => isAdminSession())
 const loading = ref(false)
 const serversList = ref([])
 const keyword = ref('')
+const tagFilter = ref('')
+const statusFilter = ref('')
+const statusCn = { active: '运行中', maintenance: '维护中', drained: '已排空', rma: '返修中' }
+function statusTagType(s) {
+  return s === 'maintenance' ? 'warning' : s === 'rma' ? 'danger' : s === 'drained' ? 'info' : 'success'
+}
 const dlg = ref(false)
 const editId = ref(null)
 const hasPassword = ref(false)
@@ -151,16 +175,22 @@ const blank = () => ({
 })
 const form = reactive(blank())
 
-const rules = {
+const rules = computed(() => ({
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   host: [{ required: true, message: '请输入主机地址', trigger: 'blur' }],
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }]
-}
+  username: [{ required: !editId.value, message: '请输入用户名', trigger: 'blur' }]
+}))
+
+const allTags = computed(() => [...new Set(serversList.value.flatMap(s => s.tags || []))].sort())
 
 const filtered = computed(() => {
-  if (!keyword.value) return serversList.value
   const k = keyword.value.toLowerCase()
-  return serversList.value.filter(s => s.name.toLowerCase().includes(k) || s.host.toLowerCase().includes(k))
+  return serversList.value.filter(s => {
+    if (k && !s.name.toLowerCase().includes(k) && !s.host.toLowerCase().includes(k)) return false
+    if (tagFilter.value && !(s.tags || []).includes(tagFilter.value)) return false
+    if (statusFilter.value && (s.status || 'active') !== statusFilter.value) return false
+    return true
+  })
 })
 
 function addTag() {
@@ -203,12 +233,17 @@ function openEdit(row) {
 }
 
 async function save() {
-  await formRef.value.validate().catch(() => Promise.reject())
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
   saving.value = true
   try {
     const payload = { ...form }
     if (editId.value) {
-      delete payload.username  // never editable from UI; backend keeps stored value
+      // blank username on edit means "keep the stored one"
+      if (!payload.username) delete payload.username
       if (!payload.password) delete payload.password
       if (!payload.private_key) delete payload.private_key
       if (!payload.passphrase) delete payload.passphrase

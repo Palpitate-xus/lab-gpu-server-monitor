@@ -97,7 +97,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
-import { getSession } from '../composables'
+import { getSession, setSession } from '../composables'
 import { fmtTime } from '../format'
 
 const loading = ref(false)
@@ -166,7 +166,11 @@ function openEdit(row) {
 }
 
 async function save() {
-  await formRef.value.validate().catch(() => Promise.reject())
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
   saving.value = true
   try {
     if (editId.value) {
@@ -207,10 +211,18 @@ async function remove(row) {
 }
 
 async function changePwd() {
-  await pwdFormRef.value.validate().catch(() => Promise.reject())
+  try {
+    await pwdFormRef.value.validate()
+  } catch {
+    return
+  }
   savingPwd.value = true
   try {
-    await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
+    const { data } = await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
+    if (data.access_token) {
+      // old tokens were just revoked; adopt the fresh one for this session
+      setSession(data.access_token, getSession().user)
+    }
     ElMessage.success('密码已修改')
     pwdDlg.value = false
     Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })

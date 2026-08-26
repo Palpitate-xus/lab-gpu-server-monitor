@@ -1,5 +1,8 @@
 <template>
   <div class="cockpit">
+    <el-alert v-if="error" type="error" :closable="false" show-icon style="margin-bottom:14px"
+              :title="`数据加载失败：${error}，正在重试`" />
+
     <!-- ===== header ===== -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px">
@@ -16,7 +19,7 @@
         </el-radio-group>
         <RateUnitPicker v-show="trendMetric === 'net'" kind="net" @change="onUnitChange" />
         <RateUnitPicker v-show="trendMetric === 'disk'" kind="disk" @change="onUnitChange" />
-        <el-button size="small" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
+        <el-button v-if="isAdminSession()" size="small" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
       </div>
     </div>
 
@@ -215,7 +218,7 @@ import api from '../api'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
 import { diskAxisFormatter, fmtDiskRate, fmtNetRate, fmtSizeMB, fmtTime, netAxisFormatter } from '../format'
 import '../cockpit.css'
-import { usePoll } from '../composables'
+import { isAdminSession, useLatestOnly, usePoll } from '../composables'
 import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
@@ -233,7 +236,7 @@ const gpuMatrix = ref([])
 const alerts = ref([])
 const latest = ref([])
 
-const { lastUpdated, reload } = usePoll(loadAll, 30000)
+const { lastUpdated, reload, error } = usePoll(loadAll, 30000)
 
 const nServers = computed(() => stats.value.servers_online ?? 0)
 const hasError = computed(() => (stats.value.servers_error ?? 0) > 0 || openAlerts.value > 0)
@@ -289,7 +292,7 @@ const trendOption = computed(() => {
     name, type: 'line', showSymbol: false, smooth: true, data,
     lineStyle: { width: 2, color }, itemStyle: { color }, areaStyle: { opacity: 0.12, color }, ...extra,
   })
-  const t = history.value.map(h => h.time)
+  const t = history.value.map(h => fmtAxisTime(h.time))
   let series = []
   let percentMode = true
   let axisFmt = null
@@ -341,6 +344,15 @@ function shortName(n) {
 
 function fmtPct(v) { return (Math.round((Number(v) || 0) * 10) / 10).toFixed(1) }
 
+// cluster-history now returns ISO UTC strings; show local time on the X axis
+function fmtAxisTime(iso) {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const p = n => String(n).padStart(2, '0')
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`
+  return rangeHours.value >= 24 ? `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}` : hm
+}
+
 function utilColor(v) {
   const T = chartTheme.value
   if (v >= 90) return T.red
@@ -391,27 +403,34 @@ const FAULT_LABELS = {
 }
 function faultLabel(code) { return FAULT_LABELS[code] || code }
 
+const applyHistory = useLatestOnly()
+
 async function loadHistory() {
-  try {
-    const { data } = await api.get(`/metrics/cluster-history?hours=${rangeHours.value}`)
-    history.value = data
-  } catch { history.value = [] }
+  // only the newest request may write (fast 1H/6H/24H switching race guard)
+  await applyHistory(
+    api.get(`/metrics/cluster-history?hours=${rangeHours.value}`).catch(() => ({ data: [] })),
+    ({ data }) => { history.value = data }
+  )
 }
+
+let reloadTimer = null
 
 async function refreshNow() {
   refreshing.value = true
   try {
     await api.post('/metrics/refresh')
     ElMessage.success('已触发采集')
-    setTimeout(() => { reload(); loadHistory() }, 5000)
+    reloadTimer = setTimeout(() => { reload(); loadHistory() }, 5000)
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '触发失败')
+    if (e.response?.status === 409) ElMessage.info('采集进行中')
+    else ElMessage.error(e.friendlyMessage || '触发失败')
   } finally {
     refreshing.value = false
   }
 }
 
 onMounted(loadHistory)
+onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 </script>
 
 <style scoped>

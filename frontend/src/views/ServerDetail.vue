@@ -1,10 +1,27 @@
 <template>
   <div class="cockpit" v-loading="loading">
+    <el-alert v-if="invalidId" title="无效的服务器 ID" type="warning" show-icon :closable="false" style="margin-bottom:14px">
+      <template #default>请返回 <el-link type="primary" @click="$router.push('/servers')">服务器列表</el-link> 重新进入。</template>
+    </el-alert>
     <div class="toolbar">
       <el-page-header @back="$router.push('/servers')" :content="server?.name || '...'" />
       <div style="display:flex;gap:10px;align-items:center">
         <el-tag v-if="metric?.status === 'ok'" type="success">正常</el-tag>
         <el-tag v-else-if="metric" type="danger">采集异常</el-tag>
+        <el-tag v-if="server?.status && server.status !== 'active'" type="warning" effect="dark">
+          {{ statusCn[server.status] }}<span v-if="server.status_reason">：{{ server.status_reason }}</span>
+        </el-tag>
+        <el-dropdown v-if="isAdmin" @command="setStatus">
+          <el-button size="small">状态切换</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="active">运行中</el-dropdown-item>
+              <el-dropdown-item command="maintenance">维护中</el-dropdown-item>
+              <el-dropdown-item command="drained">已排空</el-dropdown-item>
+              <el-dropdown-item command="rma">返修中</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button size="small" :icon="Refresh" @click="load">刷新</el-button>
       </div>
     </div>
@@ -51,7 +68,7 @@
           <div class="stat-sub">可用 {{ fmtSizeMB(metric.mem_available_mb) }} · 缓存 {{ fmtSizeMB(metric.mem_cached_mb) }} · Swap {{ fmtSizeMB(metric.swap_used_mb) }}/{{ fmtSizeMB(metric.swap_total_mb) }}</div>
         </el-card></el-col>
         <el-col :span="6"><el-card class="stat-card">
-          <div class="stat-value">{{ metric.disk_used_gb.toFixed(0) }} / {{ metric.disk_total_gb.toFixed(0) }} GB</div>
+          <div class="stat-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} / {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
           <div class="stat-label">磁盘 ({{ diskPct }}%)</div>
           <div class="stat-sub">{{ (metric.disks||[]).length }} 个挂载点</div>
         </el-card></el-col>
@@ -68,7 +85,7 @@
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>CPU 核心 ({{ cores.length }})</span>
             <div style="display:flex;gap:16px;font-size:12px;color:var(--csub);align-items:center">
-              <span>负载 {{ metric.load1.toFixed(2) }} / {{ metric.load5.toFixed(2) }} / {{ metric.load15.toFixed(2) }}</span>
+              <span>负载 {{ (metric.load1 ?? 0).toFixed(2) }} / {{ (metric.load5 ?? 0).toFixed(2) }} / {{ (metric.load15 ?? 0).toFixed(2) }}</span>
               <span v-if="metric.cpu_temp_package">封装温度 {{ metric.cpu_temp_package }}°C</span>
               <span>采集耗时 {{ metric.duration }}s</span>
             </div>
@@ -256,7 +273,7 @@
           <el-table-column v-if="isAdmin" label="操作" width="130" fixed="right">
             <template #default="{ row }">
               <el-button size="small" type="warning" @click="renice(row)">renice</el-button>
-              <el-popconfirm :title="`确定 kill 进程 ${row.pid} (${row.command.slice(0,30)})？`" @confirm="kill(row, 'TERM')">
+              <el-popconfirm :title="`确定 kill 进程 ${row.pid} (${(row.command || '').slice(0,30)})？`" @confirm="kill(row, 'TERM')">
                 <template #reference>
                   <el-button size="small" type="danger">kill</el-button>
                 </template>
@@ -468,6 +485,65 @@
               </el-col>
             </el-row>
           </el-tab-pane>
+
+          <el-tab-pane label="台账" name="notes">
+            <div v-if="isAdmin" style="display:flex;gap:8px;margin-bottom:12px">
+              <el-select v-model="noteKind" size="small" style="width:110px">
+                <el-option value="note" label="备注" />
+                <el-option value="maintenance" label="维护" />
+                <el-option value="repair" label="维修" />
+              </el-select>
+              <el-input v-model="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
+              <el-button size="small" type="primary" @click="addNote">记录</el-button>
+            </div>
+            <el-table :data="notes" size="small" max-height="320">
+              <el-table-column label="时间" width="160">
+                <template #default="{ row }"><span class="mono">{{ fmtTime(row.ts) }}</span></template>
+              </el-table-column>
+              <el-table-column label="类型" width="80">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.kind === 'repair' ? 'danger' : row.kind === 'maintenance' ? 'warning' : 'info'">
+                    {{ { note: '备注', maintenance: '维护', repair: '维修' }[row.kind] || row.kind }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="username" label="操作人" width="100" />
+              <el-table-column prop="content" label="内容" min-width="300" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-if="!notes.length" description="暂无记录" :image-size="50" />
+          </el-tab-pane>
+
+          <el-tab-pane label="采集健康" name="collect">
+            <template v-if="collectHealth">
+              <el-row :gutter="14">
+                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                  <div class="stat-value" :style="{ color: collectHealth.success_rate >= 95 ? 'var(--cgreen)' : 'var(--cred)' }">{{ collectHealth.success_rate }}%</div>
+                  <div class="stat-label">24h 采集成功率</div>
+                </div></el-col>
+                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                  <div class="stat-value">{{ collectHealth.ok }}/{{ collectHealth.total }}</div>
+                  <div class="stat-label">成功/总次数</div>
+                </div></el-col>
+                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                  <div class="stat-value">{{ collectHealth.avg_ssh_latency }}s</div>
+                  <div class="stat-label">平均 SSH 延迟</div>
+                </div></el-col>
+                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                  <div class="stat-value">{{ collectHealth.avg_duration }}s</div>
+                  <div class="stat-label">平均采集耗时</div>
+                </div></el-col>
+              </el-row>
+              <template v-if="Object.keys(collectHealth.errors || {}).length">
+                <div class="chart-sub-title" style="margin-top:14px;color:var(--cyellow)">错误分布</div>
+                <el-table :data="Object.entries(collectHealth.errors).map(([code, n]) => ({ code, n }))" size="small" max-height="200">
+                  <el-table-column prop="code" label="错误码" width="220" class-name="mono" />
+                  <el-table-column prop="n" label="次数" width="120" />
+                </el-table>
+              </template>
+              <div v-else style="margin-top:12px;color:var(--csub);font-size:12px">24 小时内无采集错误</div>
+            </template>
+            <el-empty v-else description="暂无数据" :image-size="50" />
+          </el-tab-pane>
         </el-tabs>
       </el-card>
     </template>
@@ -476,7 +552,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -486,7 +562,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import api from '../api'
-import { isAdminSession } from '../composables'
+import { isAdminSession, useLatestOnly } from '../composables'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
 import { diskAxisFormatter, fmtDiskRate, fmtDuration, fmtFreq, fmtNetRate, fmtSizeMB, fmtTime, fmtUptime, netAxisFormatter, pct } from '../format'
 import { chartTheme } from '../theme'
@@ -494,7 +570,11 @@ import { chartTheme } from '../theme'
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
 const route = useRoute()
-const serverId = Number(route.params.id)
+// reactive: the router reuses this component when navigating between servers
+const serverId = computed(() => Number(route.params.id))
+const invalidId = computed(() => !Number.isFinite(serverId.value) || serverId.value <= 0)
+const applyHistory = useLatestOnly()
+const applyProcs = useLatestOnly()
 const loading = ref(false)
 const server = ref(null)
 const isGpuServer = computed(() => (server.value?.server_type ?? 'gpu') === 'gpu')
@@ -510,6 +590,10 @@ const procSort = ref('cpu')
 const procFilter = ref('')
 let liveTimer = null
 let entTimer = null
+let mainTimer = null
+let killTimer = null
+
+const statusCn = { active: '运行中', maintenance: '维护中', drained: '已排空', rma: '返修中' }
 
 // ---- enterprise panels ----
 const entTab = ref('events')
@@ -519,33 +603,75 @@ const events = ref([])
 const evSev = ref('')
 const slowHealth = ref({})
 const inventory = ref({})
+const notes = ref([])
+const noteInput = ref('')
+const noteKind = ref('note')
+const collectHealth = ref(null)
 
 async function loadHealth() {
-  try { health.value = (await api.get(`/servers/${serverId}/health`)).data } catch { health.value = null }
+  try { health.value = (await api.get(`/servers/${serverId.value}/health`)).data } catch { health.value = null }
 }
 async function loadRisk() {
-  try { riskGpus.value = (await api.get(`/servers/${serverId}/risk`)).data.gpus || [] } catch { riskGpus.value = [] }
+  try { riskGpus.value = (await api.get(`/servers/${serverId.value}/risk`)).data.gpus || [] } catch { riskGpus.value = [] }
 }
 async function loadEvents() {
   try {
-    const { data } = await api.get(`/servers/${serverId}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
+    const { data } = await api.get(`/servers/${serverId.value}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
     events.value = data
   } catch { events.value = [] }
 }
 async function loadSlowHealth() {
-  try { slowHealth.value = (await api.get(`/servers/${serverId}/slow-health`)).data } catch { slowHealth.value = {} }
+  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data } catch { slowHealth.value = {} }
 }
 async function loadInventory() {
-  try { inventory.value = (await api.get(`/servers/${serverId}/inventory`)).data } catch { inventory.value = {} }
+  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data } catch { inventory.value = {} }
+}
+async function loadNotes() {
+  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data } catch { notes.value = [] }
+}
+async function loadCollectHealth() {
+  try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data } catch { collectHealth.value = null }
 }
 function loadEnterprise() {
-  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory()
+  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth()
+}
+
+async function setStatus(status) {
+  try {
+    let reason = ''
+    if (status !== 'active') {
+      const { value } = await ElMessageBox.prompt('请填写原因（将记入台账）', '状态变更', {
+        inputPlaceholder: '例如：更换 3 号 GPU / 系统重装', inputValidator: v => !!v?.trim() || '原因不能为空'
+      })
+      reason = value.trim()
+    }
+    const { data } = await api.post(`/servers/${serverId.value}/status`, { status, reason })
+    server.value = data
+    ElMessage.success(`已切换为「${statusCn[status]}」`)
+    loadNotes()
+  } catch (e) {
+    if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
+  }
+}
+
+async function addNote() {
+  if (!noteInput.value.trim()) return
+  try {
+    await api.post(`/servers/${serverId.value}/notes`, { kind: noteKind.value, content: noteInput.value.trim() })
+    noteInput.value = ''
+    loadNotes()
+  } catch (e) {
+    ElMessage.error(e.friendlyMessage || '记录失败')
+  }
 }
 
 const serviceRows = computed(() =>
   Object.entries(slowHealth.value.services || {}).map(([name, state]) => ({ name, state })))
 const physicalNics = computed(() =>
-  (inventory.value.nics || []).filter(n => n.mac && n.mac !== '00:00:00:00:00:00' && !n.name.startsWith(('veth','br-','docker','virbr').slice(0, 0)) && !/^(veth|br-|docker|virbr|flannel|cali|tun|tap)/.test(n.name)).slice(0, 12))
+  (inventory.value.nics || []).filter(n =>
+    n.mac && n.mac !== '00:00:00:00:00:00' &&
+    !/^(veth|br-|docker|virbr|flannel|cali|tun|tap|cni|kube)/.test(n.name)
+  ).slice(0, 12))
 
 function fmtUnits(units) {
   if (units === undefined || units === null) return '—'
@@ -578,7 +704,7 @@ const filteredProcs = computed(() => {
   const k = procFilter.value.toLowerCase()
   return procs.value.filter(p =>
     String(p.pid).includes(k) ||
-    p.user.toLowerCase().includes(k) ||
+    (p.user || '').toLowerCase().includes(k) ||
     (p.command || '').toLowerCase().includes(k)
   )
 })
@@ -626,7 +752,7 @@ const _darkBase = computed(() => {
 })
 
 const _mk = (name, data, color, extra = {}) => ({
-  name, type: 'line', showSymbol: false, smooth: true, data,
+  name, type: 'line', showSymbol: false, smooth: true, data, sampling: 'lttb',
   lineStyle: { width: 2, color }, itemStyle: { color },
   areaStyle: { opacity: 0.1, color }, ...extra,
 })
@@ -684,36 +810,43 @@ const diskChartOption = computed(() => ({
 }))
 
 async function load() {
-  loading.value = true
+  if (invalidId.value || document.hidden) return
+  loading.value = !metric.value
   try {
     const [serverList, latest] = await Promise.all([
       api.get('/servers').then(r => r.data),
-      api.get(`/metrics/server/${serverId}/latest`).then(r => r.data).catch(() => null),
+      api.get(`/metrics/server/${serverId.value}/latest`).then(r => r.data).catch(() => null),
       loadHistory()
     ])
-    server.value = serverList.find(s => s.id === serverId) || null
+    server.value = serverList.find(s => s.id === serverId.value) || null
     metric.value = latest
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '加载失败')
+    if (!metric.value) ElMessage.error(e.friendlyMessage || '加载失败')
   } finally {
     loading.value = false
   }
 }
 
 async function loadHistory() {
+  if (invalidId.value) return
   try {
-    const { data } = await api.get(`/metrics/server/${serverId}/history?hours=${hours.value}`)
-    history.value = data
+    await applyHistory(
+      api.get(`/metrics/server/${serverId.value}/history?hours=${hours.value}`).then(r => r.data),
+      (data) => { history.value = data }
+    )
   } catch {
     history.value = []
   }
 }
 
 async function loadProcs() {
+  if (invalidId.value || document.hidden) return
   procsLoading.value = true
   try {
-    const { data } = await api.get(`/metrics/server/${serverId}/processes?sort=${procSort.value}`)
-    procs.value = data.processes
+    await applyProcs(
+      api.get(`/metrics/server/${serverId.value}/processes?sort=${procSort.value}`).then(r => r.data),
+      (data) => { procs.value = data.processes }
+    )
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '获取进程失败')
   } finally {
@@ -723,9 +856,10 @@ async function loadProcs() {
 
 async function kill(row, signal) {
   try {
-    const { data } = await api.post(`/metrics/server/${serverId}/processes/action`, { action: 'kill', pid: row.pid, signal })
+    const { data } = await api.post(`/metrics/server/${serverId.value}/processes/action`, { action: 'kill', pid: row.pid, signal })
     ElMessage.success(`已发送 ${signal} 到 ${row.pid}: ${data.message}`)
-    setTimeout(loadProcs, 800)
+    clearTimeout(killTimer)
+    killTimer = setTimeout(loadProcs, 800)
   } catch (e) {
     ElMessage.error(e.friendlyMessage || 'kill 失败')
   }
@@ -737,21 +871,40 @@ async function renice(row) {
       inputValue: '10', inputPattern: /^-?\d+$/, inputErrorMessage: '请输入 -20 到 19 之间的整数'
     })
     const nice = Math.max(-20, Math.min(19, parseInt(value)))
-    await api.post(`/metrics/server/${serverId}/processes/action`, { action: 'renice', pid: row.pid, nice })
+    await api.post(`/metrics/server/${serverId.value}/processes/action`, { action: 'renice', pid: row.pid, nice })
     ElMessage.success(`已 renice ${row.pid} -> ${nice}`)
   } catch (e) {
     if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
   }
 }
 
+function startTimers() {
+  stopTimers()
+  liveTimer = setInterval(loadProcs, 15000)
+  entTimer = setInterval(() => { loadHealth(); loadEvents() }, 60000)
+  mainTimer = setInterval(load, 30000)
+}
+function stopTimers() {
+  clearInterval(liveTimer); clearInterval(entTimer); clearInterval(mainTimer)
+  liveTimer = entTimer = mainTimer = null
+}
+
+// re-initialize everything when the route param changes (component is reused)
+watch(serverId, () => {
+  metric.value = null; history.value = []; procs.value = []; events.value = []
+  server.value = null; health.value = null; riskGpus.value = []; slowHealth.value = {}
+  inventory.value = {}; notes.value = []; collectHealth.value = null
+  load(); loadProcs(); loadEnterprise(); startTimers()
+})
+
 onMounted(() => {
+  if (invalidId.value) return
   load()
   loadProcs()
   loadEnterprise()
-  liveTimer = setInterval(loadProcs, 15000)
-  entTimer = setInterval(() => { loadHealth(); loadEvents() }, 60000)
+  startTimers()
 })
-onUnmounted(() => { clearInterval(liveTimer); clearInterval(entTimer) })
+onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 </script>
 
 <style scoped>

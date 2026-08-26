@@ -13,6 +13,7 @@
           <el-icon><Cpu /></el-icon>GPU 分析
           <span v-if="idleHeldCount > 0" class="menu-badge menu-badge-warn">{{ idleHeldCount > 99 ? '99+' : idleHeldCount }}</span>
         </el-menu-item>
+        <el-menu-item index="/reports"><el-icon><TrendCharts /></el-icon>利用率报表</el-menu-item>
         <el-menu-item index="/alerts">
           <el-icon><Bell /></el-icon>告警
           <span v-if="openAlerts > 0" class="menu-badge">{{ openAlerts > 99 ? '99+' : openAlerts }}</span>
@@ -23,7 +24,10 @@
     </el-aside>
     <el-container>
       <el-header height="60px" class="dark-header">
-        <div style="font-weight:600;letter-spacing:0.04em">{{ pageTitle }}</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <el-button class="mobile-menu-btn" text :icon="Menu" @click="drawer = true" />
+          <div style="font-weight:600;letter-spacing:0.04em">{{ pageTitle }}</div>
+        </div>
         <div style="display:flex;align-items:center;gap:14px">
           <ThemeSwitch />
           <el-dropdown @command="onCommand">
@@ -41,9 +45,22 @@
         </div>
       </el-header>
       <el-main class="dark-main">
-        <router-view />
+        <router-view :key="route.fullPath" />
       </el-main>
     </el-container>
+
+    <el-drawer v-model="drawer" direction="ltr" size="220px" :with-header="false">
+      <el-menu :default-active="active" router class="dark-menu" @select="drawer = false">
+        <el-menu-item index="/cockpit">驾驶舱</el-menu-item>
+        <el-menu-item index="/dashboard">总览</el-menu-item>
+        <el-menu-item index="/servers">服务器</el-menu-item>
+        <el-menu-item index="/gpu-analysis">GPU 分析</el-menu-item>
+        <el-menu-item index="/reports">利用率报表</el-menu-item>
+        <el-menu-item index="/alerts">告警</el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/users">用户管理</el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/settings">系统设置</el-menu-item>
+      </el-menu>
+    </el-drawer>
   </el-container>
 </template>
 
@@ -61,14 +78,16 @@ const route = useRoute()
 const router = useRouter()
 const user = computed(() => getSession().user)
 const isAdmin = computed(() => isAdminSession())
-const active = computed(() => route.path)
+const active = computed(() => route.path.startsWith('/servers') ? '/servers' : route.path)
 const pageTitle = computed(() => route.meta.title || '')
 const avatarChar = computed(() => (user.value?.username || '?').charAt(0).toUpperCase())
 const openAlerts = ref(0)
 const idleHeldCount = ref(0)
+const drawer = ref(false)
 let alertTimer = null
 
 async function loadOpenAlerts() {
+  if (document.hidden) return
   try {
     const [events, analysis] = await Promise.all([
       api.get('/alerts/events?open_only=true&limit=100'),
@@ -157,5 +176,13 @@ onUnmounted(() => clearInterval(alertTimer))
 .dark-main {
   padding: 16px;
   overflow-y: auto;
+}
+.mobile-menu-btn {
+  display: none !important;
+}
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: inline-flex !important;
+  }
 }
 </style>

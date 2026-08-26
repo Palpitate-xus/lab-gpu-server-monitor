@@ -1,33 +1,11 @@
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
+import axios from 'axios'
 
 /**
- * Animated number counter (eases from old value to new).
- */
-export function useCountUp(getter, { duration = 700, decimals = 0 } = {}) {
-  const display = ref(0)
-  let from = 0
-  let raf = null
-
-  function animate(to) {
-    if (raf) cancelAnimationFrame(raf)
-    const start = performance.now()
-    const step = (now) => {
-      const t = Math.min(1, (now - start) / duration)
-      const eased = 1 - Math.pow(1 - t, 3)
-      display.value = from + (to - from) * eased
-      if (t < 1) raf = requestAnimationFrame(step)
-      else from = to
-    }
-    raf = requestAnimationFrame(step)
-  }
-
-  watch(() => getter(), (v) => animate(Number(v) || 0), { immediate: true })
-  onUnmounted(() => raf && cancelAnimationFrame(raf))
-  return display
-}
-
-/**
- * Auto-refreshing async loader. Returns data/loading/error + manual reload.
+ * Auto-refreshing async loader.
+ * - skips overlapping polls (previous request still in flight)
+ * - pauses entirely while the tab is hidden (no background SSH storms)
+ * - exposes error so views can show a failure banner
  */
 export function usePoll(fetcher, intervalMs = 30000) {
   const data = ref(null)
@@ -35,16 +13,20 @@ export function usePoll(fetcher, intervalMs = 30000) {
   const error = ref(null)
   const lastUpdated = ref(null)
   let timer = null
+  let busy = false
 
   async function load() {
+    if (busy || document.hidden) return
+    busy = true
     loading.value = true
-    error.value = null
     try {
       data.value = await fetcher()
+      error.value = null
       lastUpdated.value = new Date()
     } catch (e) {
       error.value = e?.friendlyMessage || String(e)
     } finally {
+      busy = false
       loading.value = false
     }
   }
@@ -59,14 +41,29 @@ export function usePoll(fetcher, intervalMs = 30000) {
 }
 
 /**
+ * Response-race guard: when several requests overlap (fast tab/range switching),
+ * only the latest call may write its result. Usage:
+ *   const applyLatest = useLatestOnly()
+ *   applyLatest(api.get(...), (resp) => { history.value = resp.data }).catch(...)
+ */
+export function useLatestOnly() {
+  let seq = 0
+  return async function applyLatest(promise, apply) {
+    const my = ++seq
+    const value = await promise
+    if (my !== seq) return undefined // stale response: drop silently
+    return apply ? apply(value) : value
+  }
+}
+
+/**
  * Session state holder.
  *
  * The token lives in a module-scoped variable first (memory), mirrored to
- * localStorage only for page-reload survival. The /me fetch on boot
- * re-authorizes everything server-side: the router guard and isAdmin
- * checks below consult the in-memory user object, never localStorage,
- * so tampering with localStorage role/user has no privilege effect
- * (backend enforces admin on every endpoint anyway — this is UX only).
+ * localStorage only for page-reload survival. bootstrapSession() re-fetches
+ * /auth/me on boot so the in-memory role always reflects the server's view;
+ * guards and isAdminSession consult the in-memory user object only, so
+ * tampering with localStorage has no privilege effect.
  */
 const _session = {
   token: localStorage.getItem('token') || '',
@@ -88,3 +85,21 @@ export function clearSession() {
   localStorage.removeItem('role')
 }
 export function isAdminSession() { return _session.user?.role === 'admin' }
+
+/**
+ * Re-authorize from the server on page load: refreshes role/display name and
+ * drops the session when the token is dead/expired.
+ */
+export async function bootstrapSession() {
+  if (!_session.token) return
+  try {
+    const res = await axios.get('/api/auth/me', {
+      headers: { Authorization: `Bearer ${_session.token}` },
+      timeout: 8000,
+    })
+    _session.user = res.data
+    localStorage.setItem('user', JSON.stringify(res.data))
+  } catch {
+    clearSession()
+  }
+}

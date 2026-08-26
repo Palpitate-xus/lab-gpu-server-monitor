@@ -13,6 +13,8 @@
       </div>
     </div>
 
+    <el-alert v-if="loadError" :title="`数据加载失败：${loadError}（保留上次数据，1 分钟后重试）`" type="error" show-icon :closable="false" style="margin-bottom:12px" />
+
     <!-- ===== summary cards ===== -->
     <el-row :gutter="14" style="margin-bottom:14px">
       <el-col :span="6">
@@ -140,16 +142,19 @@ const loading = ref(false)
 const summary = ref({ total_gpus: 0, idle_held_count: 0, high_risk_count: 0, gpus: [] })
 const viewMode = ref('idle')
 const lastUpdated = ref(null)
+const loadError = ref('')
 let timer = null
 
 async function load() {
+  if (document.hidden) return
   loading.value = true
   try {
     const { data } = await api.get('/cluster/gpu-analysis')
     summary.value = data
     lastUpdated.value = new Date()
-  } catch {
-    /* ignore */
+    loadError.value = ''
+  } catch (e) {
+    loadError.value = e?.friendlyMessage || String(e)
   } finally {
     loading.value = false
   }

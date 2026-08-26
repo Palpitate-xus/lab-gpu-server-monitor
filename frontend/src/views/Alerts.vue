@@ -2,13 +2,16 @@
   <div class="cockpit">
     <div class="toolbar">
       <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
-      <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
+      <el-button :icon="Refresh" @click="loadAll()">刷新</el-button>
       <span style="flex:1"></span>
-      <el-radio-group v-model="eventFilter" size="small">
+      <el-radio-group v-model="eventFilter" size="small" @change="onFilterChange">
         <el-radio-button :value="false">全部事件</el-radio-button>
         <el-radio-button :value="true">未恢复</el-radio-button>
       </el-radio-group>
     </div>
+
+    <el-alert v-if="pollError" type="error" show-icon :closable="false" style="margin-bottom:12px"
+      :title="`刷新失败：${pollError}（30 秒后自动重试）`" />
 
     <el-row :gutter="14">
       <el-col :span="10">
@@ -45,11 +48,12 @@
         <el-card class="page-card">
           <template #header>告警事件</template>
           <el-table :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
-            <el-table-column label="状态" width="70">
+            <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="row.recovered_at ? 'info' : 'danger'" size="small">
-                  {{ row.recovered_at ? '已恢复' : '告警中' }}
-                </el-tag>
+                <el-tag v-if="row.recovered_at" type="success" size="small">已恢复</el-tag>
+                <el-tag v-else-if="row.acked_at" type="warning" size="small">已确认({{ row.acked_by || '—' }})</el-tag>
+                <el-tag v-else type="danger" size="small">未恢复</el-tag>
+                <div v-if="row.assignee" style="font-size:11px;color:var(--csub);margin-top:2px">认领：{{ row.assignee }}</div>
               </template>
             </el-table-column>
             <el-table-column prop="server_name" label="服务器" width="120" show-overflow-tooltip />
@@ -68,12 +72,26 @@
             <el-table-column label="恢复时间" width="150">
               <template #default="{ row }">{{ row.recovered_at ? fmtTime(row.recovered_at) : '—' }}</template>
             </el-table-column>
-            <el-table-column v-if="isAdmin" label="操作" width="70">
+            <el-table-column label="操作" width="185">
               <template #default="{ row }">
-                <el-button v-if="!row.recovered_at" size="small" @click="ack(row)">确认</el-button>
+                <template v-if="!row.recovered_at">
+                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" @click="ack(row)">确认</el-button>
+                  <el-button v-if="isAdmin" size="small" type="danger" @click="resolveEvent(row)">关闭</el-button>
+                  <el-button size="small" :disabled="!!row.assignee" @click="assign(row)">认领</el-button>
+                </template>
+                <span v-else style="color:var(--csub)">—</span>
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            background
+            layout="prev, pager, next, jumper"
+            :current-page="page"
+            :page-size="PAGE_SIZE"
+            :page-count="hasMore ? page + 1 : page"
+            style="margin-top:10px;justify-content:flex-end"
+            @current-change="onPageChange"
+          />
         </el-card>
       </el-col>
     </el-row>
@@ -149,6 +167,10 @@ const events = ref([])
 let pollTimer = null
 const servers = ref([])
 const eventFilter = ref(false)
+const PAGE_SIZE = 50
+const page = ref(1)
+const hasMore = ref(false)
+const pollError = ref(null)
 const dlg = ref(false)
 const editId = ref(null)
 const saving = ref(false)
@@ -167,22 +189,46 @@ function eventRowClass({ row }) {
   return row.recovered_at ? '' : 'alert-row'
 }
 
-async function loadAll() {
-  loadingRules.value = loadingEvents.value = true
+function onFilterChange() {
+  page.value = 1
+  loadAll()
+}
+
+function onPageChange(p) {
+  page.value = p
+  loadEvents()
+}
+
+async function loadEvents(silent = false) {
+  loadingEvents.value = true
   try {
-    const [r, e, s] = await Promise.all([
-      api.get('/alerts/rules'),
-      api.get(`/alerts/events?open_only=${eventFilter.value}&limit=200`),
-      api.get('/servers')
-    ])
+    const offset = (page.value - 1) * PAGE_SIZE
+    const { data } = await api.get(`/alerts/events?open_only=${eventFilter.value}&limit=${PAGE_SIZE + 1}&offset=${offset}`)
+    hasMore.value = data.length > PAGE_SIZE
+    events.value = data.slice(0, PAGE_SIZE)
+    pollError.value = null
+  } catch (err) {
+    if (silent) pollError.value = err.friendlyMessage || '加载失败'
+    else ElMessage.error(err.friendlyMessage || '加载失败')
+  } finally {
+    loadingEvents.value = false
+  }
+}
+
+async function loadAll(opts = {}) {
+  const silent = !!opts.silent
+  loadingRules.value = true
+  try {
+    const [r, s] = await Promise.all([api.get('/alerts/rules'), api.get('/servers')])
     rules.value = r.data
-    events.value = e.data
     servers.value = s.data
   } catch (err) {
-    ElMessage.error(err.friendlyMessage || '加载失败')
+    if (silent) pollError.value = err.friendlyMessage || '加载失败'
+    else ElMessage.error(err.friendlyMessage || '加载失败')
   } finally {
-    loadingRules.value = loadingEvents.value = false
+    loadingRules.value = false
   }
+  await loadEvents(silent)
 }
 
 function openCreate() {
@@ -241,7 +287,27 @@ async function ack(row) {
   try {
     await api.post(`/alerts/events/${row.id}/ack`)
     ElMessage.success('已确认')
-    loadAll()
+    loadEvents()
+  } catch (e) {
+    ElMessage.error(e.friendlyMessage || '操作失败')
+  }
+}
+
+async function resolveEvent(row) {
+  try {
+    await api.post(`/alerts/events/${row.id}/resolve`)
+    ElMessage.success('已关闭')
+    loadEvents()
+  } catch (e) {
+    ElMessage.error(e.friendlyMessage || '操作失败')
+  }
+}
+
+async function assign(row) {
+  try {
+    await api.post(`/alerts/events/${row.id}/assign`, {})
+    ElMessage.success('已认领')
+    loadEvents()
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '操作失败')
   }
@@ -249,7 +315,7 @@ async function ack(row) {
 
 onMounted(() => {
   loadAll()
-  pollTimer = setInterval(loadAll, 30000)  // keep event stream live without manual refresh
+  pollTimer = setInterval(() => loadAll({ silent: true }), 30000)  // keep event stream live without manual refresh
 })
 onUnmounted(() => clearInterval(pollTimer))
 

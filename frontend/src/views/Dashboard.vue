@@ -1,8 +1,11 @@
 <template>
   <div class="cockpit">
+    <el-alert v-if="loadError" type="error" :closable="false" show-icon style="margin-bottom:12px"
+              :title="`数据加载失败：${loadError}，正在重试`" />
+
     <div class="toolbar">
-      <el-button type="primary" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
-      <el-button :icon="DataLine" @click="load">刷新数据</el-button>
+      <el-button v-if="isAdminSession()" type="primary" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
+      <el-button :icon="DataLine" @click="load()">刷新数据</el-button>
       <span style="color:var(--csub);font-size:13px" v-if="lastUpdate">上次采集: {{ fmtTime(lastUpdate) }}</span>
     </div>
 
@@ -70,7 +73,7 @@
         </el-table-column>
         <el-table-column label="磁盘" width="130">
           <template #default="{ row }">
-            <span class="mono">{{ row.disk_used_gb.toFixed(0) }} / {{ row.disk_total_gb.toFixed(0) }} GB</span>
+            <span class="mono">{{ (row.disk_used_gb ?? 0).toFixed(0) }} / {{ (row.disk_total_gb ?? 0).toFixed(0) }} GB</span>
           </template>
         </el-table-column>
         <el-table-column label="采集时间" width="160">
@@ -88,10 +91,12 @@ import { ElMessage } from 'element-plus'
 import { Refresh, DataLine } from '@element-plus/icons-vue'
 import api from '../api'
 import { fmtSizeMB, fmtTime, pct } from '../format'
+import { isAdminSession } from '../composables'
 
 const router = useRouter()
 const loading = ref(false)
 const refreshing = ref(false)
+const loadError = ref('')
 const stats = ref({})
 const metrics = ref([])
 const servers = ref([])
@@ -137,8 +142,8 @@ function goDetail(row) {
   router.push(`/servers/${row.server_id}`)
 }
 
-async function load() {
-  loading.value = true
+async function load(silent = false) {
+  if (!silent) loading.value = true
   try {
     const [a, b, c] = await Promise.all([
       api.get('/metrics/dashboard'),
@@ -148,21 +153,25 @@ async function load() {
     stats.value = a.data
     metrics.value = b.data
     servers.value = c.data
+    loadError.value = ''
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '加载失败')
+    loadError.value = e.friendlyMessage || '加载失败'
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
+
+let refreshTimer = null
 
 async function refreshNow() {
   refreshing.value = true
   try {
     await api.post('/metrics/refresh')
     ElMessage.success('已触发采集，稍后刷新查看')
-    setTimeout(load, 6000)
+    refreshTimer = setTimeout(load, 6000)
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '触发失败')
+    if (e.response?.status === 409) ElMessage.info('采集进行中')
+    else ElMessage.error(e.friendlyMessage || '触发失败')
   } finally {
     refreshing.value = false
   }
@@ -170,7 +179,10 @@ async function refreshNow() {
 
 onMounted(() => {
   load()
-  timer = setInterval(load, 30000)
+  timer = setInterval(() => load(true), 30000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  if (refreshTimer) clearTimeout(refreshTimer)
+})
 </script>

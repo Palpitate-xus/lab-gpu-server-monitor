@@ -10,12 +10,27 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+let redirecting = false
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !redirecting) {
+      redirecting = true
       clearSession()
-      if (!location.pathname.startsWith('/login')) location.href = '/login'
+      if (!location.pathname.startsWith('/login')) {
+        ElMessage.warning('登录已过期，请重新登录')
+        // dynamic import: a static router import here would be circular
+        // (router.js loads view modules which import api.js) and evaluate
+        // to undefined during module init, crashing the whole SPA
+        import('./router').then(({ default: router }) =>
+          router
+            .push({ name: 'login', query: { redirect: location.pathname + location.search } })
+            .finally(() => { redirecting = false })
+        )
+      } else {
+        redirecting = false
+      }
     }
     const msg = err.response?.data?.detail || err.message || '请求失败'
     err.friendlyMessage = typeof msg === 'string' ? msg : JSON.stringify(msg)
