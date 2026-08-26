@@ -385,6 +385,7 @@ async function loadAll() {
 const FAULT_LABELS = {
   SSH_AUTH_FAILED: '认证失败', SSH_HOSTKEY_CHANGED: '主机密钥变更', SSH_DNS_FAILED: 'DNS 失败',
   SSH_REFUSED: '连接拒绝', SSH_DOWN: 'SSH 不可达', COLLECT_TIMEOUT: '采集超时', COLLECT_FAILED: '采集失败',
+  CRED_DECRYPT_FAILED: '凭据需重新录入',
 }
 function faultLabel(code) { return FAULT_LABELS[code] || code }
 
