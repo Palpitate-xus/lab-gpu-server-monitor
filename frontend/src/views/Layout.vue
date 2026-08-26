@@ -1,8 +1,11 @@
 <template>
-  <el-container class="layout">
-    <el-aside width="200px">
-      <div class="menu-title">GPU Monitor</div>
-      <el-menu :default-active="active" router>
+  <el-container class="layout cockpit">
+    <el-aside width="200px" class="dark-aside">
+      <div class="menu-title">
+        <span class="live-dot"></span>
+        <span>GPU Monitor</span>
+      </div>
+      <el-menu :default-active="active" router class="dark-menu" background-color="transparent" text-color="#7d90ad" active-text-color="#22d3ee">
         <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
         <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
         <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
@@ -15,11 +18,11 @@
       </el-menu>
     </el-aside>
     <el-container>
-      <el-header height="60px">
-        <div style="font-weight:600">{{ pageTitle }}</div>
+      <el-header height="60px" class="dark-header">
+        <div style="font-weight:600;letter-spacing:0.04em">{{ pageTitle }}</div>
         <el-dropdown @command="onCommand">
-          <span style="cursor:pointer;display:flex;align-items:center;gap:6px">
-            <el-avatar :size="30" style="background:#409eff">{{ avatarChar }}</el-avatar>
+          <span style="cursor:pointer;display:flex;align-items:center;gap:6px;color:#dce7f5">
+            <el-avatar :size="30" style="background:linear-gradient(135deg,#22d3ee,#0ea5e9)">{{ avatarChar }}</el-avatar>
             <span>{{ user?.display_name || user?.username }}</span>
             <el-icon><ArrowDown /></el-icon>
           </span>
@@ -30,7 +33,7 @@
           </template>
         </el-dropdown>
       </el-header>
-      <el-main>
+      <el-main class="dark-main">
         <router-view />
       </el-main>
     </el-container>
@@ -42,6 +45,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import api from '../api'
+import '../cockpit.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,3 +83,44 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(alertTimer))
 </script>
+
+<style scoped>
+.dark-aside {
+  background: linear-gradient(180deg, #0d1526, #0b1220) !important;
+  border-right: 1px solid #1e2d47 !important;
+}
+.menu-title {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  color: #22d3ee;
+  border-bottom: 1px solid #1e2d47;
+}
+.dark-menu {
+  border-right: none !important;
+}
+.dark-menu :deep(.el-menu-item.is-active) {
+  background: rgba(34, 211, 238, 0.08) !important;
+  border-right: 2px solid #22d3ee;
+}
+.dark-menu :deep(.el-menu-item:hover) {
+  background: rgba(34, 211, 238, 0.05);
+}
+.dark-header {
+  background: rgba(13, 21, 38, 0.9) !important;
+  border-bottom: 1px solid #1e2d47 !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+.dark-main {
+  padding: 16px;
+  overflow-y: auto;
+}
+</style>
