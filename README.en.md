@@ -97,6 +97,8 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 
 ## Quick Start
 
+Full instructions: **[Deployment Guide](DEPLOYMENT.en.md)** ([中文](DEPLOYMENT.md)).
+
 ```bash
 # Build the frontend first (use this flow when Docker Hub is unreachable;
 # with network access you can use Dockerfile.multistage directly)

@@ -90,6 +90,8 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 
 ## 快速开始
 
+详细步骤见 **[部署指南 / Deployment Guide](DEPLOYMENT.md)**（[English](DEPLOYMENT.en.md)）。
+
 ```bash
 # 前端构建（docker hub 不通时的流程；网络可用可直接用 Dockerfile.multistage）
 cd frontend && pnpm install && pnpm build && cd ..
