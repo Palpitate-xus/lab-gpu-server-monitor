@@ -715,8 +715,8 @@ def collect(host, port, username, password_enc="", private_key_enc="", passphras
         result.sock_timewait = sock["timewait"]
         fd = (sec.get("FDNR", "") or "").split()
         if len(fd) >= 3:
-            result.fd_allocated = int(_to_float(fd[0]))
-            result.fd_max = int(_to_float(fd[2]))
+            result.fd_allocated = min(int(_to_float(fd[0])), 2**63 - 1)
+            result.fd_max = min(int(_to_float(fd[2])), 2**63 - 1)
         result.pid_max = int(_to_float(_first_line(sec.get("PIDMAX", "0"))))
 
         result.processes = _parse_ps(sec.get("PS", ""))

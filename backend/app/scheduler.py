@@ -1,9 +1,16 @@
-"""Background scheduler that polls every enabled server, stores metrics,
-evaluates alert rules, and rolls up history. History is kept forever by default
-(retention_days setting, 0 = keep everything)."""
+"""Background scheduler: tiered polling (fast / slow / inventory / kernel),
+metric storage, built-in health detectors, user alert rules, retention.
+
+Tiers:
+  fast      every poll interval (default 30-60s) — cpu/mem/disk/net/gpu
+  kernel    every poll — incremental XID/OOM/MCE event scan (dedup by boot_id+hash)
+  slow      every ~5 min — nvme/raid/nfs/systemd/mig/nvlink/ipmi
+  inventory every ~24h — machine-id/dmi/lscpu/numa/topo/ib
+"""
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
@@ -11,12 +18,27 @@ from typing import Optional
 
 from .config import get_settings
 from .database import SessionLocal
-from .models import AlertEvent, AlertRule, Server, ServerMetric, Setting
+from .models import (
+    AlertEvent,
+    AlertRule,
+    GpuBaseline,
+    HostInventory,
+    KernelEventRow,
+    Server,
+    ServerMetric,
+    Setting,
+    SlowHealth,
+)
 from . import notifier
+from .health import run_detectors, update_gpu_baseline
 from .ssh_collector import collect
+from .collectors_extra import collect_inventory, collect_kernel, collect_slow
 
 settings = get_settings()
 logger = logging.getLogger("gpumon.scheduler")
+
+SLOW_INTERVAL = 300      # 5 min
+INVENTORY_INTERVAL = 86400  # 24h
 
 _state = {
     "running": False,
@@ -223,6 +245,7 @@ def _poll_one(server: Server) -> None:
             password_enc=server.password or "",
             private_key_enc=server.private_key or "",
             passphrase_enc=server.passphrase or "",
+            server_key=f"server_{server.id}",
         )
         m = ServerMetric(
             server_id=server.id,
@@ -231,9 +254,11 @@ def _poll_one(server: Server) -> None:
             os=res.os,
             kernel=res.kernel,
             uptime_seconds=res.uptime_seconds,
+            boot_id=res.boot_id,
             cpu_model=res.cpu_model,
             cpu_count=res.cpu_count,
             cpu_percent=res.cpu_percent,
+            cpu_iowait=res.cpu_iowait,
             cpu_freq_avg=res.cpu_freq_avg,
             cpu_temp_package=res.cpu_temp_package,
             cores=res.cores,
@@ -249,21 +274,32 @@ def _poll_one(server: Server) -> None:
             disk_total_gb=sum(d["total_gb"] for d in res.disks),
             disk_used_gb=sum(d["used_gb"] for d in res.disks),
             disks=res.disks,
+            inodes=res.inodes,
             disk_io=res.disk_io,
             net_rx_bytes=sum(i.get("rx_bps", 0) for i in res.net_ifaces),
             net_tx_bytes=sum(i.get("tx_bps", 0) for i in res.net_ifaces),
             net_ifaces=res.net_ifaces,
             users=res.users,
+            sock_estab=res.sock_estab,
+            sock_timewait=res.sock_timewait,
+            fd_allocated=res.fd_allocated,
+            fd_max=res.fd_max,
             gpu_count=len(res.gpus),
             gpu_driver=res.gpu_driver,
             gpus=res.gpus,
             processes=res.processes,
             duration=res.duration,
+            ssh_latency=res.ssh_latency,
             status="ok" if res.ok else "error",
+            error_code=res.error_code,
             error=res.error,
         )
         db.add(m)
         db.commit()
+        if res.ok:
+            update_gpu_baseline(server.id, res.gpus)
+        # built-in detectors run for both ok and error results
+        run_detectors(server.id)
     except Exception:
         logger.exception("poll server %s failed", server.id)
         try:
@@ -274,32 +310,189 @@ def _poll_one(server: Server) -> None:
         db.close()
 
 
-def _run_cycle() -> None:
+def _kernel_one(server: Server) -> None:
+    """Incremental kernel event scan; dedup per boot_id + message hash."""
     db = SessionLocal()
-    ids: list[int] = []
     try:
-        ids = [s.id for s in db.query(Server).filter(Server.enabled.is_(True)).all()]
+        boot_id, events, code, _dur = collect_kernel(
+            host=server.host,
+            port=server.port or 22,
+            username=server.username,
+            password_enc=server.password or "",
+            private_key_enc=server.private_key or "",
+            passphrase_enc=server.passphrase or "",
+            server_key=f"server_{server.id}",
+        )
+        if code != "OK" or not events:
+            return
+        now = datetime.now(timezone.utc)
+        for ev in events:
+            h = hashlib.sha256(
+                f"{boot_id}|{ev.event_type}|{ev.xid}|{ev.raw_message[:200]}".encode()
+            ).hexdigest()[:40]
+            exists = (
+                db.query(KernelEventRow.id)
+                .filter(KernelEventRow.server_id == server.id,
+                        KernelEventRow.dedup_hash == h)
+                .first()
+            )
+            if exists:
+                continue
+            db.add(KernelEventRow(
+                server_id=server.id,
+                collected_at=now,
+                boot_id=boot_id,
+                event_type=ev.event_type,
+                severity=ev.severity,
+                gpu_uuid=ev.gpu_uuid,
+                xid=ev.xid,
+                message=ev.message,
+                raw_message=ev.raw_message,
+                dedup_hash=h,
+            ))
+        db.commit()
+    except Exception:
+        logger.exception("kernel scan server %s failed", server.id)
+        db.rollback()
     finally:
         db.close()
-    if not ids:
+
+
+def _slow_one(server: Server) -> None:
+    db = SessionLocal()
+    try:
+        r = collect_slow(
+            host=server.host,
+            port=server.port or 22,
+            username=server.username,
+            password_enc=server.password or "",
+            private_key_enc=server.private_key or "",
+            passphrase_enc=server.passphrase or "",
+            server_key=f"server_{server.id}",
+        )
+        if not r.ok:
+            return
+        db.add(SlowHealth(
+            server_id=server.id,
+            collected_at=datetime.now(timezone.utc),
+            nvme_smart=r.nvme_smart,
+            mdraid=r.mdraid,
+            nfs_mounts=r.nfs_mounts,
+            systemd_failed=r.systemd_failed,
+            services=r.services,
+            mig=r.mig,
+            nvlink=r.nvlink,
+            ipmi=r.ipmi,
+            duration=r.duration,
+        ))
+        db.commit()
+    except Exception:
+        logger.exception("slow collect server %s failed", server.id)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _inventory_one(server: Server) -> None:
+    db = SessionLocal()
+    try:
+        r = collect_inventory(
+            host=server.host,
+            port=server.port or 22,
+            username=server.username,
+            password_enc=server.password or "",
+            private_key_enc=server.private_key or "",
+            passphrase_enc=server.passphrase or "",
+            server_key=f"server_{server.id}",
+        )
+        if not r.ok:
+            return
+        # keep one inventory row per server per day (replace today's)
+        now = datetime.now(timezone.utc)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        db.query(HostInventory).filter(
+            HostInventory.server_id == server.id,
+            HostInventory.collected_at >= day_start,
+        ).delete()
+        db.add(HostInventory(
+            server_id=server.id,
+            collected_at=now,
+            machine_id=r.machine_id,
+            dmi=r.dmi,
+            lscpu=r.lscpu,
+            numa=r.numa,
+            gpu_topology=r.gpu_topology,
+            pci_numa=r.pci_numa,
+            disks=r.disks,
+            nics=r.nics,
+            ip_addrs=r.ip_addrs,
+            ib=r.ib,
+            time_info=r.time_info,
+            gpu_baseline=[],
+        ))
+        db.commit()
+    except Exception:
+        logger.exception("inventory collect server %s failed", server.id)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _load_servers() -> list[Server]:
+    db = SessionLocal()
+    try:
+        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+        for s in servers:
+            db.expunge(s)
+        return servers
+    finally:
+        db.close()
+
+
+def _run_cycle() -> None:
+    servers = _load_servers()
+    if not servers:
         return
+    now = datetime.now(timezone.utc)
+    now_n = _utcnow_naive()
+    last_slow = _last_collect_time(SlowHealth)
+    last_inv = _last_collect_time(HostInventory)
+    do_slow = (now_n - last_slow).total_seconds() >= SLOW_INTERVAL if last_slow else True
+    do_inv = (now_n - last_inv).total_seconds() >= INVENTORY_INTERVAL if last_inv else True
 
     threads = []
-    for sid in ids:
-        db = SessionLocal()
-        try:
-            server = db.get(Server, sid)
-            if server is None:
-                continue
-            db.expunge(server)
-        finally:
-            db.close()
-        t = threading.Thread(target=_poll_one, args=(server,), daemon=True)
-        t.start()
-        threads.append(t)
+    for server in servers:
+        threads.append(threading.Thread(target=_poll_one, args=(server,), daemon=True))
+        threads.append(threading.Thread(target=_kernel_one, args=(server,), daemon=True))
+        if do_slow:
+            threads.append(threading.Thread(target=_slow_one, args=(server,), daemon=True))
+        if do_inv:
+            threads.append(threading.Thread(target=_inventory_one, args=(server,), daemon=True))
     for t in threads:
-        t.join(timeout=settings.SSH_CONNECT_TIMEOUT + settings.SSH_COMMAND_TIMEOUT + 5)
+        t.start()
+    for t in threads:
+        t.join(timeout=180)
     _eval_alerts()
+
+
+def _last_collect_time(model) -> Optional[datetime]:
+    """Max collected_at across servers. MySQL DATETIME comes back naive (UTC
+    wall clock), so normalize both sides to naive-UTC before comparing."""
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        row = db.query(func.max(model.collected_at)).scalar()
+        if row is None:
+            return None
+        if row.tzinfo is not None:
+            row = row.astimezone(timezone.utc).replace(tzinfo=None)
+        return row
+    finally:
+        db.close()
+
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _load_interval() -> int:
