@@ -114,7 +114,7 @@ def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_us
             "hostname": m.hostname if m else "",
             "gpus": [],
         }
-        if m and m.status == "ok":
+        if m and m.status == "ok" and s.server_type != "cpu":
             for g in m.gpus or []:
                 entry["gpus"].append(
                     {

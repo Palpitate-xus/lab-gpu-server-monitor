@@ -524,8 +524,8 @@ def health_tree(server_id: int) -> dict:
             cat("网络", "ok" if not err_ifaces else "warning",
                 ", ".join(f"{i['iface']} err" for i in err_ifaces[:3]) or "正常")
 
-        # GPUs from risk score
-        risks = gpu_risk_score(server_id)
+        # GPUs from risk score (GPU servers only)
+        risks = gpu_risk_score(server_id) if server.server_type != "cpu" else []
         gpu_cats = []
         for r in risks:
             status = "critical" if r["risk"] >= 60 else ("warning" if r["risk"] >= 30 else "ok")

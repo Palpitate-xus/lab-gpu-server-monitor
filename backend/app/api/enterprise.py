@@ -194,7 +194,7 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
     from datetime import datetime, timedelta, timezone as tz
     from ..health import gpu_risk_score
 
-    servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+    servers = db.query(Server).filter(Server.enabled.is_(True), Server.server_type != "cpu").all()
     since = datetime.now(tz.utc) - timedelta(minutes=90)
     out = []
     for s in servers:
