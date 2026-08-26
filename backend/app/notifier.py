@@ -41,9 +41,48 @@ def _render(template: str, ctx: dict) -> str:
     return out
 
 
-def send_webhook(url: str, template: str, ctx: dict) -> tuple[bool, str]:
+def _validate_webhook_url(url: str) -> tuple[bool, str]:
+    """Anti-SSRF: https only, public IP only, no redirects to private space."""
+    import ipaddress
+    from urllib.parse import urlparse
+
     if not url:
         return False, "no webhook url configured"
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False, "invalid url"
+    if p.scheme != "https":
+        return False, "webhook must use https://"
+    host = p.hostname or ""
+    if not host:
+        return False, "invalid url"
+    # resolve and refuse private/loopback/link-local targets (SSRF guard)
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, p.port or 443, proto=socket.IPPROTO_TCP)
+    except Exception:
+        return False, f"cannot resolve host {host}"
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        ):
+            return False, f"webhook host resolves to non-public address ({ip})"
+    return True, ""
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # redirects could bounce to internal hosts after our check — refuse
+        raise urllib.error.HTTPError(newurl, code, "redirect not allowed", headers, fp)
+
+
+def send_webhook(url: str, template: str, ctx: dict) -> tuple[bool, str]:
+    ok, reason = _validate_webhook_url(url)
+    if not ok:
+        return False, reason
     body = _render(template, ctx)
     req = urllib.request.Request(
         url,
@@ -51,8 +90,9 @@ def send_webhook(url: str, template: str, ctx: dict) -> tuple[bool, str]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    opener = urllib.request.build_opener(_NoRedirectHandler)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with opener.open(req, timeout=10) as resp:
             return resp.status < 300, f"HTTP {resp.status}"
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
