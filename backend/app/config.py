@@ -1,12 +1,14 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_SECRET_KEY = "change-me-in-production-please"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     APP_NAME: str = "GPU Monitor"
-    SECRET_KEY: str = "change-me-in-production-please"
+    SECRET_KEY: str = DEFAULT_SECRET_KEY
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 2 * 60  # 2h (was 12h; no refresh flow yet)
 
     # Set to "yes" only when running behind a reverse proxy you control;
@@ -15,6 +17,14 @@ class Settings(BaseSettings):
 
     # Expose /docs /redoc /openapi.json (authenticated use only; default off).
     DOCS_ENABLED: str = "no"
+
+    @property
+    def trust_proxy(self) -> bool:
+        return str(self.TRUST_PROXY).strip().lower() in ("yes", "1", "true")
+
+    @property
+    def docs_enabled(self) -> bool:
+        return str(self.DOCS_ENABLED).strip().lower() in ("yes", "1", "true")
 
     # mysql: mysql+pymysql://user:pass@host:3306/gpu_monitor?charset=utf8mb4
     # sqlite: sqlite:///./data/gpu_monitor.db

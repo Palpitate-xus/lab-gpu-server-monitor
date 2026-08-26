@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 MAX_FAILURES = 5
@@ -26,20 +25,24 @@ class _Counter:
 
 class LoginRateLimiter:
     def __init__(self):
-        self._by_ip: dict[str, _Counter] = defaultdict(_Counter)
-        self._by_user: dict[str, _Counter] = defaultdict(_Counter)
+        self._by_ip: dict[str, _Counter] = {}
+        self._by_user: dict[str, _Counter] = {}
         self._lock = threading.Lock()
 
     def _prune(self, c: _Counter, now: float) -> None:
         c.failures = [t for t in c.failures if now - t < WINDOW_SECONDS]
+
+    @staticmethod
+    def _stale(c: _Counter, now: float) -> bool:
+        return not c.failures and c.locked_until <= now
 
     def check(self, ip: str, username: str) -> tuple[bool, int]:
         """Returns (allowed, retry_after_seconds)."""
         now = time.time()
         with self._lock:
             for key, table in ((f"ip:{ip}", self._by_ip), (f"user:{username}", self._by_user)):
-                c = table[key]
-                if c.locked_until > now:
+                c = table.get(key)
+                if c and c.locked_until > now:
                     return False, int(c.locked_until - now)
             return True, 0
 
@@ -47,12 +50,16 @@ class LoginRateLimiter:
         now = time.time()
         with self._lock:
             for table, key in ((self._by_ip, f"ip:{ip}"), (self._by_user, f"user:{username}")):
-                c = table[key]
+                c = table.setdefault(key, _Counter())
                 self._prune(c, now)
                 c.failures.append(now)
                 if len(c.failures) >= MAX_FAILURES:
                     c.locked_until = now + LOCK_SECONDS
                     c.failures = []
+            # opportunistically drop long-empty entries to bound memory
+            for table in (self._by_ip, self._by_user):
+                for k in [k for k, c in table.items() if self._stale(c, now)]:
+                    table.pop(k, None)
 
     def record_success(self, ip: str, username: str) -> None:
         with self._lock:

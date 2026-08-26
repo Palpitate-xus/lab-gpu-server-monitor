@@ -21,7 +21,7 @@
           <el-button type="primary" style="width: 100%; height: 42px; font-size: 15px; letter-spacing: 0.2em" :loading="loading" @click="submit">登 录</el-button>
         </el-form-item>
       </el-form>
-      <div style="text-align:center;color:var(--csub);font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
+      <div v-if="isDev" style="text-align:center;color:var(--csub);font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
     </div>
   </div>
 </template>
@@ -40,20 +40,29 @@ const router = useRouter()
 const route = useRoute()
 const formRef = ref()
 const loading = ref(false)
+const isDev = import.meta.env.DEV
 const form = reactive({ username: '', password: '' })
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+function safeRedirect(r) {
+  return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/cockpit'
+}
+
 async function submit() {
-  await formRef.value.validate().catch(() => Promise.reject())
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
   loading.value = true
   try {
     const { data } = await api.post('/auth/login', new URLSearchParams(form))
     setSession(data.access_token, data.user)
     ElMessage.success(`欢迎，${data.user.display_name || data.user.username}`)
-    router.push(route.query.redirect || '/cockpit')
+    router.push(safeRedirect(route.query.redirect))
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '登录失败')
   } finally {

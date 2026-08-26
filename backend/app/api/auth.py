@@ -6,9 +6,13 @@ from ..database import get_db
 from ..models import AuditLog, User
 from ..rate_limit import limiter
 from ..schemas import LoginRequest, TokenResponse, UserOut
-from ..security import create_access_token, get_current_user, verify_password
+from ..security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# bcrypt hash of a random string; used to equalize response timing for
+# nonexistent usernames (see _authenticate)
+_DUMMY_HASH = hash_password("gpumon-dummy-timing-equalizer")
 
 
 def audit(db: Session, username: str, action: str, detail: str = "") -> None:
@@ -24,7 +28,7 @@ def _client_ip(request: Request) -> str:
     # (no reverse proxy in front by default). Honor X-Forwarded-For only if
     # explicitly trusted via env TRUST_PROXY=yes.
     from ..config import get_settings
-    if get_settings().TRUST_PROXY:
+    if get_settings().trust_proxy:
         xf = request.headers.get("x-forwarded-for")
         if xf:
             return xf.split(",")[0].strip()
@@ -44,12 +48,22 @@ def _authenticate(db: Session, request: Request, username: str, password: str) -
         )
 
     user = db.query(User).filter(User.username == username).first()
-    if not user or not verify_password(password, user.password_hash):
+    if user is None:
+        # burn the same bcrypt cost as a real check so response timing does not
+        # reveal whether the username exists
+        verify_password(password, _DUMMY_HASH)
+        limiter.record_failure(ip, username)
+        audit(db, username, "login.failed", f"ip={ip}")
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    if not verify_password(password, user.password_hash):
         limiter.record_failure(ip, username)
         audit(db, username, "login.failed", f"ip={ip}")
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is disabled")
+        # same status code as a bad password: do not confirm the account exists
+        limiter.record_failure(ip, username)
+        audit(db, username, "login.failed.disabled", f"ip={ip}")
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
 
     limiter.record_success(ip, username)
     token = create_access_token(user.username, user.id)
