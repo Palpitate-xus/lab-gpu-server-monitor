@@ -12,6 +12,32 @@
     <template v-if="metric">
       <el-alert v-if="metric.status !== 'ok'" :title="`采集失败: ${metric.error}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
 
+      <!-- ===== health model tree ===== -->
+      <el-card v-if="health && health.categories" class="page-card" style="margin-top:14px">
+        <template #header>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span>健康模型</span>
+            <el-tag :type="overallTag(health.overall)" effect="dark" size="small">{{ overallLabel(health.overall) }}</el-tag>
+          </div>
+        </template>
+        <div class="health-grid">
+          <div v-for="c in health.categories" :key="c.name" class="health-cat" :class="`st-${c.status}`">
+            <div class="health-cat-head">
+              <span class="health-dot"></span>
+              <b>{{ c.name }}</b>
+              <span class="health-status">{{ statusLabel(c.status) }}</span>
+            </div>
+            <div class="health-detail">{{ c.detail || '—' }}</div>
+            <div v-if="c.children" class="health-children">
+              <div v-for="ch in c.children" :key="ch.name" class="health-sub" :class="`st-${ch.status}`">
+                <b>{{ ch.name }}</b>
+                <span class="health-detail">{{ ch.detail }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-card>
+
       <!-- ===== btop-style overview stats ===== -->
       <el-row :gutter="14">
         <el-col :span="6"><el-card class="stat-card">
@@ -269,6 +295,173 @@
           </el-col>
         </el-row>
       </el-card>
+
+      <!-- ===== enterprise: events / nvme / services / inventory ===== -->
+      <el-card class="page-card">
+        <el-tabs v-model="entTab">
+          <el-tab-pane label="内核事件" name="events">
+            <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
+              <el-radio-group v-model="evSev" size="small" @change="loadEvents">
+                <el-radio-button value="">全部</el-radio-button>
+                <el-radio-button value="critical">严重</el-radio-button>
+                <el-radio-button value="warning">警告</el-radio-button>
+              </el-radio-group>
+              <el-button size="small" :icon="Refresh" @click="loadEvents">刷新</el-button>
+              <span style="font-size:12px;color:var(--csub)">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
+            </div>
+            <el-table :data="events" size="small" height="320">
+              <el-table-column label="时间" width="160">
+                <template #default="{ row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
+              </el-table-column>
+              <el-table-column label="级别" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.severity === 'critical' ? 'danger' : row.severity === 'warning' ? 'warning' : 'info'" size="small">{{ row.severity }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="event_type" label="类型" width="170">
+                <template #default="{ row }"><b class="mono">{{ row.event_type }}</b><span v-if="row.xid" class="mono" style="margin-left:6px;color:var(--cred)">Xid {{ row.xid }}</span></template>
+              </el-table-column>
+              <el-table-column prop="gpu_uuid" label="GPU" width="130" show-overflow-tooltip>
+                <template #default="{ row }"><span class="mono" style="font-size:11px">{{ row.gpu_uuid ? row.gpu_uuid.slice(0, 16) : '' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="message" label="消息" min-width="400" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-if="!events.length" description="24 小时内无内核异常事件" :image-size="50" />
+          </el-tab-pane>
+
+          <el-tab-pane label="NVMe / 存储" name="nvme">
+            <el-table :data="slowHealth.nvme_smart || []" size="small" height="260">
+              <el-table-column prop="device" label="设备" width="110" />
+              <el-table-column label="温度" width="80">
+                <template #default="{ row }">{{ row.temperature ? row.temperature + '°C' : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="健康" width="90">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.critical_warning ? 'danger' : (row.available_spare !== undefined && row.available_spare <= (row.available_spare_threshold ?? 10) ? 'warning' : 'success')">
+                    {{ row.critical_warning ? '异常' : '正常' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="寿命已用" width="100">
+                <template #default="{ row }">{{ row.percentage_used !== undefined ? row.percentage_used + '%' : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="介质错误" width="90">
+                <template #default="{ row }"><span :style="row.media_errors ? 'color:var(--cred)' : ''">{{ row.media_errors ?? '—' }}</span></template>
+              </el-table-column>
+              <el-table-column label="意外断电" width="90">
+                <template #default="{ row }">{{ row.unsafe_shutdowns ?? '—' }}</template>
+              </el-table-column>
+              <el-table-column label="读/写单元" min-width="150">
+                <template #default="{ row }"><span class="mono" style="font-size:11px">{{ fmtUnits(row.data_units_read) }} / {{ fmtUnits(row.data_units_written) }}</span></template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-if="!(slowHealth.nvme_smart||[]).length" description="未检测到 NVMe 设备（或无 nvme-cli 权限）" :image-size="50" />
+            <template v-if="(slowHealth.mdraid?.arrays||[]).length">
+              <div class="chart-sub-title" style="margin-top:14px">RAID 阵列</div>
+              <el-table :data="slowHealth.mdraid.arrays" size="small">
+                <el-table-column prop="name" label="阵列" width="100" />
+                <el-table-column prop="level" label="级别" width="80" />
+                <el-table-column label="状态" width="120">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.degraded ? 'danger' : 'success'">{{ row.state }} ({{ row.active_disks }}/{{ row.total_disks }})</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="重建进度" width="120">
+                  <template #default="{ row }">{{ row.recovery_percent !== undefined ? row.recovery_percent + '%' : '—' }}</template>
+                </el-table-column>
+              </el-table>
+            </template>
+            <template v-if="(slowHealth.nfs_mounts||[]).length">
+              <div class="chart-sub-title" style="margin-top:14px">NFS / 共享存储挂载</div>
+              <el-table :data="slowHealth.nfs_mounts" size="small">
+                <el-table-column prop="server" label="服务器" width="140" />
+                <el-table-column prop="export" label="导出路径" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="mount" label="挂载点" min-width="140" show-overflow-tooltip />
+                <el-table-column prop="type" label="类型" width="90" />
+              </el-table>
+            </template>
+          </el-tab-pane>
+
+          <el-tab-pane label="服务 / MIG" name="services">
+            <el-row :gutter="14">
+              <el-col :span="12">
+                <div class="chart-sub-title">关键服务状态</div>
+                <el-table :data="serviceRows" size="small">
+                  <el-table-column prop="name" label="服务" width="180" />
+                  <el-table-column label="状态" width="110">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.state === 'active' ? 'success' : row.state === 'inactive' ? 'info' : 'danger'">{{ row.state }}</el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <template v-if="(slowHealth.systemd_failed||[]).length">
+                  <div class="chart-sub-title" style="color:var(--cred)">失败的 systemd 单元</div>
+                  <el-table :data="slowHealth.systemd_failed" size="small">
+                    <el-table-column prop="unit" label="单元" min-width="200" />
+                    <el-table-column prop="active" label="状态" width="90" />
+                  </el-table>
+                </template>
+              </el-col>
+              <el-col :span="12">
+                <div class="chart-sub-title">MIG（多实例 GPU）</div>
+                <el-table :data="slowHealth.mig || []" size="small">
+                  <el-table-column prop="gpu_index" label="GPU" width="70" />
+                  <el-table-column label="MIG 模式" width="120">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.mode === 'Enabled' ? 'success' : 'info'">{{ row.mode }}</el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-if="!(slowHealth.mig||[]).length" description="无 MIG 支持 / 未启用" :image-size="40" />
+                <div class="chart-sub-title" style="margin-top:10px">IPMI / BMC 传感器</div>
+                <el-table :data="(slowHealth.ipmi||[]).slice(0, 8)" size="small">
+                  <el-table-column prop="name" label="传感器" min-width="140" show-overflow-tooltip />
+                  <el-table-column prop="value" label="值" width="90" />
+                  <el-table-column prop="unit" label="单位" width="80" />
+                </el-table>
+                <el-empty v-if="!(slowHealth.ipmi||[]).length" description="无 IPMI 数据（需要 ipmitool 权限）" :image-size="40" />
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+
+          <el-tab-pane label="资产 / 拓扑" name="inventory">
+            <el-descriptions v-if="inventory.machine_id" :column="3" border size="small">
+              <el-descriptions-item label="Machine ID"><span class="mono" style="font-size:11px">{{ inventory.machine_id }}</span></el-descriptions-item>
+              <el-descriptions-item label="厂商/型号">{{ (inventory.dmi||{}).sys_vendor }} {{ (inventory.dmi||{}).product_name }}</el-descriptions-item>
+              <el-descriptions-item label="序列号"><span class="mono" style="font-size:11px">{{ (inventory.dmi||{}).product_serial }}</span></el-descriptions-item>
+              <el-descriptions-item label="BIOS">{{ (inventory.dmi||{}).bios_version }} ({{ (inventory.dmi||{}).bios_date }})</el-descriptions-item>
+              <el-descriptions-item label="CPU">{{ (inventory.lscpu||{}).model_name }}</el-descriptions-item>
+              <el-descriptions-item label="插槽/核心">{{ (inventory.lscpu||{}).sockets }} 路 / {{ (inventory.lscpu||{}).cores_per_socket }} 核</el-descriptions-item>
+              <el-descriptions-item label="NUMA 节点">{{ ((inventory.numa||{}).nodes||[]).map(n => `node${n.id}: ${n.cpus} (${n.mem_gb}GB)`).join('；') || (inventory.lscpu||{}).numa_nodes }}</el-descriptions-item>
+              <el-descriptions-item label="时间同步">{{ (inventory.time_info||{}).system_clock_synchronized === 'yes' ? 'NTP 已同步' : '未同步' }}</el-descriptions-item>
+              <el-descriptions-item label="IP">{{ (inventory.ip_addrs||[]).join(' · ') }}</el-descriptions-item>
+            </el-descriptions>
+            <div v-if="inventory.gpu_topology" class="chart-sub-title" style="margin-top:14px">GPU 拓扑（nvidia-smi topo -m）</div>
+            <pre v-if="inventory.gpu_topology" class="topo-pre">{{ inventory.gpu_topology }}</pre>
+            <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
+            <el-row :gutter="14">
+              <el-col :span="12">
+                <el-table :data="(inventory.disks||[]).slice(0, 12)" size="small">
+                  <el-table-column prop="name" label="磁盘" width="90" />
+                  <el-table-column prop="size" label="容量" width="90" />
+                  <el-table-column prop="type" label="类型" width="80" />
+                  <el-table-column prop="model" label="型号" min-width="140" show-overflow-tooltip />
+                </el-table>
+              </el-col>
+              <el-col :span="12">
+                <el-table :data="physicalNics" size="small">
+                  <el-table-column prop="name" label="网卡" width="110" />
+                  <el-table-column prop="mac" label="MAC" min-width="140">
+                    <template #default="{ row }"><span class="mono" style="font-size:11px">{{ row.mac }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="state" label="状态" width="80" />
+                  <el-table-column prop="speed" label="速率" width="80" />
+                </el-table>
+              </el-col>
+            </el-row>
+          </el-tab-pane>
+        </el-tabs>
+      </el-card>
     </template>
     <el-empty v-else-if="!loading" description="暂无采集数据，请等待采集周期或点击「立即采集」" />
   </div>
@@ -285,7 +478,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import api from '../api'
-import { fmtBps, fmtDuration, fmtFreq, fmtSizeMB, fmtUptime, pct } from '../format'
+import { fmtBps, fmtDuration, fmtFreq, fmtSizeMB, fmtTime, fmtUptime, pct } from '../format'
 import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
@@ -303,6 +496,51 @@ const procsLoading = ref(false)
 const procSort = ref('cpu')
 const procFilter = ref('')
 let liveTimer = null
+let entTimer = null
+
+// ---- enterprise panels ----
+const entTab = ref('events')
+const health = ref(null)
+const riskGpus = ref([])
+const events = ref([])
+const evSev = ref('')
+const slowHealth = ref({})
+const inventory = ref({})
+
+async function loadHealth() {
+  try { health.value = (await api.get(`/servers/${serverId}/health`)).data } catch { health.value = null }
+}
+async function loadRisk() {
+  try { riskGpus.value = (await api.get(`/servers/${serverId}/risk`)).data.gpus || [] } catch { riskGpus.value = [] }
+}
+async function loadEvents() {
+  try {
+    const { data } = await api.get(`/servers/${serverId}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
+    events.value = data
+  } catch { events.value = [] }
+}
+async function loadSlowHealth() {
+  try { slowHealth.value = (await api.get(`/servers/${serverId}/slow-health`)).data } catch { slowHealth.value = {} }
+}
+async function loadInventory() {
+  try { inventory.value = (await api.get(`/servers/${serverId}/inventory`)).data } catch { inventory.value = {} }
+}
+function loadEnterprise() {
+  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory()
+}
+
+const serviceRows = computed(() =>
+  Object.entries(slowHealth.value.services || {}).map(([name, state]) => ({ name, state })))
+const physicalNics = computed(() =>
+  (inventory.value.nics || []).filter(n => n.mac && n.mac !== '00:00:00:00:00:00' && !n.name.startsWith(('veth','br-','docker','virbr').slice(0, 0)) && !/^(veth|br-|docker|virbr|flannel|cali|tun|tap)/.test(n.name)).slice(0, 12))
+
+function fmtUnits(units) {
+  if (units === undefined || units === null) return '—'
+  return (units * 512 / 1024 / 1024 / 1024).toFixed(1) + 'TB'  // data units -> GB (512k each)
+}
+function overallTag(s) { return s === 'critical' ? 'danger' : s === 'warning' ? 'warning' : s === 'ok' ? 'success' : 'info' }
+function overallLabel(s) { return { critical: '危急', warning: '警告', ok: '健康', unknown: '未知' }[s] || s }
+function statusLabel(s) { return { critical: '危急', warning: '警告', ok: '正常' }[s] || s }
 
 const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
 const gpus = computed(() => metric.value?.gpus || [])
@@ -483,12 +721,64 @@ async function renice(row) {
 onMounted(() => {
   load()
   loadProcs()
+  loadEnterprise()
   liveTimer = setInterval(loadProcs, 15000)
+  entTimer = setInterval(() => { loadHealth(); loadEvents() }, 60000)
 })
-onUnmounted(() => clearInterval(liveTimer))
+onUnmounted(() => { clearInterval(liveTimer); clearInterval(entTimer) })
 </script>
 
 <style scoped>
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.health-cat {
+  border: 1px solid var(--cborder);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--cpanel2);
+}
+.health-cat.st-ok { border-left: 3px solid var(--cgreen); }
+.health-cat.st-warning { border-left: 3px solid var(--cyellow); }
+.health-cat.st-critical { border-left: 3px solid var(--cred); }
+.health-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.health-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--csub);
+}
+.st-ok .health-dot { background: var(--cgreen); }
+.st-warning .health-dot { background: var(--cyellow); }
+.st-critical .health-dot { background: var(--cred); animation: pulse 2s infinite; }
+.health-status { margin-left: auto; font-size: 11px; color: var(--csub); }
+.health-detail { font-size: 11px; color: var(--csub); margin-top: 4px; line-height: 1.5; }
+.health-children { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.health-sub {
+  border-top: 1px dashed var(--cborder);
+  padding-top: 6px;
+  font-size: 12px;
+}
+.health-sub.st-ok { color: var(--ctext); }
+.health-sub.st-warning { color: var(--cyellow); }
+.health-sub.st-critical { color: var(--cred); }
+.topo-pre {
+  background: var(--cpanel2);
+  border: 1px solid var(--cborder);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-x: auto;
+  color: var(--ctext);
+  margin: 0;
+}
 .core-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
