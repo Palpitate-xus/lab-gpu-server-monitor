@@ -119,7 +119,7 @@
 
     <!-- ===== bottom: alerts ticker + process rank + net rank ===== -->
     <div class="bottom-grid">
-      <div class="cockpit-panel">
+      <div class="cockpit-panel stack">
         <div class="cockpit-panel-title"><b>实时告警</b><span style="color:var(--csub)">{{ openAlerts }} 条未恢复</span></div>
         <div class="ticker" v-if="alertTickerRows.length">
           <div class="ticker-inner">
@@ -131,27 +131,29 @@
             </div>
           </div>
         </div>
-        <div v-else style="display:flex;align-items:center;gap:8px;height:34px;color:var(--cgreen);font-size:13px">
+        <div v-else class="ticker-empty">
           <el-icon><CircleCheckFilled /></el-icon> 全部指标正常，无未恢复告警
         </div>
       </div>
 
-      <div class="cockpit-panel">
+      <div class="cockpit-panel stack">
         <div class="cockpit-panel-title"><b>GPU 进程 TOP</b></div>
-        <div v-for="(p, i) in gpuProcRank" :key="p.pid" class="rank-row">
-          <span class="rank-no" :class="i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''">{{ i + 1 }}</span>
-          <div class="rank-main">
-            <div class="mono" style="font-size:12px">{{ p.command || p.pid }}</div>
-            <div class="rank-sub">{{ p.server }} · GPU{{ p.gpu }} · {{ p.user }}</div>
+        <div class="fill-list">
+          <div v-for="(p, i) in gpuProcRank" :key="p.pid" class="rank-row">
+            <span class="rank-no" :class="i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''">{{ i + 1 }}</span>
+            <div class="rank-main">
+              <div class="mono" style="font-size:12px">{{ p.command || p.pid }}</div>
+              <div class="rank-sub">{{ p.server }} · GPU{{ p.gpu }} · {{ p.user }}</div>
+            </div>
+            <span class="rank-val mono">{{ fmtSizeMB(p.mem_mb) }}</span>
           </div>
-          <span class="rank-val mono">{{ fmtSizeMB(p.mem_mb) }}</span>
+          <el-empty v-if="!gpuProcRank.length" description="无 GPU 进程" :image-size="40" />
         </div>
-        <el-empty v-if="!gpuProcRank.length" description="无 GPU 进程" :image-size="40" />
       </div>
 
-      <div class="cockpit-panel">
+      <div class="cockpit-panel stack">
         <div class="cockpit-panel-title"><b>网络 / 磁盘吞吐</b></div>
-        <div class="io-rows">
+        <div class="io-rows fill-list">
           <div class="io-row">
             <span style="color:var(--csub)">↓ 集群接收</span>
             <b class="mono">{{ fmtBps(totalNetRx) }}</b>
@@ -242,8 +244,11 @@ const gpuProcRank = computed(() =>
 )
 
 const alertTickerRows = computed(() => {
-  const rows = alerts.value.slice(0, 8)
-  return rows.length < 2 ? [...rows, ...rows] : rows  // ensure scroll height
+  // enough rows to both fill the panel (~8+ rows) and keep the -50% scroll seamless
+  const rows = alerts.value.slice(0, 12)
+  if (!rows.length) return []
+  const repeats = Math.max(2, Math.ceil(12 / rows.length))
+  return Array.from({ length: repeats }).flatMap(() => rows)
 })
 
 const latestMetric = computed(() => latest.value[0] || null)
@@ -383,7 +388,7 @@ onMounted(loadHistory)
   gap: 14px;
 }
 .cockpit-chart-lg { height: 320px; width: 100%; }
-.io-rows { display: flex; flex-direction: column; gap: 10px; }
+.io-rows { display: flex; flex-direction: column; gap: 10px; justify-content: space-evenly; }
 .io-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
 .rank-no-fix { min-width: 22px; }
 @media (max-width: 1400px) {

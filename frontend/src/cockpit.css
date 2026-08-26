@@ -107,17 +107,27 @@
 .gpu-cell-rows { font-size: 11px; color: var(--csub); display: flex; flex-direction: column; gap: 2px; }
 .gpu-cell-rows .mono { color: var(--ctext); }
 
-/* scrolling alert ticker */
+/* scrolling alert ticker (fills its panel height) */
+.cockpit-panel.stack {
+  display: flex;
+  flex-direction: column;
+}
 .ticker {
-  overflow: hidden;
-  height: 34px;
   position: relative;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
+  -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
 }
 .ticker-inner {
   position: absolute;
-  width: 100%;
+  left: 0;
+  right: 0;
+  top: 0;
   animation: ticker-scroll 26s linear infinite;
 }
+.ticker:hover .ticker-inner { animation-play-state: paused; }
 @keyframes ticker-scroll {
   0% { transform: translateY(0); }
   100% { transform: translateY(-50%); }
@@ -130,6 +140,24 @@
   font-size: 13px;
   white-space: nowrap;
 }
+.ticker-empty {
+  flex: 1;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--cgreen);
+  font-size: 13px;
+}
+/* list that stretches to fill the remaining panel height */
+.fill-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.fill-list .rank-row { flex: 1; }
 
 /* rank list */
 .rank-row {
