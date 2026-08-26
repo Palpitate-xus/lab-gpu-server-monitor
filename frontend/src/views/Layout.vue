@@ -3,6 +3,7 @@
     <el-aside width="200px">
       <div class="menu-title">GPU Monitor</div>
       <el-menu :default-active="active" router>
+        <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
         <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
         <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
         <el-menu-item index="/alerts">

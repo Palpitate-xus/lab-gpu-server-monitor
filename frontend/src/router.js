@@ -6,7 +6,8 @@ const routes = [
     path: '/',
     component: () => import('./views/Layout.vue'),
     children: [
-      { path: '', redirect: '/dashboard' },
+      { path: '', redirect: '/cockpit' },
+      { path: 'cockpit', name: 'cockpit', component: () => import('./views/Cockpit.vue'), meta: { title: '驾驶舱' } },
       { path: 'dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue'), meta: { title: '总览' } },
       { path: 'servers', name: 'servers', component: () => import('./views/Servers.vue'), meta: { title: '服务器' } },
       { path: 'servers/:id', name: 'server-detail', component: () => import('./views/ServerDetail.vue'), meta: { title: '服务器详情' } },
@@ -15,7 +16,7 @@ const routes = [
       { path: 'settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', admin: true } }
     ]
   },
-  { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
+  { path: '/:pathMatch(.*)*', redirect: '/cockpit' }
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
@@ -23,8 +24,8 @@ const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach((to) => {
   const token = localStorage.getItem('token')
   if (!to.meta.public && !token) return { name: 'login', query: { redirect: to.fullPath } }
-  if (to.name === 'login' && token) return { name: 'dashboard' }
-  if (to.meta.admin && localStorage.getItem('role') !== 'admin') return { name: 'dashboard' }
+  if (to.name === 'login' && token) return { name: 'cockpit' }
+  if (to.meta.admin && localStorage.getItem('role') !== 'admin') return { name: 'cockpit' }
   return true
 })
 
