@@ -151,14 +151,14 @@
       <el-row :gutter="14">
         <el-col :span="12">
           <el-card class="page-card">
-            <template #header>网络速率 (实时)</template>
+            <template #header><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
             <el-table :data="metric.net_ifaces || []" size="small">
               <el-table-column prop="iface" label="接口" min-width="110" />
               <el-table-column label="↓ 接收" width="120">
-                <template #default="{ row }"><span class="mono">{{ fmtBps(row.rx_bps) }}</span></template>
+                <template #default="{ row }"><span class="mono">{{ fmtNetRate(row.rx_bps) }}</span></template>
               </el-table-column>
               <el-table-column label="↑ 发送" width="120">
-                <template #default="{ row }"><span class="mono">{{ fmtBps(row.tx_bps) }}</span></template>
+                <template #default="{ row }"><span class="mono">{{ fmtNetRate(row.tx_bps) }}</span></template>
               </el-table-column>
             </el-table>
             <el-empty v-if="!(metric.net_ifaces||[]).length" description="暂无活动接口" :image-size="40" />
@@ -166,14 +166,14 @@
         </el-col>
         <el-col :span="12">
           <el-card class="page-card">
-            <template #header>磁盘 IO (实时)</template>
+            <template #header><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
             <el-table :data="metric.disk_io || []" size="small">
               <el-table-column prop="device" label="设备" min-width="90" />
               <el-table-column label="读" width="110">
-                <template #default="{ row }"><span class="mono">{{ fmtBps(row.read_bps) }}</span></template>
+                <template #default="{ row }"><span class="mono">{{ fmtDiskRate(row.read_bps) }}</span></template>
               </el-table-column>
               <el-table-column label="写" width="110">
-                <template #default="{ row }"><span class="mono">{{ fmtBps(row.write_bps) }}</span></template>
+                <template #default="{ row }"><span class="mono">{{ fmtDiskRate(row.write_bps) }}</span></template>
               </el-table-column>
               <el-table-column label="IOPS r/w" width="110">
                 <template #default="{ row }"><span class="mono">{{ row.read_iops }}/{{ row.write_iops }}</span></template>
@@ -294,11 +294,11 @@
         </el-row>
         <el-row :gutter="14" style="margin-top:8px">
           <el-col :span="12">
-            <div class="chart-sub-title">网络吞吐 (接收 / 发送)</div>
+            <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">网络吞吐 (接收 / 发送)<RateUnitPicker kind="net" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="netChartOption" class="chart-box-sm" autoresize />
           </el-col>
           <el-col :span="12">
-            <div class="chart-sub-title">磁盘 IO (读 / 写)</div>
+            <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (读 / 写)<RateUnitPicker kind="disk" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="diskChartOption" class="chart-box-sm" autoresize />
           </el-col>
         </el-row>
@@ -486,7 +486,8 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import api from '../api'
-import { fmtBps, fmtDuration, fmtFreq, fmtSizeMB, fmtTime, fmtUptime, pct } from '../format'
+import RateUnitPicker from '../components/RateUnitPicker.vue'
+import { diskAxisFormatter, fmtDiskRate, fmtDuration, fmtFreq, fmtNetRate, fmtSizeMB, fmtTime, fmtUptime, netAxisFormatter, pct } from '../format'
 import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
@@ -496,6 +497,8 @@ const serverId = Number(route.params.id)
 const loading = ref(false)
 const server = ref(null)
 const metric = ref(null)
+const unitEpoch = ref(0)
+function onUnitChange() { unitEpoch.value++ }
 const history = ref([])
 const hours = ref(3)
 
@@ -658,8 +661,9 @@ const sysChartOption = computed(() => ({
 
 const netChartOption = computed(() => ({
   ..._darkBase.value,
+  unitEpoch: unitEpoch.value,
   xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
-  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
+  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: netAxisFormatter() }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
   series: [
     _mk('接收', history.value.map(h => h.net_rx_bps ?? 0), chartTheme.value.cyan),
     _mk('发送', history.value.map(h => h.net_tx_bps ?? 0), chartTheme.value.purple),
@@ -668,8 +672,9 @@ const netChartOption = computed(() => ({
 
 const diskChartOption = computed(() => ({
   ..._darkBase.value,
+  unitEpoch: unitEpoch.value,
   xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
-  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
+  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: diskAxisFormatter() }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
   series: [
     _mk('读', history.value.map(h => h.disk_read_bps ?? 0), chartTheme.value.yellow),
     _mk('写', history.value.map(h => h.disk_write_bps ?? 0), chartTheme.value.red),
