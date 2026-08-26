@@ -7,7 +7,11 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "GPU Monitor"
     SECRET_KEY: str = "change-me-in-production-please"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 12 * 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 2 * 60  # 2h (was 12h; no refresh flow yet)
+
+    # Set to "yes" only when running behind a reverse proxy you control;
+    # enables X-Forwarded-For for rate limiting.
+    TRUST_PROXY: str = "no"
 
     # mysql: mysql+pymysql://user:pass@host:3306/gpu_monitor?charset=utf8mb4
     # sqlite: sqlite:///./data/gpu_monitor.db
@@ -27,7 +31,9 @@ class Settings(BaseSettings):
     SSH_COMMAND_TIMEOUT: int = 30
 
     # CORS (dev mode: frontend runs on its own port)
-    CORS_ORIGINS: str = "*"
+    # CORS: empty = same-origin only (SPA served by the API itself, safest).
+    # Set a comma-separated origin list ONLY for split-domain dev deployments.
+    CORS_ORIGINS: str = ""
 
 
 @lru_cache
