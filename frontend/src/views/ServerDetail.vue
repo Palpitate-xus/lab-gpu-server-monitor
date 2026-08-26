@@ -102,6 +102,8 @@
               <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
                 <b>GPU {{ g.index }} · {{ g.name }}</b>
                 <div style="display:flex;gap:6px;align-items:center">
+                  <el-tag v-if="gpuRisk(g.uuid)?.risk >= 30" size="small" :type="gpuRisk(g.uuid).risk >= 60 ? 'danger' : 'warning'" effect="dark">风险 {{ gpuRisk(g.uuid).risk }}</el-tag>
+                  <el-tag v-if="g.throttle_reasons?.length" size="small" type="warning" effect="plain">降频: {{ throttleShort(g.throttle_reasons) }}</el-tag>
                   <el-tag v-if="g.pstate" size="small" type="info">{{ g.pstate }}</el-tag>
                   <el-tag v-if="g.compute_mode && g.compute_mode !== 'Default'" size="small" type="warning">{{ g.compute_mode }}</el-tag>
                 </div>
@@ -116,10 +118,16 @@
                 </el-descriptions-item>
                 <el-descriptions-item label="温度">
                   <span :style="{ color: tempColor(g.temperature) }">{{ g.temperature }}°C</span>
+                  <span v-if="g.mem_temperature" style="margin-left:6px;color:var(--csub)">显存 {{ g.mem_temperature }}°C</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="功耗">{{ g.power_draw }} / {{ g.power_limit }} W</el-descriptions-item>
-                <el-descriptions-item label="核心频率">{{ g.clock_graphics ? (g.clock_graphics + ' MHz') : '—' }}<span v-if="g.clock_graphics_max" style="color:#c0c4cc"> / {{ g.clock_graphics_max }}</span></el-descriptions-item>
-                <el-descriptions-item label="显存频率">{{ g.clock_memory ? (g.clock_memory + ' MHz') : '—' }}<span v-if="g.clock_memory_max" style="color:#c0c4cc"> / {{ g.clock_memory_max }}</span></el-descriptions-item>
+                <el-descriptions-item label="核心频率">{{ g.clock_graphics ? (g.clock_graphics + ' MHz') : '—' }}<span v-if="g.clock_graphics_max" style="color:var(--csub)"> / {{ g.clock_graphics_max }}</span></el-descriptions-item>
+                <el-descriptions-item label="显存频率">{{ g.clock_memory ? (g.clock_memory + ' MHz') : '—' }}<span v-if="g.clock_memory_max" style="color:var(--csub)"> / {{ g.clock_memory_max }}</span></el-descriptions-item>
+                <el-descriptions-item label="PCIe">Gen{{ g.pcie_gen_current }} x{{ g.pcie_width_current }}<span v-if="g.pcie_gen_max && (g.pcie_gen_current < g.pcie_gen_max || g.pcie_width_current < g.pcie_width_max)" style="color:var(--cyellow)">（应为 Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}，降级!）</span><span v-else-if="g.pcie_gen_max" style="color:var(--csub)"> / Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}</span></el-descriptions-item>
+                <el-descriptions-item label="ECC">
+                  <span v-if="g.ecc_supported">{{ g.ecc_mode }} · 不可纠正 {{ g.ecc_uncorrected_volatile ?? 0 }}</span>
+                  <span v-else style="color:var(--csub)">不支持（消费卡）</span>
+                </el-descriptions-item>
                 <el-descriptions-item label="风扇">{{ g.fan_speed }}%</el-descriptions-item>
                 <el-descriptions-item label="编解码">编码 {{ g.encoder_sessions ?? 0 }} · 解码 {{ g.decoder_sessions ?? 0 }}</el-descriptions-item>
               </el-descriptions>
@@ -537,6 +545,17 @@ const physicalNics = computed(() =>
 function fmtUnits(units) {
   if (units === undefined || units === null) return '—'
   return (units * 512 / 1024 / 1024 / 1024).toFixed(1) + 'TB'  // data units -> GB (512k each)
+}
+function gpuRisk(uuid) {
+  return riskGpus.value.find(r => r.uuid === uuid) || { risk: 0, risk_label: '健康' }
+}
+function throttleShort(reasons) {
+  const map = {
+    SW_POWER_CAP: '功耗墙', HW_SLOWDOWN: '硬件降速', HW_THERMAL_SLOWDOWN: '热降频',
+    SW_THERMAL_SLOWDOWN: '热降频', HW_POWER_BRAKE_SLOWDOWN: '电源制动', GPU_IDLE: '空闲',
+    APPLICATIONS_CLOCKS: '频率限制', SYNC_BOOST: '同步加速',
+  }
+  return [...new Set(reasons.map(r => map[r] || r))].join('/')
 }
 function overallTag(s) { return s === 'critical' ? 'danger' : s === 'warning' ? 'warning' : s === 'ok' ? 'success' : 'info' }
 function overallLabel(s) { return { critical: '危急', warning: '警告', ok: '健康', unknown: '未知' }[s] || s }
