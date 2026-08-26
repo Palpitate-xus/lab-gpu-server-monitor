@@ -138,17 +138,26 @@ class MetricOut(BaseModel):
     disk_total_gb: float
     disk_used_gb: float
     disks: list
+    inodes: list = []
     disk_io: list
     net_rx_bytes: float
     net_tx_bytes: float
     net_ifaces: list
     users: list
+    cpu_iowait: float = 0
+    boot_id: str = ""
+    sock_estab: int = 0
+    sock_timewait: int = 0
+    fd_allocated: int = 0
+    fd_max: int = 0
     gpu_count: int
     gpu_driver: str
     gpus: list
     processes: list
     duration: float
+    ssh_latency: float = 0
     status: str
+    error_code: str = "OK"
     error: str
 
 

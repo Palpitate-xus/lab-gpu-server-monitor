@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     Float,
@@ -105,7 +106,7 @@ class ServerMetric(Base):
     sock_estab: Mapped[int] = mapped_column(Integer, default=0)
     sock_timewait: Mapped[int] = mapped_column(Integer, default=0)
     fd_allocated: Mapped[int] = mapped_column(Integer, default=0)
-    fd_max: Mapped[int] = mapped_column(Integer, default=0)
+    fd_max: Mapped[int] = mapped_column(BigInteger, default=0)
 
     # gpu summary
     gpu_count: Mapped[int] = mapped_column(Integer, default=0)

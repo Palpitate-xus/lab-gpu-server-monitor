@@ -56,10 +56,11 @@ def _applied(conn) -> set:
 
 
 def _statements(sql: str) -> list:
-    stmts = []
-    # strip line comments before splitting on ';'
+    # strip line comments, then split statements on ';' (newlines preserved so
+    # multi-line CREATE TABLE bodies stay inside one statement)
     lines = [ln for ln in sql.splitlines() if not ln.strip().startswith("--")]
-    for stmt in ";".join(lines).split(";"):
+    stmts = []
+    for stmt in "\n".join(lines).split(";"):
         s = stmt.strip()
         if s:
             stmts.append(s)
