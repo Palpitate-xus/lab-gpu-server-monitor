@@ -17,5 +17,6 @@ services:
       INIT_ADMIN_PASSWORD: "admin123"
       POLL_INTERVAL_SECONDS: "60"
       # MySQL backend (local docker-mysql-1 on the docker bridge)
-      DATABASE_URL: "mysql+pymysql://gpumon:gpumon_pass_2024@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
+      # DATABASE_URL now assembled from .env (MYSQL_PASSWORD); never commit credentials.
+      DATABASE_URL: "mysql+pymysql://gpumon:${MYSQL_PASSWORD}@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
       TZ: "Asia/Shanghai"
