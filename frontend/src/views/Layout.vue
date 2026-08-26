@@ -9,9 +9,13 @@
         <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
         <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
         <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
+        <el-menu-item index="/gpu-analysis">
+          <el-icon><Cpu /></el-icon>GPU 分析
+          <span v-if="idleHeldCount > 0" class="menu-badge menu-badge-warn">{{ idleHeldCount > 99 ? '99+' : idleHeldCount }}</span>
+        </el-menu-item>
         <el-menu-item index="/alerts">
           <el-icon><Bell /></el-icon>告警
-          <el-badge v-if="openAlerts > 0" :value="openAlerts" :max="99" style="margin-left:6px" />
+          <span v-if="openAlerts > 0" class="menu-badge">{{ openAlerts > 99 ? '99+' : openAlerts }}</span>
         </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users"><el-icon><UserFilled /></el-icon>用户管理</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
@@ -60,12 +64,17 @@ const active = computed(() => route.path)
 const pageTitle = computed(() => route.meta.title || '')
 const avatarChar = computed(() => (user.value?.username || '?').charAt(0).toUpperCase())
 const openAlerts = ref(0)
+const idleHeldCount = ref(0)
 let alertTimer = null
 
 async function loadOpenAlerts() {
   try {
-    const { data } = await api.get('/alerts/events?open_only=true&limit=100')
-    openAlerts.value = data.length
+    const [events, analysis] = await Promise.all([
+      api.get('/alerts/events?open_only=true&limit=100'),
+      api.get('/cluster/gpu-analysis').catch(() => null),
+    ])
+    openAlerts.value = events.data.length
+    if (analysis) idleHeldCount.value = analysis.data.idle_held_count || 0
   } catch {
     openAlerts.value = 0
   }
@@ -108,6 +117,26 @@ onUnmounted(() => clearInterval(alertTimer))
 }
 .dark-menu {
   border-right: none !important;
+}
+.menu-badge {
+  margin-left: 8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--cred);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  display: inline-block;
+  vertical-align: middle;
+  align-self: center;
+  box-shadow: 0 0 0 2px var(--cpanel2);
+}
+.menu-badge-warn {
+  background: var(--cyellow);
 }
 .dark-menu :deep(.el-menu-item.is-active) {
   background: var(--ctable-hover) !important;
