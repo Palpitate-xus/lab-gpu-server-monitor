@@ -1,5 +1,7 @@
 # GPU 服务器监控平台
 
+[中文](README.md) | [English](README.en.md)
+
 基于 **Vue 3 + Element Plus + ECharts + FastAPI + SSH** 的多服务器监控 Docker 应用，
 **Agentless 架构**（服务器端零常驻 Agent、零监听端口），指标覆盖对标 **btop** 并扩展
 GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 / 风险预测）。
@@ -73,13 +75,15 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 ## 平台功能
 
 - **登录/用户管理**：JWT、admin/viewer 角色、改密、禁用、审计日志
-- **服务器管理**：密码 或 SSH 私钥(+口令) 认证，测试连接
+- **服务器管理**：密码 或 SSH 私钥(+口令) 认证，测试连接；
+  GPU / CPU 服务器类型——CPU 服务器跳过所有 GPU 面板与聚合
 - **进程操作（admin）**：实时进程表（15s 刷新、排序、过滤）、kill/renice
 - **告警**：用户规则（9 指标）+ 内置检测器事件流，恢复记录 + 确认 + Webhook
 - **驾驶舱**：集群健康条（点击下钻）、GPU 矩阵热图、集群趋势、实时告警跑马灯
 - **服务器详情**：健康模型树（连通性/CPU/内存/文件系统/网络/GPU/内核事件）、
   btop 核心网格、GPU 卡片（ECC/PCIe/降频/风险标签）、内核事件流、
   NVMe/RAID/NFS、服务/MIG/IPMI、资产/NUMA 拓扑标签页
+- **GPU 分析**：集群级空占检测（僵尸显存）与故障风险排行
 - **历史数据**：永久保存（retention_days=0 可改），趋势图 1/3/6/24h
 - **深色/浅色主题**：跟随系统自动切换 + 手动三态
 - **在线迁移**：MySQL/SQLite 双方言幂等迁移（migrations/）
