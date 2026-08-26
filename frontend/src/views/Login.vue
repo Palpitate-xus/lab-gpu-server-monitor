@@ -21,7 +21,7 @@
           <el-button type="primary" style="width: 100%; height: 42px; font-size: 15px; letter-spacing: 0.2em" :loading="loading" @click="submit">登 录</el-button>
         </el-form-item>
       </el-form>
-      <div style="text-align:center;color:#5b6b85;font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
+      <div style="text-align:center;color:var(--csub);font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
     </div>
   </div>
 </template>
@@ -63,6 +63,9 @@ async function submit() {
 </script>
 
 <style scoped>
+@media (max-width: 480px) {
+  .login-card { width: calc(100vw - 32px); padding: 28px 20px 22px; }
+}
 .login-full {
   height: 100%;
   display: flex;

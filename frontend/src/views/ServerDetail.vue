@@ -67,7 +67,7 @@
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>CPU 核心 ({{ cores.length }})</span>
-            <div style="display:flex;gap:16px;font-size:12px;color:#909399;align-items:center">
+            <div style="display:flex;gap:16px;font-size:12px;color:var(--csub);align-items:center">
               <span>负载 {{ metric.load1.toFixed(2) }} / {{ metric.load5.toFixed(2) }} / {{ metric.load15.toFixed(2) }}</span>
               <span v-if="metric.cpu_temp_package">封装温度 {{ metric.cpu_temp_package }}°C</span>
               <span>采集耗时 {{ metric.duration }}s</span>
@@ -92,7 +92,7 @@
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>GPU ({{ gpus.length }})</span>
-            <span style="color:#909399;font-size:13px">驱动 {{ metric.gpu_driver || '—' }}</span>
+            <span style="color:var(--csub);font-size:13px">驱动 {{ metric.gpu_driver || '—' }}</span>
           </div>
         </template>
         <el-empty v-if="!gpus.length" description="未检测到 GPU（nvidia-smi 不可用）" :image-size="60" />
@@ -132,7 +132,7 @@
                 <el-descriptions-item label="编解码">编码 {{ g.encoder_sessions ?? 0 }} · 解码 {{ g.decoder_sessions ?? 0 }}</el-descriptions-item>
               </el-descriptions>
               <div v-if="g.processes?.length" style="margin-top:8px">
-                <div style="font-size:12px;color:#909399;margin-bottom:4px">GPU 进程</div>
+                <div style="font-size:12px;color:var(--csub);margin-bottom:4px">GPU 进程</div>
                 <el-table :data="g.processes" size="small" max-height="220">
                   <el-table-column prop="pid" label="PID" width="80" />
                   <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip />
