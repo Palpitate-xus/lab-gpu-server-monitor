@@ -22,6 +22,13 @@ def _max(vals: list[float]) -> float:
     return round(max(vals), 1) if vals else 0.0
 
 
+def _sum(vals: list[float]) -> float:
+    """Sum per-server rates (cluster total), but average duplicate samples of
+    the same server inside the bucket so multi-poll runs don't double count."""
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals), 1) if vals else 0.0
+
+
 @router.get("/cluster-history")
 def cluster_history(
     hours: int = Query(default=6, ge=1, le=48),
@@ -43,7 +50,8 @@ def cluster_history(
         key = m.collected_at.strftime("%H:%M")
         b = buckets.setdefault(
             key,
-            {"cpu": [], "mem": [], "gpu_util": [], "gpu_mem": [], "gpu_temp": [], "gpu_power": [], "net": [], "disk_io": []},
+            {"cpu": [], "mem": [], "gpu_util": [], "gpu_mem": [], "gpu_temp": [], "gpu_power": [],
+             "net_rx": [], "net_tx": [], "disk_read": [], "disk_write": []},
         )
         b["cpu"].append(m.cpu_percent or 0)
         if m.mem_total_mb:
@@ -59,10 +67,10 @@ def cluster_history(
             b["gpu_mem"].extend(mem_pcts)
             b["gpu_temp"].extend(g.get("temperature", 0) or 0 for g in gpus)
             b["gpu_power"].extend(g.get("power_draw", 0) or 0 for g in gpus)
-        b["net"].append((m.net_rx_bytes or 0) + (m.net_tx_bytes or 0))
-        b["disk_io"].extend(
-            (d.get("read_bps", 0) or 0) + (d.get("write_bps", 0) or 0) for d in (m.disk_io or [])
-        )
+        b["net_rx"].append(m.net_rx_bytes or 0)
+        b["net_tx"].append(m.net_tx_bytes or 0)
+        b["disk_read"].extend(d.get("read_bps", 0) or 0 for d in (m.disk_io or []))
+        b["disk_write"].extend(d.get("write_bps", 0) or 0 for d in (m.disk_io or []))
 
     series = []
     for key in sorted(buckets.keys()):
@@ -76,8 +84,10 @@ def cluster_history(
                 "gpu_mem_percent": _avg(b["gpu_mem"]),
                 "gpu_temp": _max(b["gpu_temp"]),
                 "gpu_power": round(sum(b["gpu_power"]) / max(1, len(set(r.server_id for r in rows))), 1) if b["gpu_power"] else 0,
-                "net_bps": round(_avg(b["net"]), 1),
-                "disk_bps": round(_avg(b["disk_io"]), 1),
+                "net_bps": round(_sum(b["net_rx"]), 1),
+                "net_bps_tx": round(_sum(b["net_tx"]), 1),
+                "disk_bps": round(_sum(b["disk_read"]), 1),
+                "disk_bps_write": round(_sum(b["disk_write"]), 1),
             }
         )
     return series
