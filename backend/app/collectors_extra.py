@@ -66,9 +66,14 @@ def _parse_nvme_smart(devs_text: str, smart_text: str) -> list[dict]:
             continue
         key = km.group(1).strip().lower().replace(" ", "_")
         val = km.group(2).strip()
-        num = re.match(r"^([0-9]+)", val)
         if key == "critical_warning":
-            d["critical_warning"] = int(num.group(1), 0) if num and val.startswith("0x") else (int(num.group(1)) if num else 0)
+            # value is hex (e.g. "0x01"); the old regex parsed it as 0,
+            # silently discarding real hardware warnings
+            try:
+                d["critical_warning"] = int(val.split()[0], 0)
+            except (ValueError, IndexError):
+                num = re.match(r"^(\d+)", val)
+                d["critical_warning"] = int(num.group(1)) if num else 0
         elif key == "temperature":
             v = re.match(r"^(\d+)", val)
             if v:
@@ -346,15 +351,15 @@ def _parse_pci_numa(text: str) -> list[dict]:
 def _parse_lsblk(text: str) -> list[dict]:
     out = []
     for line in text.splitlines():
-        parts = line.split()
-        if len(parts) >= 3:
-            out.append({
-                "name": parts[0], "size": parts[1],
-                "rota": parts[2] if len(parts) > 2 else "",
-                "type": parts[3] if len(parts) > 3 else "",
-                "serial": parts[4] if len(parts) > 4 else "",
-                "model": " ".join(parts[5:]) if len(parts) > 5 else "",
-            })
+        # lsblk -P output: NAME="sda" SIZE="1.8T" ROTA="1" TYPE="disk" SERIAL="" MODEL="..."
+        kv = dict(re.findall(r'(\w+)="([^"]*)"', line))
+        if not kv.get("NAME"):
+            continue
+        out.append({
+            "name": kv.get("NAME", ""), "size": kv.get("SIZE", ""),
+            "rota": kv.get("ROTA", ""), "type": kv.get("TYPE", ""),
+            "serial": kv.get("SERIAL", ""), "model": kv.get("MODEL", ""),
+        })
     return out
 
 
@@ -499,6 +504,12 @@ def parse_kernel_log(text: str, boot_id: str = "") -> list[KernelEvent]:
                         ev.gpu_uuid = mu.group(1)
                 events.append(ev)
                 break
+    # one OOM incident emits several kernel lines; keep a single event and
+    # prefer the "Killed process" line (it names the victim pid)
+    oom_idx = [i for i, e in enumerate(events) if e.event_type == "OOM_KILL"]
+    if len(oom_idx) > 1:
+        keep = next((i for i in oom_idx if "Killed process" in events[i].message), oom_idx[0])
+        events = [e for i, e in enumerate(events) if e.event_type != "OOM_KILL" or i == keep]
     return events[:100]
 
 

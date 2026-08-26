@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,11 +57,15 @@ class Server(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     note: Mapped[str] = mapped_column(Text, default="")
     expected_gpu_count: Mapped[int] = mapped_column(Integer, default=0)
+    # lifecycle: active | maintenance | drained | rma
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    status_reason: Mapped[str] = mapped_column(Text, default="")
+    status_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     metrics: Mapped[list["ServerMetric"]] = relationship(
-        back_populates="server", cascade="all, delete-orphan"
+        back_populates="server", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -106,7 +111,7 @@ class ServerMetric(Base):
     users: Mapped[list] = mapped_column(JSON, default=list)
     sock_estab: Mapped[int] = mapped_column(Integer, default=0)
     sock_timewait: Mapped[int] = mapped_column(Integer, default=0)
-    fd_allocated: Mapped[int] = mapped_column(Integer, default=0)
+    fd_allocated: Mapped[int] = mapped_column(BigInteger, default=0)
     fd_max: Mapped[int] = mapped_column(BigInteger, default=0)
 
     # gpu summary
@@ -156,6 +161,9 @@ class AlertEvent(Base):
     message: Mapped[str] = mapped_column(Text, default="")
     triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     recovered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acked_by: Mapped[str] = mapped_column(String(64), default="")
+    assignee: Mapped[str] = mapped_column(String(64), default="")
     notified: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -199,6 +207,7 @@ class HostInventory(Base):
 
 class KernelEventRow(Base):
     __tablename__ = "kernel_events"
+    __table_args__ = (UniqueConstraint("server_id", "dedup_hash", name="uq_kernel_dedup"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
@@ -243,7 +252,58 @@ class GpuBaseline(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     missing_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ecc_uncorrected_baseline: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 def new_token(n: int = 32) -> str:
     return secrets.token_urlsafe(n)
+
+
+class ServerNote(Base):
+    """Maintenance / repair ledger entries attached to a server."""
+
+    __tablename__ = "server_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    kind: Mapped[str] = mapped_column(String(16), default="note")  # note | maintenance | repair
+    content: Mapped[str] = mapped_column(Text, default="")
+
+
+class ServerMetricHourly(Base):
+    """Downsampled hourly aggregates for long-range trends and utilization reports."""
+
+    __tablename__ = "server_metrics_hourly"
+    __table_args__ = (UniqueConstraint("server_id", "hour", name="uq_metric_hourly"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    samples: Mapped[int] = mapped_column(Integer, default=0)
+    ok_samples: Mapped[int] = mapped_column(Integer, default=0)
+    cpu_avg: Mapped[float] = mapped_column(Float, default=0)
+    cpu_max: Mapped[float] = mapped_column(Float, default=0)
+    mem_avg_pct: Mapped[float] = mapped_column(Float, default=0)
+    gpu_util_avg: Mapped[float] = mapped_column(Float, default=0)
+    gpu_util_max: Mapped[float] = mapped_column(Float, default=0)
+    gpu_mem_pct_avg: Mapped[float] = mapped_column(Float, default=0)
+    gpu_power_avg: Mapped[float] = mapped_column(Float, default=0)
+    net_rx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
+    net_tx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
+    idle_held_minutes: Mapped[int] = mapped_column(Integer, default=0)  # 空占样本分钟数
+
+
+class WebhookChannel(Base):
+    """Notification targets; each channel filters by severity."""
+
+    __tablename__ = "webhook_channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    url: Mapped[str] = mapped_column(Text, default="")
+    template: Mapped[str] = mapped_column(Text, default="")
+    min_severity: Mapped[str] = mapped_column(String(16), default="info")  # info | warning | critical
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

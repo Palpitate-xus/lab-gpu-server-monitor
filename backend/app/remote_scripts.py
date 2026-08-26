@@ -36,6 +36,17 @@ FAST_SCRIPT = r"""
 export LC_ALL=C LANG=C
 # ---------- gpu queries (validate incrementally; old drivers reject fields) ---
 G1=$(timeout 10 nvidia-smi --query-gpu=index,gpu_uuid,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed,driver_version --format=csv,noheader,nounits 2>/dev/null || true)
+case "$G1" in
+  *"Field "*|*"Not Supported"*|*"Invalid"*|*"No devices"*) G1='' ;;
+esac
+if [ -z "$G1" ]; then
+  # minimal field set that even very old drivers accept (keeps the host from
+  # looking GPU-less and cascading into false GPU_MISSING alerts)
+  G1=$(timeout 10 nvidia-smi --query-gpu=index,gpu_uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu,driver_version --format=csv,noheader,nounits 2>/dev/null || true)
+  case "$G1" in
+    *"Field "*|*"Invalid"*|*"No devices"*) G1='' ;;
+  esac
+fi
 G2=''
 if [ -n "$G1" ]; then
   G2=$(timeout 10 nvidia-smi --query-gpu=index,serial,pci.bus_id,temperature.memory,clocks_throttle_reasons.active,ecc.mode.current,ecc.errors.corrected.volatile.total,ecc.errors.uncorrected.volatile.total,ecc.errors.corrected.aggregate.total,ecc.errors.uncorrected.aggregate.total,remapped_rows.pending,remapped_rows.failure,retired_pages.pending,pstate,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max --format=csv,noheader,nounits 2>/dev/null || true)
@@ -58,7 +69,7 @@ if [ -n "$G1" ] && [ -z "$G3" ]; then
 fi
 GPUAPPS=$(timeout 10 nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits 2>/dev/null || true)
 GPUAPPNAME=$(timeout 10 nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader,nounits 2>/dev/null || true)
-DFOUT=$(timeout 5 df -kP -x tmpfs -x devtmpfs 2>/dev/null || timeout 5 df -kP -l 2>/dev/null || true)
+DFOUT=$(timeout 5 df -kP -x tmpfs -x devtmpfs 2>/dev/null || timeout 5 df -kP 2>/dev/null || true)
 DFIOUT=$(timeout 5 df -iP -x tmpfs -x devtmpfs 2>/dev/null || true)
 
 echo "==HOSTNAME=="; hostname 2>/dev/null || uname -n
@@ -94,6 +105,12 @@ echo "==WHO=="; who -u 2>/dev/null | head -n 12
 echo "==SOCKETS=="; cat /proc/net/sockstat 2>/dev/null
 echo "==FDNR=="; cat /proc/sys/fs/file-nr 2>/dev/null
 echo "==PIDMAX=="; cat /proc/sys/kernel/pid_max 2>/dev/null
+echo "==KLOG=="
+if command -v journalctl >/dev/null 2>&1; then
+  timeout 10 journalctl -k -n 400 --no-pager -o short-iso 2>/dev/null || true
+else
+  dmesg 2>/dev/null | tail -n 400 || true
+fi
 true
 """
 
@@ -127,7 +144,7 @@ echo "==MIGMODE=="; timeout 10 nvidia-smi --query-gpu=index,mig.mode.current --f
 echo "==NVLINK=="; timeout 10 nvidia-smi nvlink -sc 2>/dev/null | head -n 60 || true
 echo "==NVLINKST=="; timeout 10 nvidia-smi --query-gpu=index,nvlink.gpu.0.state,nvlink.gpu.1.state,nvlink.gpu.2.state,nvlink.gpu.3.state --format=csv,noheader,nounits 2>/dev/null | grep -v 'Field ' || true
 # ---------- ipmi / bmc ----------
-echo "==IPMI=="; timeout 10 ipmitool sdr 2>/dev/null | head -n 40 || true
+echo "==IPMI=="; timeout 10 ipmitool sensor 2>/dev/null | head -n 40 || true
 true
 """
 
@@ -141,7 +158,7 @@ echo "==NUMAMEM=="; for n in /sys/devices/system/node/node*/meminfo; do [ -f "$n
 echo "==GPULIST=="; timeout 10 nvidia-smi -L 2>/dev/null || true
 echo "==GPUTOPO=="; timeout 15 nvidia-smi topo -m 2>/dev/null | head -n 30 || true
 echo "==PCINUMA=="; for d in /sys/bus/pci/devices/*; do nn=$(cat $d/numa_node 2>/dev/null); cl=$(cat $d/class 2>/dev/null); case "$cl" in 0x0300*|0x0200*|0x0108*) echo "$(basename $d) $cl $nn $(cat $d/vendor 2>/dev/null) $(cat $d/device 2>/dev/null)";; esac; done
-echo "==LSBLK=="; lsblk -d -n -o NAME,SIZE,ROTA,TYPE,SERIAL,MODEL 2>/dev/null || lsblk -d -n -o NAME,SIZE,TYPE 2>/dev/null || true
+echo "==LSBLK=="; lsblk -d -n -P -o NAME,SIZE,ROTA,TYPE,SERIAL,MODEL 2>/dev/null || lsblk -d -n -P -o NAME,SIZE,TYPE 2>/dev/null || true
 echo "==IPADDR=="; ip -o addr show scope global 2>/dev/null || true
 echo "==NICLIST=="; for n in /sys/class/net/*; do [ -d "$n" ] || continue; i=$(basename "$n"); echo "$i $(cat $n/address 2>/dev/null) $(cat $n/operstate 2>/dev/null) $(cat $n/speed 2>/dev/null)"; done
 echo "==IBSTAT=="; timeout 10 ibstat 2>/dev/null | head -n 60 || true
@@ -162,7 +179,6 @@ if command -v journalctl >/dev/null 2>&1; then
   timeout 10 journalctl -k -n 400 --no-pager -o short-iso 2>/dev/null || true
 else
   dmesg 2>/dev/null | tail -n 400 || true
-  echo "__DMESG__"
 fi
 true
 """

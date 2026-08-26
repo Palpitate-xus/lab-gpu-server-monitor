@@ -7,6 +7,7 @@ Keeps the legacy public API: collect() / test_connection() / live_processes()
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from .ssh_transport import (
 )
 
 settings = get_settings()
+logger = logging.getLogger("gpumon.collector")
 
 
 @dataclass
@@ -78,6 +80,7 @@ class MetricResult:
     gpus: list = field(default_factory=list)
     processes: list = field(default_factory=list)
     users: list = field(default_factory=list)
+    kernel_log: str = ""
 
 
 # ================================================================ parsing
@@ -242,11 +245,11 @@ def _disk_rates(d1, d2, window: float) -> list[dict]:
     result = []
     for name in devices[:16]:
         a, b = d1[name], d2[name]
-        read_bps = (b[1] - a[1]) * 512 / window
-        write_bps = (b[3] - a[3]) * 512 / window
-        r_iops = (b[0] - a[0]) / window
-        w_iops = (b[2] - a[2]) / window
-        busy_ms = b[4] - a[4]
+        read_bps = max(0.0, (b[1] - a[1]) * 512 / window)
+        write_bps = max(0.0, (b[3] - a[3]) * 512 / window)
+        r_iops = max(0.0, (b[0] - a[0]) / window)
+        w_iops = max(0.0, (b[2] - a[2]) / window)
+        busy_ms = max(0.0, b[4] - a[4])
         busy_pct = min(100.0, busy_ms / (window * 1000) * 100)
         if read_bps < 1 and write_bps < 1 and busy_pct < 0.5:
             continue
@@ -328,7 +331,7 @@ def _net_rates(n1, n2, window: float, link: dict) -> list[dict]:
 # ---------------------------------------------------------------- df / inodes
 
 _PSEUDO_FS = re.compile(
-    r"^(tmpfs|devtmpfs|overlay|squashfs|udev|none|shm|loop|nsfs|tracefs|debugfs|configfs|"
+    r"^(tmpfs|devtmpfs|squashfs|udev|none|shm|loop|nsfs|tracefs|debugfs|configfs|"
     r"fusectl|fuse\.|hugetlbfs|mqueue|pstore|securityfs|bpf|cgroup|autofs|efivarfs|binfmt_misc|rpc_.*)"
 )
 
@@ -337,7 +340,7 @@ def _parse_df(text: str) -> list[dict]:
     disks, seen = [], set()
     lines = [l for l in text.splitlines() if l.strip()]
     for line in lines[1:]:
-        parts = line.split()
+        parts = line.split(None, 5)
         if len(parts) < 6:
             continue
         fs, total_kb, used_kb, mount = parts[0], parts[1], parts[2], parts[5]
@@ -365,7 +368,7 @@ def _parse_dfi(text: str) -> list[dict]:
     out, seen = [], set()
     lines = [l for l in text.splitlines() if l.strip()]
     for line in lines[1:]:
-        parts = line.split()
+        parts = line.split(None, 5)
         if len(parts) < 6:
             continue
         fs, itotal, iused, mount = parts[0], parts[1], parts[2], parts[5]
@@ -614,13 +617,17 @@ def _parse_who(text: str) -> list[dict]:
     users = []
     for line in text.splitlines():
         parts = line.split()
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
+        # who -u: user tty date time idle pid (host)
+        frm = ""
+        if len(parts) >= 7 and parts[-1].startswith("("):
+            frm = parts[-1].strip("()")
         users.append({
             "user": parts[0],
             "tty": parts[1],
-            "from": parts[4] if len(parts) > 4 and parts[2] == "(" else "",
-            "login": " ".join(parts[2:4]).strip("()"),
+            "from": frm,
+            "login": " ".join(parts[2:4]),
         })
     return users[:10]
 
@@ -631,7 +638,8 @@ def _parse_sockstat(text: str) -> dict[str, int]:
         m = re.search(r"ESTAB\s+(\d+)", line)
         if m:
             out["estab"] = int(m.group(1))
-        m = re.search(r"TIMEWAIT\s+(\d+)", line, re.I)
+        # /proc/net/sockstat: "TCP: inuse 35 orphan 0 tw 667 alloc ..."
+        m = re.search(r"\btw\s+(\d+)", line)
         if m:
             out["timewait"] = int(m.group(1))
         # closewait not in sockstat; left 0 (could parse ss -s later)
@@ -659,6 +667,30 @@ def collect(host, port, username, password_enc="", private_key_enc="", passphras
             result.error_code = "COLLECT_FAILED"
             result.error = f"empty output (exit {code}): {err.strip()[:300]}"
             return result
+        try:
+            result = _parse_fast_output(out, result, host)
+        except Exception as pe:
+            # parse bugs must not masquerade as SSH/network faults
+            logger.exception("fast output parse failed for %s", host)
+            result.ok = False
+            result.error_code = "COLLECT_FAILED"
+            result.error = f"output parse error: {type(pe).__name__}: {pe}"
+            return result
+        result.duration = round(time.time() - t0, 2)
+        result.ok = True
+        return result
+    except Exception as e:
+        result.error_code, result.error = classify_ssh_error(e, host)
+        return result
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
+def _parse_fast_output(out: str, result: MetricResult, host: str) -> MetricResult:
         sec = _split_sections(out)
 
         result.hostname = _first_line(sec.get("HOSTNAME", "")) or host
@@ -721,6 +753,7 @@ def collect(host, port, username, password_enc="", private_key_enc="", passphras
 
         result.processes = _parse_ps(sec.get("PS", ""))
         result.users = _parse_who(sec.get("WHO", ""))
+        result.kernel_log = sec.get("KLOG", "")
 
         gpus, driver = _parse_gpus(sec.get("GPU", ""))
         ps_index = {p["pid"]: p for p in result.processes}
@@ -729,19 +762,7 @@ def collect(host, port, username, password_enc="", private_key_enc="", passphras
         _merge_gpu_apps(sec.get("GPUAPPS", ""), sec.get("GPUAPPNAME", ""), gpus, ps_index)
         result.gpus = gpus
         result.gpu_driver = driver
-
-        result.duration = round(time.time() - t0, 2)
-        result.ok = True
         return result
-    except Exception as e:
-        result.error_code, result.error = classify_ssh_error(e, host)
-        return result
-    finally:
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 # ================================================================ legacy API

@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func
+from sqlalchemy.orm import load_only
 
 from .database import SessionLocal
 from .models import (
@@ -36,12 +37,18 @@ from .models import (
     KernelEventRow,
     Server,
     ServerMetric,
+    Setting,
     SlowHealth,
 )
+from . import notifier
 
 logger = logging.getLogger("gpumon.health")
 
 SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
+
+# point events (no sustained condition to recover from) auto-close after TTL
+POINT_EVENT_TYPES = ("GPU_XID", "OOM_KILL", "MCE_HARDWARE_ERROR", "PCIE_AER")
+POINT_EVENT_TTL_MINUTES = 60
 
 # built-in detectors use rule_id=None, rule_name=detector name; they share the
 # AlertEvent table with user rules. severity mapping for events:
@@ -64,6 +71,34 @@ SEV_BY_DETECTOR = {
 }
 
 
+def _get_setting(db, key: str, default: float) -> float:
+    row = db.get(Setting, key)
+    if row is None or not row.value:
+        return default
+    try:
+        return float(row.value)
+    except ValueError:
+        return default
+
+
+def _notify(db, ev: AlertEvent, detector: str, server_name: str, level: str = "ALERT") -> None:
+    """Push detector events through the same webhook path as user rules."""
+    sev = SEV_BY_DETECTOR.get(detector, "warning")
+    try:
+        if level == "ALERT":
+            ok, _why = notifier.notify_alert(
+                server_name, detector, ev.value or 0, "", ev.threshold or 0, detector,
+                severity=sev,
+            )
+        else:
+            ok, _why = notifier.notify_recovery(server_name, detector, detector)
+        if level == "ALERT":
+            ev.notified = bool(ok)
+            db.commit()
+    except Exception:
+        logger.exception("detector notification failed: %s", detector)
+
+
 def _open_event(db, detector: str, server_id: int, key: str = ""):
     q = db.query(AlertEvent).filter(
         AlertEvent.rule_id.is_(None),
@@ -83,7 +118,7 @@ def _fire(db, detector: str, server_id: int, server_name: str, message: str,
         return  # already open
     if key:
         message = f"[{key}] {message}"
-    db.add(AlertEvent(
+    ev = AlertEvent(
         rule_id=None,
         rule_name=detector,
         server_id=server_id,
@@ -92,9 +127,11 @@ def _fire(db, detector: str, server_id: int, server_name: str, message: str,
         value=value,
         threshold=threshold,
         message=message,
-    ))
+    )
+    db.add(ev)
     db.commit()
     logger.info("detector fired: %s %s %s", detector, server_name, message)
+    _notify(db, ev, detector, server_name, "ALERT")
 
 
 def _recover(db, detector: str, server_id: int, key: str = "") -> None:
@@ -102,43 +139,74 @@ def _recover(db, detector: str, server_id: int, key: str = "") -> None:
     if ev is not None:
         ev.recovered_at = datetime.now(timezone.utc)
         db.commit()
+        if ev.notified:
+            _notify(db, ev, detector, ev.server_name, "RECOVERY")
+
+
+def _ttl_recover_point_events(db) -> None:
+    """Auto-close point events (Xid/OOM/MCE/AER) older than TTL so the open
+    list does not grow forever."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=POINT_EVENT_TTL_MINUTES)
+    rows = (
+        db.query(AlertEvent)
+        .filter(AlertEvent.rule_id.is_(None),
+                AlertEvent.metric.in_(POINT_EVENT_TYPES),
+                AlertEvent.recovered_at.is_(None),
+                AlertEvent.triggered_at <= cutoff)
+        .all()
+    )
+    for ev in rows:
+        ev.recovered_at = datetime.now(timezone.utc)
+    if rows:
+        db.commit()
 
 
 # ---------------------------------------------------------------- detectors
 
 def _detect_gpu_idle(db, server: Server, m: ServerMetric) -> None:
-    """VRAM held but ~0 util for 30+ min => 空占 / zombie."""
+    """VRAM held but ~0 util for N+ min => 空占 / zombie."""
+    vram_pct = _get_setting(db, "gpu_idle_vram_pct", 30.0) / 100.0
+    idle_minutes = int(_get_setting(db, "gpu_idle_minutes", 30))
+    candidates = []
     for g in (m.gpus or []):
         total = g.get("mem_total_mb", 0) or 0
         used = g.get("mem_used_mb", 0) or 0
         util = g.get("utilization", 0) or 0
-        if total <= 0 or used / total < 0.30 or util > 5:
-            _recover(db, "GPU_IDLE_VRAM_HELD", server.id, key=g.get("uuid", ""))
+        key = g.get("uuid") or f"idx{g.get('index')}"
+        if total <= 0 or used / total < vram_pct or util > 5:
+            _recover(db, "GPU_IDLE_VRAM_HELD", server.id, key=key)
             continue
-        # sustained? look back 30 minutes for this gpu uuid
-        since = m.collected_at - timedelta(minutes=30)
-        rows = (
-            db.query(ServerMetric)
-            .filter(ServerMetric.server_id == server.id,
-                    ServerMetric.collected_at >= since,
-                    ServerMetric.status == "ok")
-            .order_by(ServerMetric.collected_at.asc())
-            .all()
-        )
+        candidates.append((g, used, total, key))
+    if not candidates:
+        return
+    # one window query for all candidate GPUs
+    since = m.collected_at - timedelta(minutes=idle_minutes)
+    rows = (
+        db.query(ServerMetric)
+        .options(load_only(ServerMetric.gpus, ServerMetric.collected_at, ServerMetric.status))
+        .filter(ServerMetric.server_id == server.id,
+                ServerMetric.collected_at >= since,
+                ServerMetric.status == "ok")
+        .order_by(ServerMetric.collected_at.asc())
+        .all()
+    )
+    min_samples = max(2, idle_minutes // 10)
+    for g, used, total, key in candidates:
+        uuid = g.get("uuid")
         held = True
         for r in rows:
-            gg = next((x for x in (r.gpus or []) if x.get("uuid") == g.get("uuid")), None)
+            gg = next((x for x in (r.gpus or []) if x.get("uuid") == uuid), None)
             if gg is None or (gg.get("utilization", 0) or 0) > 5:
                 held = False
                 break
-        if held and len(rows) >= 5:
+        if held and len(rows) >= min_samples:
             procs = [p for p in g.get("processes", []) if p.get("pid")]
             pinfo = ", ".join(f"PID {p['pid']}({p.get('user','?')})" for p in procs[:3]) or "无进程"
             _fire(db, "GPU_IDLE_VRAM_HELD", server.id, m.hostname or server.name,
-                  f"GPU {g.get('index')} 显存占用 {round(used/1024,1)}GB 但利用率≈0 持续30分钟（{pinfo}）——疑似空占/僵尸进程",
-                  value=round(used / total * 100, 1), threshold=30, key=g.get("uuid", ""))
+                  f"GPU {g.get('index')} 显存占用 {round(used/1024,1)}GB 但利用率≈0 持续{idle_minutes}分钟（{pinfo}）——疑似空占/僵尸进程",
+                  value=round(used / total * 100, 1), threshold=int(vram_pct * 100), key=key)
         else:
-            _recover(db, "GPU_IDLE_VRAM_HELD", server.id, key=g.get("uuid", ""))
+            _recover(db, "GPU_IDLE_VRAM_HELD", server.id, key=key)
 
 
 def _detect_gpu_missing(db, server: Server, m: ServerMetric) -> None:
@@ -169,13 +237,32 @@ def _detect_gpu_ecc(db, server: Server, m: ServerMetric) -> None:
     for g in (m.gpus or []):
         if not g.get("ecc_supported"):
             continue
-        unc = (g.get("ecc_uncorrected_volatile", 0) or 0) + (g.get("ecc_uncorrected_total", 0) or 0)
-        if unc > 0:
+        uuid = g.get("uuid") or ""
+        key = uuid or f"idx{g.get('index')}"
+        volatile = g.get("ecc_uncorrected_volatile", 0) or 0
+        aggregate = g.get("ecc_uncorrected_total", 0) or 0
+        problems = []
+        if volatile > 0:
+            problems.append(f"本次启动新增 {volatile} 条")
+        if uuid:
+            b = (
+                db.query(GpuBaseline)
+                .filter(GpuBaseline.server_id == server.id, GpuBaseline.gpu_uuid == uuid)
+                .first()
+            )
+            if b is not None:
+                if b.ecc_uncorrected_baseline is None:
+                    b.ecc_uncorrected_baseline = aggregate
+                elif aggregate > b.ecc_uncorrected_baseline:
+                    problems.append(f"累计新增 {aggregate - b.ecc_uncorrected_baseline} 条")
+                    b.ecc_uncorrected_baseline = aggregate
+        if problems:
             _fire(db, "GPU_ECC_UNCORRECTED", server.id, m.hostname or server.name,
-                  f"GPU {g.get('index')} 不可纠正 ECC 错误 {unc} 条——硬件故障风险",
-                  value=unc, key=g.get("uuid", ""))
+                  f"GPU {g.get('index')} 不可纠正 ECC 错误（{'，'.join(problems)}）——硬件故障风险",
+                  value=volatile, key=key)
         else:
-            _recover(db, "GPU_ECC_UNCORRECTED", server.id, key=g.get("uuid", ""))
+            _recover(db, "GPU_ECC_UNCORRECTED", server.id, key=key)
+    db.commit()
 
 
 def _detect_gpu_throttle(db, server: Server, m: ServerMetric) -> None:
@@ -202,13 +289,14 @@ def _detect_kernel_events(db, server: Server, since: datetime) -> None:
         seen_types.add(ev.event_type)
         detector = ev.event_type
         if detector == "GPU_XID":
-            key = ev.gpu_uuid or str(ev.xid)
+            # key per-event (dedup_hash): distinct Xids on the same GPU must
+            # each fire; a gpu_uuid-only key swallowed every later Xid
             _fire(db, "GPU_XID", server.id, server.name,
-                  f"Xid {ev.xid}: {ev.message[:120]}",
-                  value=ev.xid, key=key)
+                  f"GPU {ev.gpu_uuid or '?'} Xid {ev.xid}: {ev.message[:120]}",
+                  value=ev.xid, key=ev.dedup_hash[:16])
         elif detector in ("OOM_KILL", "MCE_HARDWARE_ERROR", "PCIE_AER"):
             _fire(db, detector, server.id, server.name, ev.message[:160], key=ev.dedup_hash[:16])
-    # nothing to recover automatically for point events
+    # point events auto-close via _ttl_recover_point_events
 
 
 def _detect_nvme(db, server: Server) -> None:
@@ -253,7 +341,7 @@ def _detect_raid(db, server: Server) -> None:
     for arr in latest.mdraid.get("arrays", []):
         state = arr.get("state", "")
         active, total = arr.get("active_disks"), arr.get("total_disks")
-        if state != "U" and state != "UU" or (active is not None and total is not None and active < total):
+        if "_" in state or (active is not None and total is not None and active < total):
             _fire(db, "RAID_DEGRADED", server.id, server.name,
                   f"{arr.get('name')} {arr.get('level','')} 状态降级（{active}/{total} 在线, {state}）",
                   key=arr.get("name", ""))
@@ -263,8 +351,17 @@ def _detect_raid(db, server: Server) -> None:
 
 def _detect_ssh_fault(db, server: Server, m: ServerMetric) -> None:
     if m.status == "error":
-        _fire(db, "SSH_FAULT", server.id, server.name,
-              f"{m.error_code}: {m.error[:120]}", key=m.error_code)
+        # require two consecutive failures to avoid alerting on blips
+        prev = (
+            db.query(ServerMetric)
+            .filter(ServerMetric.server_id == server.id,
+                    ServerMetric.collected_at < m.collected_at)
+            .order_by(ServerMetric.collected_at.desc())
+            .first()
+        )
+        if prev is not None and prev.status == "error":
+            _fire(db, "SSH_FAULT", server.id, server.name,
+                  f"{m.error_code}: {m.error[:120]}", key="SSH")
     else:
         # recover all SSH faults on success
         for ev in (
@@ -289,8 +386,14 @@ def _detect_services(db, server: Server) -> None:
     failed = latest.systemd_failed or []
     if failed:
         names = ", ".join(f["unit"] for f in failed[:5])
-        _fire(db, "SERVICE_FAILED", server.id, server.name,
-              f"{len(failed)} 个 systemd 单元失败: {names}")
+        msg = f"{len(failed)} 个 systemd 单元失败: {names}"
+        ev = _open_event(db, "SERVICE_FAILED", server.id)
+        if ev is not None:
+            if ev.message != msg:
+                ev.message = msg
+                db.commit()
+        else:
+            _fire(db, "SERVICE_FAILED", server.id, server.name, msg)
     else:
         _recover(db, "SERVICE_FAILED", server.id)
 
@@ -334,6 +437,7 @@ def gpu_risk_score(server_id: int) -> list[dict]:
         since = datetime.now(timezone.utc) - timedelta(hours=24)
         metrics = (
             db.query(ServerMetric)
+            .options(load_only(ServerMetric.gpus, ServerMetric.collected_at, ServerMetric.status))
             .filter(ServerMetric.server_id == server_id,
                     ServerMetric.collected_at >= since,
                     ServerMetric.status == "ok")
@@ -409,6 +513,8 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
         server = db.get(Server, server_id)
         if server is None:
             return
+        if (server.status or "active") == "maintenance":
+            return  # planned work: detectors stay silent
         m = (
             db.query(ServerMetric)
             .filter(ServerMetric.server_id == server_id)
@@ -417,6 +523,7 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
         )
         if m is None:
             return
+        _ttl_recover_point_events(db)
         _detect_ssh_fault(db, server, m)
         if m.status == "ok":
             _detect_gpu_idle(db, server, m)
@@ -505,17 +612,20 @@ def health_tree(server_id: int) -> dict:
             cat("连通性", "ok", f"SSH {latest.ssh_latency}s · 采集 {latest.duration}s")
 
         if latest.status == "ok":
-            # cpu / memory
-            cat("CPU", "ok" if latest.cpu_percent < 90 else "warning",
+            # cpu / memory (thresholds configurable in settings)
+            cpu_thr = _get_setting(db, "health_cpu_pct", 90.0)
+            mem_thr = _get_setting(db, "health_mem_pct", 92.0)
+            disk_thr = _get_setting(db, "health_disk_pct", 90.0)
+            cat("CPU", "ok" if latest.cpu_percent < cpu_thr else "warning",
                 f"{round(latest.cpu_percent,1)}% · iowait {round(latest.cpu_iowait or 0,1)}%")
             mem_pct = latest.mem_used_mb / latest.mem_total_mb * 100 if latest.mem_total_mb else 0
-            cat("内存", "ok" if mem_pct < 92 else "warning", f"{round(mem_pct,1)}%")
+            cat("内存", "ok" if mem_pct < mem_thr else "warning", f"{round(mem_pct,1)}%")
             # storage
             disk_pcts = [d.get("percent", 0) for d in (latest.disks or [])]
             inode_pcts = [d.get("inodes_percent", 0) for d in (latest.inodes or [])]
             worst_d = max(disk_pcts) if disk_pcts else 0
             worst_i = max(inode_pcts) if inode_pcts else 0
-            dstat = "ok" if worst_d < 90 else "warning"
+            dstat = "ok" if worst_d < disk_thr else "warning"
             cat("文件系统", dstat,
                 f"空间 {round(worst_d,1)}%" + (f" · inode {round(worst_i,1)}%" if worst_i else ""))
             # network
@@ -539,7 +649,15 @@ def health_tree(server_id: int) -> dict:
             detail = f"{r['name']} · 最高 {r['max_temp']}°C" + (f" · {'/'.join(bits)}" if bits else "")
             gpu_cats.append({"name": f"GPU{r.get('index', '?')}", "status": status, "detail": detail})
         if gpu_cats:
-            categories.append({"name": "GPU", "status": "ok", "detail": "", "children": gpu_cats})
+            # parent status must reflect children (was hardcoded "ok")
+            worst = "ok"
+            for c in gpu_cats:
+                if c["status"] == "critical":
+                    worst = "critical"
+                elif c["status"] == "warning" and worst != "critical":
+                    worst = "warning"
+            cat("GPU", worst, f"{len(gpu_cats)} 卡")
+            categories[-1]["children"] = gpu_cats
 
         # kernel events (24h)
         since = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -560,10 +678,13 @@ def health_tree(server_id: int) -> dict:
         else:
             cat("内核事件", "ok", "24h 无异常")
 
+        updated = latest.collected_at or datetime.now(timezone.utc)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
         return {
             "server": server.name,
             "overall": overall,
-            "updated_at": (latest.collected_at or datetime.now(timezone.utc)).isoformat(),
+            "updated_at": updated.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
             "categories": categories,
         }
     finally:
