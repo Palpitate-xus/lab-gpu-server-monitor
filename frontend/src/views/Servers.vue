@@ -13,8 +13,15 @@
             <el-link type="primary" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</el-link>
           </template>
         </el-table-column>
+        <el-table-column label="类型" width="90">
+          <template #default="{ row }">
+            <el-tag :type="(row.server_type || 'gpu') === 'gpu' ? 'success' : 'info'" size="small">
+              {{ (row.server_type || 'gpu') === 'gpu' ? 'GPU' : 'CPU' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="地址" min-width="180">
-          <template #default="{ row }"><span class="mono">{{ row.username }}@{{ row.host }}:{{ row.port }}</span></template>
+          <template #default="{ row }"><span class="mono">{{ row.host }}:{{ row.port }}</span></template>
         </el-table-column>
         <el-table-column label="认证" width="90">
           <template #default="{ row }">
@@ -61,13 +68,19 @@
             <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width:100%" />
           </el-col>
         </el-form-item>
+        <el-form-item label="服务器类型" prop="server_type">
+          <el-radio-group v-model="form.server_type">
+            <el-radio value="gpu">GPU 服务器</el-radio>
+            <el-radio value="cpu">CPU 服务器</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="认证方式" prop="auth_type">
           <el-radio-group v-model="form.auth_type">
             <el-radio value="password">用户名 / 密码</el-radio>
             <el-radio value="key">SSH 密钥</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="用户名" prop="username">
+        <el-form-item v-if="!editId" label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="root" />
         </el-form-item>
         <template v-if="form.auth_type === 'password'">
@@ -132,7 +145,7 @@ const tagInputRef = ref()
 const newTag = ref('')
 
 const blank = () => ({
-  name: '', host: '', port: 22, auth_type: 'password', username: 'root',
+  name: '', host: '', port: 22, auth_type: 'password', username: 'root', server_type: 'gpu',
   password: '', private_key: '', passphrase: '', tags: [], note: '', enabled: true
 })
 const form = reactive(blank())
@@ -180,7 +193,8 @@ function openEdit(row) {
   editId.value = row.id
   Object.assign(form, blank(), {
     name: row.name, host: row.host, port: row.port, auth_type: row.auth_type,
-    username: row.username, tags: [...(row.tags || [])], note: row.note || '', enabled: row.enabled
+    username: '', server_type: row.server_type || 'gpu',
+    tags: [...(row.tags || [])], note: row.note || '', enabled: row.enabled
   })
   hasPassword.value = row.has_password
   hasKey.value = row.has_key
@@ -193,6 +207,7 @@ async function save() {
   try {
     const payload = { ...form }
     if (editId.value) {
+      delete payload.username  // never editable from UI; backend keeps stored value
       if (!payload.password) delete payload.password
       if (!payload.private_key) delete payload.private_key
       if (!payload.passphrase) delete payload.passphrase
