@@ -321,8 +321,8 @@ const trendOption = computed(() => {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: T.tooltipBg, borderColor: T.tooltipBorder, textStyle: { color: T.tooltipText } },
     legend: { textStyle: { color: T.label }, top: 0, right: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-    grid: { left: 46, right: 46, top: 30, bottom: 42 },
-    xAxis: { type: 'category', data: t, axisLine: { lineStyle: { color: T.axisLine } }, axisLabel: { color: T.label } },
+    grid: { left: 12, right: 20, top: 30, bottom: 42, containLabel: true },
+    xAxis: { type: 'category', data: t, boundaryGap: false, axisLine: { lineStyle: { color: T.axisLine } }, axisLabel: { color: T.label } },
     yAxis: [
       { type: 'value', max: percentMode ? 100 : undefined, axisLabel: { color: T.label, formatter: percentMode ? '{value}' : axisFmt }, splitLine: { lineStyle: { color: T.splitLine } } },
       { type: 'value', show: !percentMode ? false : true, axisLabel: { color: T.label }, splitLine: { show: false } },

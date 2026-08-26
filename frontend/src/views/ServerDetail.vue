@@ -618,7 +618,7 @@ const _darkBase = computed(() => {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: T.tooltipBg, borderColor: T.tooltipBorder, textStyle: { color: T.tooltipText } },
     legend: { textStyle: { color: T.label }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-    grid: { left: 50, right: 54, top: 32, bottom: 28 },
+    grid: { left: 12, right: 20, top: 32, bottom: 28, containLabel: true },
     dataZoom: [{ type: 'inside' }],
   }
 })
