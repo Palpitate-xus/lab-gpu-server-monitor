@@ -16,8 +16,21 @@ IS_MYSQL = settings.DATABASE_URL.startswith("mysql")
 if settings.DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         settings.DATABASE_URL,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 30},
     )
+
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        # WAL lets collector writers and API readers proceed concurrently;
+        # foreign_keys makes ON DELETE CASCADE behave like MySQL
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
 else:
     engine = create_engine(
         settings.DATABASE_URL,

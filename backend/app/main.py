@@ -24,6 +24,13 @@ from .api import alerts, auth, cockpit, enterprise, metrics, servers, server_tes
 
 @asynccontextmanager
 async def lifespan(app):
+    from .config import DEFAULT_SECRET_KEY
+    if settings.SECRET_KEY == DEFAULT_SECRET_KEY or len(settings.SECRET_KEY) < 16:
+        raise RuntimeError(
+            "FATAL: SECRET_KEY is missing or still the public default. "
+            "Set a strong random SECRET_KEY in .env (it signs JWTs and encrypts "
+            "stored SSH credentials). Example: python3 -c 'import secrets;print(secrets.token_urlsafe(48))'"
+        )
     # create tables (fresh installs), then run SQL migrations (existing DBs)
     Base.metadata.create_all(bind=engine)
     try:
@@ -48,6 +55,21 @@ async def lifespan(app):
             db.add(admin)
             db.commit()
             logger.info("created initial admin user %r", settings.INIT_ADMIN_USERNAME)
+        # one-time move of the legacy single webhook into the channels table
+        from .models import WebhookChannel
+        if not db.query(WebhookChannel).count():
+            wh = db.get(Setting, "alert_webhook_url")
+            if wh and wh.value:
+                tpl = db.get(Setting, "alert_webhook_template")
+                db.add(WebhookChannel(
+                    name="默认通道",
+                    url=wh.value,
+                    template=(tpl.value if tpl else "") or "",
+                    min_severity="info",
+                    enabled=True,
+                ))
+                db.commit()
+                logger.info("migrated legacy webhook into channels table")
     finally:
         db.close()
     scheduler.start_scheduler()
@@ -62,9 +84,9 @@ app = FastAPI(
     lifespan=lifespan,
     # API docs are disabled unless explicitly enabled (DOCS_ENABLED=yes) —
     # the schema maps the whole attack surface; don't hand it out unauthenticated.
-    docs_url="/docs" if settings.DOCS_ENABLED else None,
-    redoc_url="/redoc" if settings.DOCS_ENABLED else None,
-    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
 
 
@@ -157,7 +179,7 @@ def get_app_settings(_: User = Depends(require_admin)):
 def update_app_settings(body: SettingsUpdate, _: User = Depends(require_admin)):
     db = SessionLocal()
     try:
-        if body.poll_interval is not None and body.poll_interval is not None:
+        if body.poll_interval is not None:
             try:
                 interval = int(body.poll_interval)
             except (TypeError, ValueError):
@@ -165,7 +187,7 @@ def update_app_settings(body: SettingsUpdate, _: User = Depends(require_admin)):
             if interval < 10:
                 raise HTTPException(status_code=400, detail="poll_interval must be >= 10 seconds")
             _set_setting(db, "poll_interval", str(interval))
-        if body.retention_days is not None and body.retention_days is not None:
+        if body.retention_days is not None:
             try:
                 days = int(body.retention_days)
             except (TypeError, ValueError):
@@ -197,6 +219,51 @@ def _set_setting(db, key: str, value: str) -> None:
     db.commit()
 
 
+# ---------------- detector thresholds ----------------
+_THRESHOLD_KEYS = {
+    "gpu_idle_vram_pct": (1.0, 95.0, 30.0),
+    "gpu_idle_minutes": (5.0, 1440.0, 30.0),
+    "health_cpu_pct": (50.0, 100.0, 90.0),
+    "health_mem_pct": (50.0, 100.0, 92.0),
+    "health_disk_pct": (50.0, 100.0, 90.0),
+}
+
+
+@misc_router.get("/settings/thresholds")
+def get_thresholds(_: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        out = {}
+        for key, (_lo, _hi, default) in _THRESHOLD_KEYS.items():
+            row = db.get(Setting, key)
+            try:
+                out[key] = float(row.value) if row and row.value else default
+            except ValueError:
+                out[key] = default
+        return out
+    finally:
+        db.close()
+
+
+@misc_router.put("/settings/thresholds")
+def update_thresholds(body: dict, _: User = Depends(require_admin)):
+    db = SessionLocal()
+    try:
+        for key, (lo, hi, _default) in _THRESHOLD_KEYS.items():
+            if key not in body:
+                continue
+            try:
+                v = float(body[key])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{key} must be a number")
+            if not (lo <= v <= hi):
+                raise HTTPException(status_code=400, detail=f"{key} must be in [{lo}, {hi}]")
+            _set_setting(db, key, str(v))
+        return {"ok": True}
+    finally:
+        db.close()
+
+
 app.include_router(misc_router)
 
 
@@ -215,8 +282,13 @@ if os.path.isdir(DIST_DIR):
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
-        candidate = os.path.join(DIST_DIR, full_path)
-        if full_path and os.path.isfile(candidate):
+        root_real = os.path.realpath(DIST_DIR)
+        candidate = os.path.realpath(os.path.join(DIST_DIR, full_path))
+        if (
+            full_path
+            and candidate.startswith(root_real + os.sep)
+            and os.path.isfile(candidate)
+        ):
             return FileResponse(candidate)
         return FileResponse(os.path.join(DIST_DIR, "index.html"))
 

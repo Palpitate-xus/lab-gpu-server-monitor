@@ -36,23 +36,34 @@ def cluster_history(
     _: User = Depends(get_current_user),
 ):
     """Time series of cluster-wide averages for the cockpit trend chart."""
+    from sqlalchemy.orm import load_only
+
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (
         db.query(ServerMetric)
+        .options(load_only(
+            ServerMetric.server_id, ServerMetric.collected_at,
+            ServerMetric.cpu_percent, ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
+            ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
+            ServerMetric.disk_io,
+        ))
         .filter(ServerMetric.collected_at >= since, ServerMetric.status == "ok")
         .order_by(ServerMetric.collected_at.asc())
         .all()
     )
 
-    # group by minute bucket (HH:MM) to smooth multi-server samples
-    buckets: dict[str, dict[str, list[float]]] = {}
+    # group by minute bucket; the key must include the date or 48h windows
+    # merge same-clock-time samples across days and sort wrong over midnight
+    buckets: dict[str, dict] = {}
     for m in rows:
-        key = m.collected_at.strftime("%H:%M")
+        key = m.collected_at.strftime("%Y-%m-%d %H:%M")
         b = buckets.setdefault(
             key,
             {"cpu": [], "mem": [], "gpu_util": [], "gpu_mem": [], "gpu_temp": [], "gpu_power": [],
-             "net_rx": [], "net_tx": [], "disk_read": [], "disk_write": []},
+             "net_rx": [], "net_tx": [], "disk_read": [], "disk_write": [], "servers": set(),
+             "minute": m.collected_at.replace(second=0, microsecond=0)},
         )
+        b["servers"].add(m.server_id)
         b["cpu"].append(m.cpu_percent or 0)
         if m.mem_total_mb:
             b["mem"].append(m.mem_used_mb / m.mem_total_mb * 100)
@@ -75,15 +86,18 @@ def cluster_history(
     series = []
     for key in sorted(buckets.keys()):
         b = buckets[key]
+        minute = b["minute"]
+        if minute.tzinfo is None:
+            minute = minute.replace(tzinfo=timezone.utc)
         series.append(
             {
-                "time": key,
+                "time": minute.isoformat().replace("+00:00", "Z"),
                 "cpu_percent": _avg(b["cpu"]),
                 "mem_percent": _avg(b["mem"]),
                 "gpu_util": _avg(b["gpu_util"]),
                 "gpu_mem_percent": _avg(b["gpu_mem"]),
                 "gpu_temp": _max(b["gpu_temp"]),
-                "gpu_power": round(sum(b["gpu_power"]) / max(1, len(set(r.server_id for r in rows))), 1) if b["gpu_power"] else 0,
+                "gpu_power": round(sum(b["gpu_power"]) / max(1, len(b["servers"])), 1) if b["gpu_power"] else 0,
                 "net_bps": round(_sum(b["net_rx"]), 1),
                 "net_bps_tx": round(_sum(b["net_tx"]), 1),
                 "disk_bps": round(_sum(b["disk_read"]), 1),
@@ -96,19 +110,30 @@ def cluster_history(
 @router.get("/cluster-gpus")
 def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """Flat GPU inventory across all servers for the cockpit heatmap matrix."""
+    from sqlalchemy import and_, func
+
     servers = db.query(Server).order_by(Server.id).all()
+    sub = (
+        db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
+        .group_by(ServerMetric.server_id)
+        .subquery()
+    )
+    latest = {
+        m.server_id: m
+        for m in db.query(ServerMetric)
+        .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
+                        ServerMetric.collected_at == sub.c.mx))
+        .all()
+    }
     result = []
     for s in servers:
-        m = (
-            db.query(ServerMetric)
-            .filter(ServerMetric.server_id == s.id)
-            .order_by(ServerMetric.collected_at.desc())
-            .first()
-        )
+        m = latest.get(s.id)
         entry = {
             "server_id": s.id,
             "server_name": s.name,
             "enabled": s.enabled,
+            "status": s.status or "active",
+            "tags": s.tags or [],
             "online": bool(m and m.status == "ok"),
             "error": m.error if (m and m.status != "ok") else "",
             "hostname": m.hostname if m else "",

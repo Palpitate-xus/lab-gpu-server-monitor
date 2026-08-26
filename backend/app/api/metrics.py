@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -11,6 +12,27 @@ from ..ssh_collector import live_processes, remote_command
 from .. import scheduler
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
+
+
+def _latest_by_server(db: Session) -> dict[int, ServerMetric]:
+    """One query for the newest metric row of every server (no N+1)."""
+    sub = (
+        db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
+        .group_by(ServerMetric.server_id)
+        .subquery()
+    )
+    rows = (
+        db.query(ServerMetric)
+        .join(
+            sub,
+            and_(
+                ServerMetric.server_id == sub.c.server_id,
+                ServerMetric.collected_at == sub.c.mx,
+            ),
+        )
+        .all()
+    )
+    return {m.server_id: m for m in rows}
 
 
 @router.get("/dashboard", response_model=DashboardStats)
@@ -27,13 +49,9 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
     gpu_utils: list[float] = []
     online = 0
     error = 0
+    latest = _latest_by_server(db)
     for s in servers:
-        m = (
-            db.query(ServerMetric)
-            .filter(ServerMetric.server_id == s.id)
-            .order_by(ServerMetric.collected_at.desc())
-            .first()
-        )
+        m = latest.get(s.id)
         if m is None or m.status != "ok":
             if m is not None and m.status == "error":
                 error += 1
@@ -67,14 +85,10 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
 @router.get("/latest", response_model=list[MetricOut])
 def latest_metrics(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     servers = db.query(Server).order_by(Server.id).all()
+    latest = _latest_by_server(db)
     out = []
     for s in servers:
-        m = (
-            db.query(ServerMetric)
-            .filter(ServerMetric.server_id == s.id)
-            .order_by(ServerMetric.collected_at.desc())
-            .first()
-        )
+        m = latest.get(s.id)
         if m is not None:
             out.append(m)
     return out
@@ -100,16 +114,27 @@ def server_history(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    from sqlalchemy.orm import load_only
+
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (
         db.query(ServerMetric)
+        .options(load_only(
+            ServerMetric.collected_at, ServerMetric.status,
+            ServerMetric.cpu_percent, ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
+            ServerMetric.swap_used_mb, ServerMetric.swap_total_mb,
+            ServerMetric.disks, ServerMetric.net_ifaces, ServerMetric.disk_io,
+            ServerMetric.gpus, ServerMetric.load1, ServerMetric.cpu_count,
+        ))
         .filter(ServerMetric.server_id == server_id, ServerMetric.collected_at >= since)
         .order_by(ServerMetric.collected_at.asc())
         .all()
     )
+    # downsample long windows to ~720 points (frontend charts do not need more)
+    stride = max(1, len(rows) // 720)
     series = []
-    for m in rows:
-        if m.status != "ok":
+    for idx, m in enumerate(rows):
+        if m.status != "ok" or idx % stride:
             continue
         gpus = m.gpus or []
         utils = [g.get("utilization", 0) or 0 for g in gpus]
@@ -141,7 +166,10 @@ def server_history(
         disk_w = sum(d.get("write_bps", 0) or 0 for d in (m.disk_io or []))
         series.append(
             {
-                "time": m.collected_at.isoformat(),
+                "time": (
+                    m.collected_at.replace(tzinfo=timezone.utc)
+                    if m.collected_at.tzinfo is None else m.collected_at
+                ).isoformat(),
                 "cpu_percent": m.cpu_percent,
                 "mem_percent": round(mem_pct, 1),
                 "swap_percent": round(swap_pct, 1),
@@ -164,12 +192,22 @@ def server_history(
 
 
 @router.post("/refresh")
-def refresh_now(_: User = Depends(get_current_user)):
-    scheduler.trigger_poll()
+def refresh_now(_: User = Depends(require_admin)):
+    started = scheduler.trigger_poll()
+    if not started:
+        raise HTTPException(status_code=409, detail="采集周期正在运行，请稍后再试")
     return {"ok": True, "status": scheduler.scheduler_status()}
 
 
 # ---------------- live processes / process actions (btop parity) ----------------
+
+import threading
+import time as _time
+
+_procs_cache: dict[int, tuple[float, dict]] = {}
+_procs_lock = threading.Lock()
+_PROCS_TTL = 10.0
+
 
 @router.get("/server/{server_id}/processes")
 def server_processes(
@@ -179,6 +217,10 @@ def server_processes(
     db: Session = Depends(get_db),
 ):
     """Fresh process table fetched live over SSH (not from history)."""
+    with _procs_lock:
+        hit = _procs_cache.get(server_id)
+        if hit and _time.monotonic() - hit[0] < _PROCS_TTL:
+            return hit[1]
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -193,7 +235,10 @@ def server_processes(
     )
     if not ok:
         raise HTTPException(status_code=502, detail=str(data))
-    return {"processes": data, "count": len(data)}
+    payload = {"processes": data, "count": len(data)}
+    with _procs_lock:
+        _procs_cache[server_id] = (_time.monotonic(), payload)
+    return payload
 
 
 @router.post("/server/{server_id}/processes/action")

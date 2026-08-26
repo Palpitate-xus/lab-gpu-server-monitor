@@ -1,0 +1,3 @@
+-- 005 (SQLite variant): SQLite cannot change a column's type in place.
+-- Fresh databases get BIGINT from create_all(); old SQLite files keep INT,
+-- which is fine because fd_allocated/fd_max are capped on insert.

@@ -19,7 +19,7 @@ def audit(db: Session, username: str, action: str, detail: str = "") -> None:
 
 
 @router.get("", response_model=list[UserOut])
-def list_users(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     return db.query(User).order_by(User.id).all()
 
 
@@ -104,4 +104,7 @@ def change_password(
     db.commit()
     token_revocation.revoke_user_tokens(current.id)  # kill all sessions incl. stolen tokens
     audit(db, current.username, "user.password", "changed own password")
-    return {"ok": True}
+    # re-issue a token for THIS session (all old ones were just revoked)
+    from ..security import create_access_token
+
+    return {"ok": True, "access_token": create_access_token(current.username, current.id)}

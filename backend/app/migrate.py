@@ -29,6 +29,12 @@ _TOLERATED = (
     "already exists",
     "duplicate key name",
     "check that column/key exists",  # mysql drop-index miss
+    # fresh databases get the final schema from create_all(); legacy-column
+    # drops/alterations legitimately find nothing to change
+    "no such column",
+    "unknown column",
+    "can't drop",  # mysql: can't drop column/key that doesn't exist
+    "check that column exists",
 )
 
 
@@ -77,6 +83,10 @@ def run_migrations() -> list[str]:
         done = _applied(conn)
         for fname in files:
             if fname in done:
+                continue
+            if fname.endswith(".mysql.sql") and not IS_MYSQL:
+                continue
+            if fname.endswith(".sqlite.sql") and IS_MYSQL:
                 continue
             with open(os.path.join(MIGRATIONS_DIR, fname), encoding="utf-8") as fh:
                 sql = fh.read()

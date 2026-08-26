@@ -1,13 +1,21 @@
-"""Webhook notifier for alert events (POST JSON; works with企业微信/钉钉/飞书 via 转换)."""
+"""Webhook notifier for alert events (POST JSON; works with 企业微信/钉钉/飞书 via 转换).
+
+Routing:
+  - webhook_channels table: one row per target, each with its own template and
+    a minimum severity filter (info | warning | critical)
+  - legacy single-target settings (alert_webhook_url/template) are still honored
+    as a fallback so existing deployments keep working
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 import urllib.request
 from datetime import datetime, timezone
 
 from .database import SessionLocal
-from .models import Setting
+from .models import Setting, WebhookChannel
 
 logger = logging.getLogger("gpumon.alerts")
 
@@ -19,6 +27,8 @@ DEFAULT_TEMPLATE = (
     '{"text": "[{{level}}] {{server_name}}: {{metric}}={{value}} {{op}} {{threshold}} '
     '({{rule_name}}) at {{time}}"}'
 )
+
+_SEV_RANK = {"info": 0, "warning": 1, "critical": 2}
 
 
 def get_webhook_config() -> tuple[str, str]:
@@ -35,9 +45,13 @@ def get_webhook_config() -> tuple[str, str]:
 
 
 def _render(template: str, ctx: dict) -> str:
+    """Placeholder substitution; values are JSON-string-escaped so user data
+    can never break out of the payload structure."""
     out = template
     for k, v in ctx.items():
-        out = out.replace("{{" + k + "}}", str(v))
+        # json.dumps then strip the outer quotes -> safe inline escaping
+        safe = json.dumps(str(v), ensure_ascii=False)[1:-1]
+        out = out.replace("{{" + k + "}}", safe)
     return out
 
 
@@ -98,10 +112,42 @@ def send_webhook(url: str, template: str, ctx: dict) -> tuple[bool, str]:
         return False, f"{type(e).__name__}: {e}"
 
 
-def notify_alert(server_name: str, metric: str, value: float, op: str, threshold: float, rule_name: str) -> tuple[bool, str]:
-    url, template = get_webhook_config()
-    if not url:
+def _channels() -> list[tuple[str, str, str]]:
+    """(url, template, min_severity) for all enabled targets."""
+    out: list[tuple[str, str, str]] = []
+    db = SessionLocal()
+    try:
+        for ch in db.query(WebhookChannel).filter(WebhookChannel.enabled.is_(True)).all():
+            if ch.url:
+                out.append((ch.url, ch.template or DEFAULT_TEMPLATE, ch.min_severity or "info"))
+    finally:
+        db.close()
+    if not out:
+        url, tpl = get_webhook_config()
+        if url:
+            out.append((url, tpl, "info"))
+    return out
+
+
+def _dispatch(ctx: dict, severity: str = "info") -> tuple[bool, str]:
+    targets = _channels()
+    if not targets:
         return False, "webhook not configured"
+    rank = _SEV_RANK.get(severity, 0)
+    results = []
+    for url, tpl, min_sev in targets:
+        if _SEV_RANK.get(min_sev, 0) > rank:
+            continue  # below this channel's threshold
+        ok, msg = send_webhook(url, tpl, ctx)
+        results.append((ok, msg))
+    if not results:
+        return False, "all channels below severity threshold"
+    ok = any(r[0] for r in results)
+    return ok, "; ".join(r[1] for r in results)
+
+
+def notify_alert(server_name: str, metric: str, value: float, op: str, threshold: float,
+                 rule_name: str, severity: str = "warning") -> tuple[bool, str]:
     ctx = {
         "level": "ALERT",
         "server_name": server_name,
@@ -112,13 +158,11 @@ def notify_alert(server_name: str, metric: str, value: float, op: str, threshold
         "rule_name": rule_name,
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
-    return send_webhook(url, template, ctx)
+    return _dispatch(ctx, severity)
 
 
-def notify_recovery(server_name: str, metric: str, rule_name: str) -> tuple[bool, str]:
-    url, template = get_webhook_config()
-    if not url:
-        return False, "webhook not configured"
+def notify_recovery(server_name: str, metric: str, rule_name: str,
+                    severity: str = "info") -> tuple[bool, str]:
     ctx = {
         "level": "RECOVERY",
         "server_name": server_name,
@@ -129,4 +173,4 @@ def notify_recovery(server_name: str, metric: str, rule_name: str) -> tuple[bool
         "rule_name": rule_name,
         "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
-    return send_webhook(url, template, ctx)
+    return _dispatch(ctx, severity)

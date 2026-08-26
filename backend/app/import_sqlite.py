@@ -80,8 +80,17 @@ def import_from_sqlite(sqlite_path: str, with_history: bool = True) -> dict:
         db.commit()
         counts["alert_rules"] = n
 
+        # idempotency: remember what the target already has so re-running the
+        # import never duplicates rows
+        existing_events = {
+            (r.server_id, r.metric, r.triggered_at)
+            for r in db.query(AlertEvent.server_id, AlertEvent.metric,
+                              AlertEvent.triggered_at).all()
+        }
         n = 0
         for row in _fetch_all(cur, "alert_events"):
+            if (row["server_id"], row["metric"], row["triggered_at"]) in existing_events:
+                continue
             db.add(AlertEvent(
                 rule_id=row.get("rule_id"), rule_name=row.get("rule_name") or "",
                 server_id=row["server_id"], server_name=row.get("server_name") or "",
@@ -103,10 +112,12 @@ def import_from_sqlite(sqlite_path: str, with_history: bool = True) -> dict:
         db.commit()
         counts["audit_logs"] = n
 
-        # metrics history (bulk, chunked)
+        # metrics history (chunked; skips rows already present in the target)
         if with_history:
-            cur.execute("SELECT COUNT(*) FROM server_metrics")
-            total = cur.fetchone()[0]
+            existing_metrics = {
+                (r.server_id, r.collected_at)
+                for r in db.query(ServerMetric.server_id, ServerMetric.collected_at).all()
+            }
             cur.execute("SELECT * FROM server_metrics ORDER BY id")
             cols = [d[0] for d in cur.description]
             n = 0
@@ -114,6 +125,8 @@ def import_from_sqlite(sqlite_path: str, with_history: bool = True) -> dict:
             buffer = []
             for row in cur.fetchall():
                 r = dict(zip(cols, row))
+                if (r["server_id"], r["collected_at"]) in existing_metrics:
+                    continue
                 m = ServerMetric(
                     server_id=r["server_id"], collected_at=r["collected_at"],
                     hostname=r.get("hostname") or "", os=r.get("os") or "",
@@ -141,11 +154,11 @@ def import_from_sqlite(sqlite_path: str, with_history: bool = True) -> dict:
                 buffer.append(m)
                 n += 1
                 if len(buffer) >= CHUNK:
-                    db.bulk_save_objects(buffer)
+                    db.add_all(buffer)
                     db.commit()
                     buffer = []
             if buffer:
-                db.bulk_save_objects(buffer)
+                db.add_all(buffer)
                 db.commit()
             counts["metrics"] = n
         return counts

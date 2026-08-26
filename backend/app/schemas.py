@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------- auth / users ----------------
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -24,7 +24,7 @@ class UserOut(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=2, max_length=64)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=6, max_length=72)
     display_name: str = ""
     email: str = ""
     role: Literal["admin", "viewer"] = "viewer"
@@ -35,12 +35,12 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[Literal["admin", "viewer"]] = None
     is_active: Optional[bool] = None
-    password: Optional[str] = Field(default=None, min_length=6, max_length=128)
+    password: Optional[str] = Field(default=None, min_length=6, max_length=72)
 
 
 class PasswordChange(BaseModel):
-    old_password: str
-    new_password: str = Field(min_length=6, max_length=128)
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=72)
 
 
 # ---------------- servers ----------------
@@ -91,10 +91,19 @@ class ServerOut(BaseModel):
     server_type: str = "gpu"
     tags: list
     note: str
+    status: str = "active"
+    status_reason: str = ""
+    status_until: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     has_password: bool = False
     has_key: bool = False
+
+
+class ServerStatusUpdate(BaseModel):
+    status: Literal["active", "maintenance", "drained", "rma"]
+    reason: str = ""
+    until: Optional[datetime] = None
 
 
 class ConnectionTestRequest(BaseModel):
@@ -248,6 +257,9 @@ class AlertEventOut(BaseModel):
     message: str
     triggered_at: datetime
     recovered_at: Optional[datetime]
+    acked_at: Optional[datetime] = None
+    acked_by: str = ""
+    assignee: str = ""
     notified: bool
 
 
