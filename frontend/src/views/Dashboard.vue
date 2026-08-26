@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="cockpit">
     <div class="toolbar">
       <el-button type="primary" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
       <el-button :icon="DataLine" @click="load">刷新数据</el-button>

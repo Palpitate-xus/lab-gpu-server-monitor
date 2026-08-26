@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="cockpit">
     <div class="toolbar">
       <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">添加服务器</el-button>
       <el-button :icon="Refresh" @click="load">刷新</el-button>

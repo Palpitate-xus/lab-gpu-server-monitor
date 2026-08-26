@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="cockpit">
     <div class="toolbar">
       <el-button type="primary" :icon="Plus" @click="openCreate">新建用户</el-button>
       <el-button :icon="Refresh" @click="load">刷新</el-button>

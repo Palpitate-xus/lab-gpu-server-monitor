@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="cockpit">
     <el-row :gutter="14">
       <el-col :span="12">
         <el-card class="page-card">

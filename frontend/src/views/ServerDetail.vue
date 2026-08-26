@@ -1,5 +1,5 @@
 <template>
-  <div v-loading="loading">
+  <div class="cockpit" v-loading="loading">
     <div class="toolbar">
       <el-page-header @back="$router.push('/servers')" :content="server?.name || '...'" />
       <div style="display:flex;gap:10px;align-items:center">
