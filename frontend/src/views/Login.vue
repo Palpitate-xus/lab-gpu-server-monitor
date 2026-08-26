@@ -2,6 +2,9 @@
   <div class="cockpit login-full">
     <div class="login-grid-glow"></div>
     <div class="login-card">
+      <div class="login-theme-toggle">
+        <ThemeSwitch />
+      </div>
       <div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px">
         <span class="live-dot"></span>
         <div class="login-title">GPU 集群监控平台</div>
@@ -29,6 +32,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import api from '../api'
+import ThemeSwitch from '../components/ThemeSwitch.vue'
 import '../cockpit.css'
 
 const router = useRouter()
@@ -72,8 +76,8 @@ async function submit() {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(34, 211, 238, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 211, 238, 0.05) 1px, transparent 1px);
+    linear-gradient(color-mix(in srgb, var(--cprimary) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--cprimary) 6%, transparent) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 75%);
   -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 75%);
@@ -81,10 +85,10 @@ async function submit() {
 .login-card {
   width: 400px;
   padding: 38px 36px 28px;
-  background: linear-gradient(180deg, rgba(19, 30, 51, 0.92), rgba(13, 21, 38, 0.95));
-  border: 1px solid #1e2d47;
+  background: var(--cpanel);
+  border: 1px solid var(--cborder);
   border-radius: 12px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(34, 211, 238, 0.06);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25), 0 0 0 1px color-mix(in srgb, var(--cprimary) 6%, transparent);
   position: relative;
   z-index: 1;
 }
@@ -94,33 +98,38 @@ async function submit() {
   inset: 0 0 auto 0;
   height: 2px;
   border-radius: 12px 12px 0 0;
-  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.7), transparent);
+  background: linear-gradient(90deg, transparent, var(--cprimary), transparent);
+}
+.login-theme-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 .login-title {
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  background: linear-gradient(180deg, #fff, #9fd8e8);
+  background: linear-gradient(180deg, var(--ctext), var(--cprimary));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .login-sub {
   text-align: center;
-  color: #5b6b85;
+  color: var(--csub);
   font-size: 11px;
   letter-spacing: 0.25em;
   margin-bottom: 26px;
 }
 .dark-input :deep(.el-input__wrapper) {
-  background: rgba(11, 18, 32, 0.8);
-  border: 1px solid #1e2d47;
+  background: var(--cinput-bg);
+  border: 1px solid var(--cinput-border);
   box-shadow: none;
 }
 .dark-input :deep(.el-input__inner) {
-  color: #dce7f5;
+  color: var(--ctext);
 }
 .dark-input :deep(.el-input__prefix .el-icon) {
-  color: #7d90ad;
+  color: var(--csub);
 }
 </style>

@@ -5,7 +5,7 @@
         <span class="live-dot"></span>
         <span>GPU Monitor</span>
       </div>
-      <el-menu :default-active="active" router class="dark-menu" background-color="transparent" text-color="#7d90ad" active-text-color="#22d3ee">
+      <el-menu :default-active="active" router class="dark-menu" background-color="transparent" :text-color="uiTheme.menuText" :active-text-color="uiTheme.menuActive">
         <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
         <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
         <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
@@ -20,18 +20,21 @@
     <el-container>
       <el-header height="60px" class="dark-header">
         <div style="font-weight:600;letter-spacing:0.04em">{{ pageTitle }}</div>
-        <el-dropdown @command="onCommand">
-          <span style="cursor:pointer;display:flex;align-items:center;gap:6px;color:#dce7f5">
-            <el-avatar :size="30" style="background:linear-gradient(135deg,#22d3ee,#0ea5e9)">{{ avatarChar }}</el-avatar>
-            <span>{{ user?.display_name || user?.username }}</span>
-            <el-icon><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <div style="display:flex;align-items:center;gap:14px">
+          <ThemeSwitch />
+          <el-dropdown @command="onCommand">
+            <span style="cursor:pointer;display:flex;align-items:center;gap:6px;color:var(--ctext)">
+              <el-avatar :size="30" style="background:linear-gradient(135deg,var(--cprimary),var(--cpurple))">{{ avatarChar }}</el-avatar>
+              <span>{{ user?.display_name || user?.username }}</span>
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </el-header>
       <el-main class="dark-main">
         <router-view />
@@ -45,6 +48,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import api from '../api'
+import ThemeSwitch from '../components/ThemeSwitch.vue'
+import { uiTheme } from '../theme'
 import '../cockpit.css'
 
 const route = useRoute()
@@ -86,8 +91,8 @@ onUnmounted(() => clearInterval(alertTimer))
 
 <style scoped>
 .dark-aside {
-  background: linear-gradient(180deg, #0d1526, #0b1220) !important;
-  border-right: 1px solid #1e2d47 !important;
+  background: var(--cpanel2) !important;
+  border-right: 1px solid var(--cborder) !important;
 }
 .menu-title {
   height: 60px;
@@ -98,22 +103,22 @@ onUnmounted(() => clearInterval(alertTimer))
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.05em;
-  color: #22d3ee;
-  border-bottom: 1px solid #1e2d47;
+  color: var(--cprimary);
+  border-bottom: 1px solid var(--cborder);
 }
 .dark-menu {
   border-right: none !important;
 }
 .dark-menu :deep(.el-menu-item.is-active) {
-  background: rgba(34, 211, 238, 0.08) !important;
-  border-right: 2px solid #22d3ee;
+  background: var(--ctable-hover) !important;
+  border-right: 2px solid var(--cprimary);
 }
 .dark-menu :deep(.el-menu-item:hover) {
-  background: rgba(34, 211, 238, 0.05);
+  background: var(--ctable-hover);
 }
 .dark-header {
-  background: rgba(13, 21, 38, 0.9) !important;
-  border-bottom: 1px solid #1e2d47 !important;
+  background: var(--cpanel) !important;
+  border-bottom: 1px solid var(--cborder) !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
