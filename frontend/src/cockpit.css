@@ -1,7 +1,38 @@
-/* ===== cockpit dark theme ===== */
+/* ======================================================================
+   Theme system: CSS variables switch on html.dark (dark) / default (light).
+   Dark = sci-fi cockpit palette; Light = clean lab-white with same layout.
+   ====================================================================== */
 
-.cockpit {
+/* ---- light (default) ---- */
+:root {
+  --cbg: #f2f5fa;
+  --cbg-accent1: rgba(8, 145, 178, 0.05);
+  --cbg-accent2: rgba(124, 58, 237, 0.04);
+  --cpanel: #ffffff;
+  --cpanel2: #f7f9fc;
+  --cborder: #dde5f0;
+  --ctext: #1f2d3d;
+  --csub: #64748b;
+  --cprimary: #0891b2;
+  --cgreen: #059669;
+  --cyellow: #d97706;
+  --cred: #dc2626;
+  --cpurple: #7c3aed;
+  --ctooltip-bg: #ffffff;
+  --ctooltip-border: #d8e2ef;
+  --ctooltip-text: #1f2d3d;
+  --cinput-bg: #ffffff;
+  --cinput-border: #d8e2ef;
+  --ctable-head: #f0f4f9;
+  --ctable-hover: rgba(8, 145, 178, 0.06);
+  --cgrid-line: rgba(120, 143, 174, 0.22);
+}
+
+/* ---- dark (sci-fi cockpit) ---- */
+html.dark {
   --cbg: #0b1220;
+  --cbg-accent1: rgba(34, 211, 238, 0.08);
+  --cbg-accent2: rgba(167, 139, 250, 0.07);
   --cpanel: #101a2e;
   --cpanel2: #0d1526;
   --cborder: #1e2d47;
@@ -12,17 +43,36 @@
   --cyellow: #fbbf24;
   --cred: #f87171;
   --cpurple: #a78bfa;
+  --ctooltip-bg: #101a2e;
+  --ctooltip-border: #1e2d47;
+  --ctooltip-text: #dce7f5;
+  --cinput-bg: rgba(11, 18, 32, 0.8);
+  --cinput-border: #1e2d47;
+  --ctable-head: rgba(16, 26, 46, 0.6);
+  --ctable-hover: rgba(34, 211, 238, 0.05);
+  --cgrid-line: rgba(30, 45, 71, 0.5);
+}
+
+/* ===== cockpit shell ===== */
+
+.cockpit {
   background:
-    radial-gradient(1200px 500px at 15% -10%, rgba(34, 211, 238, 0.08), transparent 60%),
-    radial-gradient(1000px 480px at 90% 0%, rgba(167, 139, 250, 0.07), transparent 55%),
+    radial-gradient(1200px 500px at 15% -10%, var(--cbg-accent1), transparent 60%),
+    radial-gradient(1000px 480px at 90% 0%, var(--cbg-accent2), transparent 55%),
     var(--cbg);
   color: var(--ctext);
   min-height: 100%;
   padding: 18px 22px 30px;
 }
 
+/* plain page (no side padding inside layout main) */
+.cockpit.page {
+  padding: 0;
+  min-height: auto;
+}
+
 .cockpit-panel {
-  background: linear-gradient(180deg, rgba(19, 30, 51, 0.92), rgba(13, 21, 38, 0.92));
+  background: var(--cpanel);
   border: 1px solid var(--cborder);
   border-radius: 10px;
   padding: 14px 16px;
@@ -34,8 +84,8 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.55), transparent);
-  opacity: 0.65;
+  background: linear-gradient(90deg, transparent, var(--cprimary), transparent);
+  opacity: 0.55;
 }
 .cockpit-panel-title {
   display: flex;
@@ -53,26 +103,32 @@
   letter-spacing: 0.05em;
 }
 
-/* KPI number */
+.cockpit-panel.stack {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== KPI ===== */
+
 .kpi-value {
   font-size: 34px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
-  background: linear-gradient(180deg, #fff, #9fd8e8);
+  background: linear-gradient(180deg, var(--ctext), var(--cprimary));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .kpi-unit { font-size: 14px; font-weight: 500; color: var(--csub); margin-left: 3px; }
 .kpi-label { font-size: 12px; color: var(--csub); margin-top: 2px; letter-spacing: 0.06em; }
-.kpi-spark { margin-top: 6px; height: 26px; }
-.kpi-accent-cyan .kpi-value { background: linear-gradient(180deg, #e8fdff, #22d3ee); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-green .kpi-value { background: linear-gradient(180deg, #ecfff5, #34d399); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-purple .kpi-value { background: linear-gradient(180deg, #f5f0ff, #a78bfa); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-yellow .kpi-value { background: linear-gradient(180deg, #fffbeb, #fbbf24); -webkit-background-clip: text; background-clip: text; }
+.kpi-accent-cyan .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cprimary)); -webkit-background-clip: text; background-clip: text; }
+.kpi-accent-green .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cgreen)); -webkit-background-clip: text; background-clip: text; }
+.kpi-accent-purple .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cpurple)); -webkit-background-clip: text; background-clip: text; }
+.kpi-accent-yellow .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cyellow)); -webkit-background-clip: text; background-clip: text; }
 
-/* GPU matrix cell */
+/* ===== GPU matrix ===== */
+
 .gpu-matrix {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
@@ -89,9 +145,9 @@
   overflow: hidden;
 }
 .gpu-cell:hover { transform: translateY(-2px); border-color: var(--cprimary); }
-.gpu-cell-idle { border-color: rgba(52, 211, 153, 0.5); }
-.gpu-cell-busy { border-color: rgba(251, 191, 36, 0.55); }
-.gpu-cell-full { border-color: rgba(248, 113, 113, 0.6); }
+.gpu-cell-idle { border-color: color-mix(in srgb, var(--cgreen) 45%, var(--cborder)); }
+.gpu-cell-busy { border-color: color-mix(in srgb, var(--cyellow) 55%, var(--cborder)); }
+.gpu-cell-full { border-color: color-mix(in srgb, var(--cred) 60%, var(--cborder)); }
 .gpu-cell-offline { opacity: 0.45; filter: grayscale(0.8); }
 .gpu-cell-head { display: flex; justify-content: space-between; align-items: baseline; }
 .gpu-cell-name { font-size: 12px; font-weight: 600; color: var(--ctext); }
@@ -99,7 +155,7 @@
 .gpu-util-bar {
   height: 5px;
   border-radius: 3px;
-  background: #1a2740;
+  background: color-mix(in srgb, var(--csub) 18%, transparent);
   margin: 7px 0 5px;
   overflow: hidden;
 }
@@ -107,11 +163,8 @@
 .gpu-cell-rows { font-size: 11px; color: var(--csub); display: flex; flex-direction: column; gap: 2px; }
 .gpu-cell-rows .mono { color: var(--ctext); }
 
-/* scrolling alert ticker (fills its panel height) */
-.cockpit-panel.stack {
-  display: flex;
-  flex-direction: column;
-}
+/* ===== alert ticker ===== */
+
 .ticker {
   position: relative;
   overflow: hidden;
@@ -150,22 +203,15 @@
   color: var(--cgreen);
   font-size: 13px;
 }
-/* list that stretches to fill the remaining panel height */
-.fill-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.fill-list .rank-row { flex: 1; }
 
-/* rank list */
+/* ===== rank list ===== */
+
 .rank-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 4px;
-  border-bottom: 1px dashed rgba(30, 45, 71, 0.7);
+  border-bottom: 1px dashed color-mix(in srgb, var(--cborder) 80%, transparent);
   font-size: 13px;
 }
 .rank-row:last-child { border-bottom: none; }
@@ -174,17 +220,27 @@
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700;
-  background: #1a2740; color: var(--csub);
+  background: color-mix(in srgb, var(--csub) 16%, transparent);
+  color: var(--csub);
   flex-shrink: 0;
 }
-.rank-no.top1 { background: rgba(34, 211, 238, 0.18); color: var(--cprimary); }
-.rank-no.top2 { background: rgba(52, 211, 153, 0.16); color: var(--cgreen); }
-.rank-no.top3 { background: rgba(167, 139, 250, 0.16); color: var(--cpurple); }
+.rank-no.top1 { background: color-mix(in srgb, var(--cprimary) 20%, transparent); color: var(--cprimary); }
+.rank-no.top2 { background: color-mix(in srgb, var(--cgreen) 18%, transparent); color: var(--cgreen); }
+.rank-no.top3 { background: color-mix(in srgb, var(--cpurple) 18%, transparent); color: var(--cpurple); }
 .rank-main { flex: 1; min-width: 0; }
 .rank-sub { font-size: 11px; color: var(--csub); }
 .rank-val { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-/* live dot */
+.fill-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.fill-list .rank-row { flex: 1; }
+
+/* ===== live dot ===== */
+
 .live-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--cgreen);
@@ -192,48 +248,56 @@
   animation: pulse 2s infinite;
 }
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
-  50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0); }
-}
-.live-dot.err { background: var(--cred); animation-name: pulse-red; }
-@keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6); }
-  50% { box-shadow: 0 0 0 5px rgba(248, 113, 113, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cgreen) 50%, transparent); }
+  50% { box-shadow: 0 0 0 5px transparent; }
 }
 
-/* dark overrides for element-plus inside cockpit */
+/* ===== charts / misc ===== */
+
+.chart-box { height: 300px; width: 100%; }
+
+/* ===== element-plus overrides (vars switch with theme) ===== */
+
 .cockpit .el-table { background: transparent; color: var(--ctext); }
 .cockpit .el-table tr { background: transparent; }
-.cockpit .el-table td.el-table__cell, .cockpit .el-table th.el-table__cell { border-bottom: 1px solid rgba(30, 45, 71, 0.6); }
-.cockpit .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: rgba(34, 211, 238, 0.05); }
+.cockpit .el-table td.el-table__cell, .cockpit .el-table th.el-table__cell { border-bottom: 1px solid color-mix(in srgb, var(--cborder) 70%, transparent); }
+.cockpit .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: var(--ctable-hover); }
 .cockpit .el-table::before { display: none; }
 .cockpit .el-progress__text { color: var(--ctext) !important; }
-.cockpit .el-table th.el-table__cell { background: rgba(16, 26, 46, 0.6) !important; color: var(--csub); }
-.cockpit .el-card { background: linear-gradient(180deg, rgba(19, 30, 51, 0.92), rgba(13, 21, 38, 0.92)); border: 1px solid var(--cborder); color: var(--ctext); }
+.cockpit .el-table th.el-table__cell { background: var(--ctable-head) !important; color: var(--csub); }
+.cockpit .el-card { background: var(--cpanel); border: 1px solid var(--cborder); color: var(--ctext); }
 .cockpit .el-card__header { border-bottom: 1px solid var(--cborder); color: var(--ctext); }
-.cockpit .el-dialog { background: #101a2e; border: 1px solid var(--cborder); }
+.cockpit .el-dialog { background: var(--cpanel); border: 1px solid var(--cborder); }
 .cockpit .el-dialog__title { color: var(--ctext); }
 .cockpit .el-form-item__label { color: var(--csub); }
-.cockpit .el-input__wrapper, .cockpit .el-textarea__inner { background: rgba(11, 18, 32, 0.8) !important; border: 1px solid var(--cborder); box-shadow: none !important; }
+.cockpit .el-input__wrapper, .cockpit .el-textarea__inner { background: var(--cinput-bg) !important; border: 1px solid var(--cinput-border); box-shadow: none !important; }
 .cockpit .el-input__inner, .cockpit .el-textarea__inner { color: var(--ctext) !important; }
-.cockpit .el-input__inner::placeholder, .cockpit .el-textarea__inner::placeholder { color: #56688a; }
-.cockpit .el-select__wrapper { background: rgba(11, 18, 32, 0.8) !important; border: 1px solid var(--cborder) !important; box-shadow: none !important; }
-.cockpit .el-select__placeholder { color: #56688a; }
-.cockpit .el-switch__core { background: #1a2740; border-color: var(--cborder); }
-.cockpit .el-descriptions { --el-descriptions-item-bordered-label-background: rgba(16, 26, 46, 0.6); }
+.cockpit .el-input__inner::placeholder, .cockpit .el-textarea__inner::placeholder { color: color-mix(in srgb, var(--csub) 75%, transparent); }
+.cockpit .el-select__wrapper { background: var(--cinput-bg) !important; border: 1px solid var(--cinput-border) !important; box-shadow: none !important; }
+.cockpit .el-select__placeholder { color: color-mix(in srgb, var(--csub) 75%, transparent); }
+.cockpit .el-switch__core { background: color-mix(in srgb, var(--csub) 25%, transparent); border-color: var(--cinput-border); }
+.cockpit .el-descriptions { --el-descriptions-item-bordered-label-background: var(--ctable-head); }
 .cockpit .el-descriptions__body { background: transparent; color: var(--ctext); }
 .cockpit .el-descriptions__cell { border-color: var(--cborder) !important; }
 .cockpit .el-empty__description p { color: var(--csub); }
-.cockpit .el-pagination { --el-pagination-bg-color: transparent; --el-pagination-button-bg-color: #1a2740; color: var(--csub); }
-.cockpit .el-message-box { background: #101a2e; border: 1px solid var(--cborder); }
+.cockpit .el-pagination { --el-pagination-bg-color: transparent; color: var(--csub); }
+.cockpit .el-message-box { background: var(--cpanel); border: 1px solid var(--cborder); }
 .cockpit .el-message-box__title, .cockpit .el-message-box__message { color: var(--ctext); }
 .cockpit .el-message-box__input .el-input__inner { color: var(--ctext); }
-.cockpit .el-popconfirm { background: #101a2e; }
 .cockpit .el-statistic__number { color: var(--ctext); }
-.cockpit .el-alert--error { background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.3); }
+.cockpit .el-alert--error { background: color-mix(in srgb, var(--cred) 10%, transparent); border-color: color-mix(in srgb, var(--cred) 30%, transparent); }
 .cockpit .el-alert__title { color: var(--cred); }
-.cockpit .el-loading-mask { background-color: rgba(11, 18, 32, 0.7); }
+.cockpit .el-loading-mask { background-color: color-mix(in srgb, var(--cpanel) 70%, transparent); }
 .cockpit .el-page-header__content { color: var(--ctext); }
-.cockpit .el-radio-button__inner { background: transparent; color: var(--csub); border-color: var(--cborder); }
-.cockpit .el-radio-button__original-radio:checked + .el-radio-button__inner { background: rgba(34, 211, 238, 0.15); border-color: var(--cprimary); color: var(--cprimary); }
+.cockpit .el-radio-button__inner { background: transparent; color: var(--csub); border-color: var(--cinput-border); }
+.cockpit .el-radio-button__original-radio:checked + .el-radio-button__inner { background: color-mix(in srgb, var(--cprimary) 15%, transparent); border-color: var(--cprimary); color: var(--cprimary); }
 .cockpit .el-table__empty-block { background: transparent; }
+.cockpit .el-table__body tr.el-table__row { --el-table-tr-bg-color: transparent; }
+
+/* matrix legend tags */
+.tag-idle { background: color-mix(in srgb, var(--cgreen) 14%, transparent); border-color: color-mix(in srgb, var(--cgreen) 40%, transparent); color: var(--cgreen); }
+.tag-busy { background: color-mix(in srgb, var(--cyellow) 14%, transparent); border-color: color-mix(in srgb, var(--cyellow) 40%, transparent); color: var(--cyellow); margin-left: 4px; }
+.tag-full { background: color-mix(in srgb, var(--cred) 14%, transparent); border-color: color-mix(in srgb, var(--cred) 40%, transparent); color: var(--cred); margin-left: 4px; }
+
+.io-label { color: var(--csub); }
+.io-row b { color: var(--ctext); }
