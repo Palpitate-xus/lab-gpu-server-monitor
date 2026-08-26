@@ -52,6 +52,7 @@ class Server(Base):
     private_key: Mapped[str] = mapped_column(Text, default="")  # encrypted
     passphrase: Mapped[str] = mapped_column(Text, default="")  # encrypted
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    server_type: Mapped[str] = mapped_column(String(8), default="gpu")  # gpu | cpu
     tags: Mapped[list] = mapped_column(JSON, default=list)
     note: Mapped[str] = mapped_column(Text, default="")
     expected_gpu_count: Mapped[int] = mapped_column(Integer, default=0)

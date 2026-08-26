@@ -54,6 +54,7 @@ class ServerBase(BaseModel):
     private_key: Optional[str] = None
     passphrase: Optional[str] = None
     enabled: bool = True
+    server_type: Literal["gpu", "cpu"] = "gpu"
     tags: list[str] = []
     note: str = ""
 
@@ -72,6 +73,7 @@ class ServerUpdate(BaseModel):
     private_key: Optional[str] = None
     passphrase: Optional[str] = None
     enabled: Optional[bool] = None
+    server_type: Optional[Literal["gpu", "cpu"]] = None
     tags: Optional[list[str]] = None
     note: Optional[str] = None
 
@@ -84,8 +86,9 @@ class ServerOut(BaseModel):
     host: str
     port: int
     auth_type: str
-    username: str
+    # username intentionally NOT returned (SSH account name is sensitive)
     enabled: bool
+    server_type: str = "gpu"
     tags: list
     note: str
     created_at: datetime

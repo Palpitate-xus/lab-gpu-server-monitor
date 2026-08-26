@@ -86,6 +86,8 @@ def update_server(
         server.passphrase = encrypt_text(body.passphrase)
     if body.enabled is not None:
         server.enabled = body.enabled
+    if body.server_type is not None:
+        server.server_type = body.server_type
     if body.tags is not None:
         server.tags = body.tags
     if body.note is not None:
