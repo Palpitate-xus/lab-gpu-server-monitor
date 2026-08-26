@@ -12,6 +12,7 @@ const routes = [
       { path: 'servers', name: 'servers', component: () => import('./views/Servers.vue'), meta: { title: '服务器' } },
       { path: 'servers/:id', name: 'server-detail', component: () => import('./views/ServerDetail.vue'), meta: { title: '服务器详情' } },
       { path: 'alerts', name: 'alerts', component: () => import('./views/Alerts.vue'), meta: { title: '告警' } },
+      { path: 'gpu-analysis', name: 'gpu-analysis', component: () => import('./views/GpuAnalysis.vue'), meta: { title: 'GPU 分析' } },
       { path: 'users', name: 'users', component: () => import('./views/Users.vue'), meta: { title: '用户管理', admin: true } },
       { path: 'settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', admin: true } }
     ]
