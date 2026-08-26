@@ -1,28 +1,73 @@
 # GPU 服务器监控平台
 
 基于 **Vue 3 + Element Plus + ECharts + FastAPI + SSH** 的多服务器监控 Docker 应用，
-指标覆盖对标 **btop**，历史数据永久入库（可配保留期）。
+**Agentless 架构**（服务器端零常驻 Agent、零监听端口），指标覆盖对标 **btop** 并扩展
+GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 / 风险预测）。
 
-## 功能总览
+```text
+                ┌────────────────┐
+                │ Central Server │  FastAPI + Scheduler + MySQL
+                └───────┬────────┘
+                        │ SSH（key/password, TOFU hostkey）
+         ┌──────────────┼──────────────┐
+         ▼              ▼              ▼
+     GPU Server 1   GPU Server 2   GPU Server N
+     只读命令白名单 · LC_ALL=C · 输出限流 · 无落地文件
+         │
+    ==SECTION== 分隔协议（stdout）
+         ▼
+   Parse → MySQL → Dashboard/Alerts/Detectors
+```
 
-### 监控采集（单次 SSH 连接、一个 POSIX 脚本、1 秒采样窗口）
-- **CPU**：型号、核数、总使用率、**每核使用率/频率/温度**（btop 网格）、封装温度、1/5/15 负载
-- **内存**：总量/已用/可用/缓存 buff/cache（含 `MemAvailable` 修正）、Swap
-- **磁盘**：每分区容量用量 + **每设备 IO 速率（读/写 BPS、IOPS、繁忙度 %）**（/proc/diskstats 差分）
-- **网络**：每接口实时上下行速率（/proc/net/dev 差分）
-- **GPU**：`nvidia-smi` — 利用率、显存、温度、功耗、风扇、驱动、**核心/显存频率(当前/最大)、pstate、
-  编解码会话数、compute mode**、每卡计算进程（PID/用户/显存/命令行）；旧驱动自动降级字段
-- **进程**：全量进程表（PID/PPID/用户/CPU/内存/RSS/VSZ/状态/运行时长/完整命令行）
-- **系统**：主机名、发行版、内核、运行时长、登录用户（who）
+## 采集分层
 
-### 平台功能
+| 层 | 频率 | 内容 |
+|---|---|---|
+| **fast** | 每轮（默认 30-60s） | CPU（含 iowait/每核）、内存（HugePages）、磁盘空间+inode、每设备 IO、NIC 速率/错误/丢包/链路状态、GPU 全量（利用率/显存/温度/显存温度/功耗/频率/pstate/**降频原因/ECC/PCIe 链路/retired pages**/计算进程）、进程表、登录用户、TCP/fd |
+| **kernel** | 每轮 | `journalctl -k` 增量 → **Xid / OOM / MCE / EDAC / PCIe AER / IO / NVMe / NFS / NIC reset** 事件（boot_id+hash 去重入库） |
+| **slow** | 每 5 分钟 | **NVMe SMART**（温度/备用空间/寿命/介质错误/意外断电）、mdraid 状态、NFS 挂载、systemd failed、关键服务（sshd/docker/kubelet/slurmd/nvidia-persistenced）、**MIG**、NVLink、IPMI/BMC 传感器 |
+| **inventory** | 每 24 小时 | machine-id、DMI/BIOS/序列号、lscpu、**NUMA 拓扑（节点 CPU/内存）**、`nvidia-smi topo -m`、PCI 设备 NUMA 归属、磁盘/网卡清单（serial/MAC 稳定 ID）、InfiniBand、NTP 时间同步状态 |
+
+## 内置健康检测器（13 个，非用户规则）
+
+`GPU_IDLE_VRAM_HELD`（空占/僵尸进程：显存>30% 且利用率≈0 持续 30 分钟）、
+`GPU_MISSING`（GPU UUID 基线对比——掉卡检测）、`GPU_ECC_UNCORRECTED`、`GPU_XID`、
+`GPU_THERMAL_THROTTLE`、`NVME_HEALTH`、`RAID_DEGRADED`、`HOSTKEY_CHANGED`、
+`SSH_FAULT`（区分 AUTH/DNS/REFUSED/TIMEOUT/HOSTKEY 而非统一 Offline）、
+`NFS_STALE`、`SERVICE_FAILED`、`OOM_KILL`、`STORAGE_BOTTLENECK`
+（关联诊断：GPU 利用率骤降 + iowait 升高 + 磁盘繁忙 → 疑似存储瓶颈）。
+
+**GPU 风险评分**（0-100，24h 窗口）：Xid 事件 ×20、不可纠正 ECC ×5、热降频、
+高温、PCIe 链路降级加权；≥60 高危 / ≥30 关注。GPU 以 **UUID 为唯一标识**，
+基线自动记录新增/消失。
+
+## 安全架构
+
+- **Host Key 校验**：TOFU（首次信任并记录），密钥变化立即中止并告警（防 MITM）；
+  管理员确认服务器重装后可一键重置
+- **凭据**：Fernet 加密存储；建议专用 `monitor` 用户 + ED25519 key +
+  `authorized_keys` 限制（`no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`）
+- **命令白名单**：采集命令全部内置固定模板，前端/用户**不可能**注入 shell
+- **服务器端零残留**：脚本经 stdin（`bash -s`）执行，不落盘、无后台进程
+- **输出限流**：单采集器 2MB 上限，`LC_ALL=C` 固定 locale
+- **最小 sudo**：全部指标无需 root；仅 `nvme smart-log`/`ipmitool`/`journalctl`
+  建议按需放开（sudoers 白名单单条命令）
+- 进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin；viewer 只读；
+  敏感操作全部审计日志
+
+## 平台功能
+
 - **登录/用户管理**：JWT、admin/viewer 角色、改密、禁用、审计日志
-- **服务器管理**：密码 或 SSH 私钥(+口令) 认证，凭据 Fernet 加密，测试连接
-- **进程操作（admin）**：实时进程表（15s 自动刷新、CPU/内存/时长排序、关键字过滤）、**kill（可选信号）/ renice**
-- **告警**：9 种指标规则（CPU/内存/Swap/磁盘/每核负载/GPU 利用率/温度/显存/功耗），
-  支持 > >= < <=、持续时长、全部或指定服务器；事件流 + 恢复记录 + 手动确认；**Webhook 通知**（可配模板，兼容企业微信/钉钉/飞书）
-- **历史数据**：全部指标永久保存（retention_days=0），趋势图 1/3/6/24h（CPU/内存/GPU 利用率/显存/温度/功耗/负载/网络速率）
-- **在线迁移**：SQLite schema 自动升级（migrations/ 目录，幂等）
+- **服务器管理**：密码 或 SSH 私钥(+口令) 认证，测试连接
+- **进程操作（admin）**：实时进程表（15s 刷新、排序、过滤）、kill/renice
+- **告警**：用户规则（9 指标）+ 内置检测器事件流，恢复记录 + 确认 + Webhook
+- **驾驶舱**：集群健康条（点击下钻）、GPU 矩阵热图、集群趋势、实时告警跑马灯
+- **服务器详情**：健康模型树（连通性/CPU/内存/文件系统/网络/GPU/内核事件）、
+  btop 核心网格、GPU 卡片（ECC/PCIe/降频/风险标签）、内核事件流、
+  NVMe/RAID/NFS、服务/MIG/IPMI、资产/NUMA 拓扑标签页
+- **历史数据**：永久保存（retention_days=0 可改），趋势图 1/3/6/24h
+- **深色/浅色主题**：跟随系统自动切换 + 手动三态
+- **在线迁移**：MySQL/SQLite 双方言幂等迁移（migrations/）
 
 ## 快速开始
 
@@ -49,19 +94,17 @@ docker compose up -d --build
 ```
 ├── Dockerfile / Dockerfile.multistage / docker-compose.yml
 ├── backend/
-│   ├── migrations/           # SQL 迁移（幂等，自动执行）
+│   ├── migrations/               # SQL 迁移（幂等，自动执行）
 │   └── app/
-│       ├── main.py           # FastAPI + SPA 托管 + 迁移
-│       ├── ssh_collector.py  # 采集脚本与解析（含单测验证过的解析器）
-│       ├── scheduler.py      # 轮询 + 告警评估 + 保留期清理
-│       ├── notifier.py       # Webhook 通知
-│       ├── migrate.py        # 迁移执行器
-│       └── api/              # auth / users / servers / metrics / alerts
-└── frontend/src/views/       # Login/Dashboard/Servers/ServerDetail/Users/Alerts/Settings
+│       ├── main.py               # FastAPI + SPA 托管 + 迁移
+│       ├── remote_scripts.py     # fast/slow/inventory/kernel 四套远程脚本
+│       ├── ssh_transport.py      # SSH 传输：TOFU hostkey、故障分类、stdin 执行
+│       ├── ssh_collector.py      # fast 层解析
+│       ├── collectors_extra.py   # slow/inventory/kernel 解析
+│       ├── health.py             # 13 内置检测器 + GPU 风险评分 + 健康树
+│       ├── scheduler.py          # 分层调度（fast 每轮/slow 5min/inv 24h）
+│       ├── notifier.py           # Webhook 通知
+│       ├── migrate.py            # 迁移执行器（MySQL/SQLite 双方言）
+│       └── api/                  # auth/users/servers/metrics/alerts/cockpit/enterprise
+└── frontend/src/views/           # Login/Dashboard/Servers/ServerDetail/Users/Alerts/Settings/Cockpit
 ```
-
-## 安全说明
-
-- SSH 凭据 Fernet 加密存储；进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin
-- viewer 角色只读（可看指标、进程、告警）
-- 所有敏感操作写入审计日志（可在设置页查看）
