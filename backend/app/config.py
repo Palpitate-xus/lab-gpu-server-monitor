@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     APP_NAME: str = "GPU Monitor"
     SECRET_KEY: str = "change-me-in-production-please"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 12 * 60
-    DATABASE_URL: str = "sqlite:///./data/gpu_monitor.db"
+
+    # mysql: mysql+pymysql://user:pass@host:3306/gpu_monitor?charset=utf8mb4
+    # sqlite: sqlite:///./data/gpu_monitor.db
+    DATABASE_URL: str = "mysql+pymysql://gpumon:gpumon_pass_2024@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
+    DB_ECHO: bool = False
     DATA_DIR: str = "./data"
 
     # Initial admin account (created on first run)
