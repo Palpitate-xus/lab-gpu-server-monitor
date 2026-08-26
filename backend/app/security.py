@@ -63,11 +63,21 @@ def encrypt_text(plain: str) -> str:
     return f.encrypt(plain.encode()).decode()
 
 
+class CredentialDecryptionError(Exception):
+    """Stored credential cannot be decrypted — SECRET_KEY was rotated."""
+
+
 def decrypt_text(token: str) -> str:
     if not token:
         return ""
     f = Fernet(_derive_key())
-    return f.decrypt(token.encode()).decode()
+    try:
+        return f.decrypt(token.encode()).decode()
+    except Exception as e:
+        raise CredentialDecryptionError(
+            "stored SSH credentials cannot be decrypted (SECRET_KEY changed); "
+            "re-enter this server's credentials"
+        ) from e
 
 
 # ---------------- dependencies ----------------

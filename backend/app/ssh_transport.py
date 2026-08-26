@@ -138,7 +138,10 @@ def connect_server(server) -> paramiko.SSHClient:
 
 
 def classify_ssh_error(e: Exception, host: str) -> tuple[str, str]:
+    from .security import CredentialDecryptionError
     msg = str(e)
+    if isinstance(e, CredentialDecryptionError):
+        return "CRED_DECRYPT_FAILED", "已保存的 SSH 凭据无法解密（SECRET_KEY 已轮换）——请到服务器管理中重新录入该服务器的凭据"
     if isinstance(e, paramiko.AuthenticationException):
         return "SSH_AUTH_FAILED", "SSH 认证失败（检查用户名/密码/密钥）"
     if isinstance(e, paramiko.BadHostKeyException):
