@@ -9,13 +9,10 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      SECRET_KEY: "please-change-this-secret-key"
+      SECRET_KEY: "REMOVED-ROTATED-SECRET-KEY"
       INIT_ADMIN_USERNAME: "admin"
       INIT_ADMIN_PASSWORD: "admin123"
       POLL_INTERVAL_SECONDS: "60"
-      # MySQL storage (uncomment to use; defaults to this MySQL when reachable).
-      # SQLite fallback: sqlite:///./data/gpu_monitor.db
+      # MySQL backend (local docker-mysql-1 on the docker bridge)
       DATABASE_URL: "mysql+pymysql://gpumon:gpumon_pass_2024@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
       TZ: "Asia/Shanghai"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
