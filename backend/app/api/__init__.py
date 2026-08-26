@@ -4,6 +4,7 @@ from .servers import router as servers_router
 from .server_test import router as server_test_router
 from .metrics import router as metrics_router
 from .alerts import router as alerts_router
+from .cockpit import router as cockpit_router
 
 __all__ = [
     "auth_router",
@@ -12,4 +13,5 @@ __all__ = [
     "server_test_router",
     "metrics_router",
     "alerts_router",
+    "cockpit_router",
 ]
