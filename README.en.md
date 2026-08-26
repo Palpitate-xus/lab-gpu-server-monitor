@@ -59,7 +59,12 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 ### Authentication & Access
 - **Login rate limiting**: 5 failures per IP / per username locks for 10 minutes
   (429 with remaining-time message); success resets counters; failures are audit-logged
-- **JWT validity 2 hours**; frontend auto-logout on 401
+- **JWT validity 2 hours + revocation** (jti): password change / disable / delete kills all existing tokens
+- **API docs disabled by default** (`/docs` `/redoc` `/openapi.json`); set `DOCS_ENABLED=yes` when needed
+- **Security headers**: CSP / X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy / HSTS
+- **Webhook SSRF guard**: https-only, private/loopback/link-local targets refused, redirects refused, validated on save
+- **Containers run as non-root** (appuser, uid 10001) + HEALTHCHECK
+- frontend auto-logout on 401
 - **CORS disabled by default** (same-origin deployment, SPA served by the API);
   cross-origin deployments must configure an explicit `CORS_ORIGINS` whitelist;
   behind a reverse proxy set `TRUST_PROXY=yes` to trust X-Forwarded-For

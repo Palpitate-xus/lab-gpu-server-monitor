@@ -57,7 +57,12 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 ### 认证与访问
 - **登录速率限制**：同 IP / 同用户名 5 次失败锁 10 分钟（429 + 剩余时间提示），
   成功登录清零；失败尝试写审计日志
-- **JWT 有效期 2 小时**，401 自动登出前端
+- **JWT 有效期 2 小时 + 吊销机制**（jti）：改密 / 禁用 / 删除用户即作废其全部存量 token
+- **API 文档默认关闭**（`/docs` `/redoc` `/openapi.json`），需要时设 `DOCS_ENABLED=yes`
+- **安全响应头**：CSP / X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy / HSTS
+- **Webhook SSRF 防护**：仅 https、解析后拒私网/环回/链路本地地址、拒绝重定向，保存时即校验
+- **容器非 root 运行**（appuser, uid 10001）+ HEALTHCHECK
+- 401 自动登出前端
 - **CORS 默认关闭**（同源部署，SPA 与 API 同源）；跨域部署需显式配置
   `CORS_ORIGINS` 白名单；反代场景设 `TRUST_PROXY=yes` 才信任 X-Forwarded-For
 - 进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin；viewer 只读；
