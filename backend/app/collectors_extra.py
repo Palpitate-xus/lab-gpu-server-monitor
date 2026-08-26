@@ -22,6 +22,12 @@ from .ssh_transport import classify_ssh_error, connect_host, decrypt_text, run_s
 settings = get_settings()
 logger = logging.getLogger("gpumon.collectors")
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
 
 # ================================================================ SLOW
 
@@ -181,18 +187,21 @@ def _parse_services(text: str) -> dict[str, str]:
 
 
 def _parse_mig(items_text: str, mode_text: str) -> list[dict]:
-    # mode: "0, Disabled" / "0, Enabled"
+    # mode: "0, Disabled" / "0, Enabled" / "0, [N/A]" (consumer cards)
     modes: dict[int, str] = {}
     for line in mode_text.splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 2 and parts[0].isdigit():
-            modes[int(parts[0])] = parts[1]
+            mode = parts[1]
+            if mode in ("[N/A]", "N/A", "Not Supported", "[Not Supported]"):
+                continue  # MIG not supported on this GPU: don't list it
+            modes[int(parts[0])] = mode
     result = []
     for idx, mode in sorted(modes.items()):
         result.append({
             "gpu_index": idx,
             "mode": mode,
-            "items": [],  # detailed MIG items parsing is driver-specific; keep list-items raw off
+            "items": [],
         })
     return result
 
@@ -416,7 +425,7 @@ def collect_inventory(host, port, username, password_enc="", private_key_enc="",
         numa_text = sec.get("NUMA", "")
         # has_cpu line first, then per-node cpulist lines
         r.numa = _parse_numa(numa_text, sec.get("NUMAMEM", ""))
-        r.gpu_topology = sec.get("GPUTOPO", "")[:4000]
+        r.gpu_topology = _strip_ansi(sec.get("GPUTOPO", ""))[:4000]
         r.pci_numa = _parse_pci_numa(sec.get("PCINUMA", ""))
         r.disks = _parse_lsblk(sec.get("LSBLK", ""))
         r.nics = _parse_nics(sec.get("NICLIST", ""))

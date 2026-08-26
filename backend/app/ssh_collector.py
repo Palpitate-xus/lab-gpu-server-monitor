@@ -512,7 +512,7 @@ def _merge_gpu_health(text: str, gpus: list[dict]) -> None:
 
 
 def _merge_gpu_clocks(text: str, gpus: list[dict]) -> None:
-    """G3: index,clocks.g,clocks.m,max.g,max.m,enc,dec,compute_mode"""
+    """G3: index,clocks.g,clocks.m,max.g,max.m[,enc[,mode]] (tolerant to 5-8 cols)"""
     if not text.strip():
         return
     by_index = {g["index"]: g for g in gpus}
@@ -521,7 +521,7 @@ def _merge_gpu_clocks(text: str, gpus: list[dict]) -> None:
         if not line or "Field " in line:
             continue
         parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 8:
+        if len(parts) < 5:
             continue
         try:
             idx = int(_gval(parts[0]))
@@ -534,9 +534,10 @@ def _merge_gpu_clocks(text: str, gpus: list[dict]) -> None:
         g["clock_memory"] = _gval(parts[2])
         g["clock_graphics_max"] = _gval(parts[3])
         g["clock_memory_max"] = _gval(parts[4])
-        g["encoder_sessions"] = int(_gval(parts[5]))
-        g["decoder_sessions"] = int(_gval(parts[6]))
-        g["compute_mode"] = parts[7]
+        if len(parts) > 5:
+            g["encoder_sessions"] = int(_gval(parts[5]))
+        if len(parts) > 6:
+            g["compute_mode"] = parts[6]
 
 
 def _merge_gpu_apps(apps_text: str, names_text: str, gpus: list[dict], ps_index: dict) -> None:

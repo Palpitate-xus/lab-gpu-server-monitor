@@ -45,7 +45,13 @@ if [ -n "$G1" ]; then
 fi
 G3=''
 if [ -n "$G1" ]; then
-  G3=$(timeout 10 nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.current.memory,clocks.max.graphics,clocks.max.memory,encoder.stats.sessionCount,decoder.stats.sessionCount,compute_mode --format=csv,noheader,nounits 2>/dev/null || true)
+  G3=$(timeout 10 nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.current.memory,clocks.max.graphics,clocks.max.memory,encoder.stats.sessionCount,compute_mode --format=csv,noheader,nounits 2>/dev/null || true)
+  case "$G3" in
+    *"Field "*|*"Not Supported"*|*"Invalid"*|*"No devices"*) G3='' ;;
+  esac
+fi
+if [ -n "$G1" ] && [ -z "$G3" ]; then
+  G3=$(timeout 10 nvidia-smi --query-gpu=index,clocks.current.graphics,clocks.current.memory,clocks.max.graphics,clocks.max.memory --format=csv,noheader,nounits 2>/dev/null || true)
   case "$G3" in
     *"Field "*|*"Not Supported"*|*"Invalid"*|*"No devices"*) G3='' ;;
   esac
