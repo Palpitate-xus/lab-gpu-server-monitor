@@ -252,6 +252,13 @@ class AlertEventOut(BaseModel):
 
 
 # ---------------- process actions ----------------
+class SettingsUpdate(BaseModel):
+    poll_interval: Optional[int] = Field(default=None, ge=10, le=86400)
+    retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    webhook_url: Optional[str] = None
+    webhook_template: Optional[str] = None
+
+
 class ProcessAction(BaseModel):
     action: Literal["kill", "renice"]
     pid: int = Field(ge=1)
