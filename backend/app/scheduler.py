@@ -32,7 +32,7 @@ from .models import (
 from . import notifier
 from .health import run_detectors, update_gpu_baseline
 from .ssh_collector import collect
-from .collectors_extra import collect_inventory, collect_kernel, collect_slow
+from .collectors_extra import collect_inventory, collect_slow
 
 settings = get_settings()
 logger = logging.getLogger("gpumon.scheduler")
@@ -47,9 +47,30 @@ _state = {
     "last_duration": 0.0,
     "interval": settings.POLL_INTERVAL_SECONDS,
     "lock": threading.Lock(),
+    "last_retention_day": "",
 }
 
 _stop_event = threading.Event()
+
+# one in-flight poll per server; overlapping cycles must not stack SSH storms
+_server_busy: set[tuple[int, str]] = set()
+_busy_guard = threading.Lock()
+
+_cycle_lock = threading.Lock()
+
+
+def _server_begin(server_id: int, tier: str) -> bool:
+    key = (server_id, tier)
+    with _busy_guard:
+        if key in _server_busy:
+            return False
+        _server_busy.add(key)
+        return True
+
+
+def _server_end(server_id: int, tier: str) -> None:
+    with _busy_guard:
+        _server_busy.discard((server_id, tier))
 
 METRIC_LABELS = {
     "cpu_percent": "CPU 使用率",
@@ -123,7 +144,7 @@ def _eval_alerts() -> None:
         rules = db.query(AlertRule).filter(AlertRule.enabled.is_(True)).all()
         if not rules:
             return
-        servers = db.query(Server).all()
+        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
         latest_by_server: dict[int, ServerMetric] = {}
         for s in servers:
             m = (
@@ -135,11 +156,15 @@ def _eval_alerts() -> None:
             if m is not None:
                 latest_by_server[s.id] = m
 
+        interval = _load_interval()
+        maintenance_ids = {s.id for s in servers if (s.status or "active") == "maintenance"}
         for rule in rules:
             target_ids = (
                 [rule.server_id] if rule.server_id else list(latest_by_server.keys())
             )
             for sid in target_ids:
+                if sid in maintenance_ids:
+                    continue
                 m = latest_by_server.get(sid)
                 if m is None:
                     continue
@@ -158,6 +183,10 @@ def _eval_alerts() -> None:
                     .first()
                 )
 
+                if open_event is not None and open_event.acked_at is not None:
+                    # acknowledged and still breached: stay open, do not re-fire
+                    continue
+
                 if breached and open_event is None:
                     if rule.duration_minutes > 0:
                         # require the breach to hold for duration across recent samples
@@ -167,19 +196,22 @@ def _eval_alerts() -> None:
                             .filter(
                                 ServerMetric.server_id == sid,
                                 ServerMetric.collected_at >= since,
+                                ServerMetric.status == "ok",
                             )
                             .order_by(ServerMetric.collected_at.asc())
                             .all()
                         )
-                        if rows:
-                            held = all(
-                                _compare(v, rule.op, rule.threshold)
-                                for v in filter(
-                                    None, (_extract_metric(r, rule.metric) for r in rows)
-                                )
-                            )
-                            if not held:
-                                continue
+                        # 0.0 is a valid sample: filter on None only
+                        vals = [
+                            v for v in (_extract_metric(r, rule.metric) for r in rows)
+                            if v is not None
+                        ]
+                        # sparse window (restart/new rule) must not fire instantly
+                        expected = max(1, rule.duration_minutes * 60 // max(10, interval))
+                        if len(vals) < max(2, expected // 2):
+                            continue
+                        if not all(_compare(v, rule.op, rule.threshold) for v in vals):
+                            continue
                     ev = AlertEvent(
                         rule_id=rule.id,
                         rule_name=rule.name,
@@ -212,7 +244,13 @@ def _eval_alerts() -> None:
 
 
 def _retention_cleanup() -> None:
-    """Delete metrics older than retention_days (0 = keep forever)."""
+    """Delete metrics older than retention_days (0 = keep forever), in batches
+    so MySQL does not take a giant lock and SQLite stays responsive."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with _state["lock"]:
+        if _state["last_retention_day"] == today:
+            return
+        _state["last_retention_day"] = today
     db = SessionLocal()
     try:
         row = db.get(Setting, "retention_days")
@@ -224,20 +262,70 @@ def _retention_cleanup() -> None:
                 days = 0
         if days > 0:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-            from sqlalchemy import delete
-
-            stmt = delete(ServerMetric).where(ServerMetric.collected_at < cutoff)
-            db.execute(stmt)
-            db.commit()
+            while True:
+                ids = [
+                    i for (i,) in db.query(ServerMetric.id)
+                    .filter(ServerMetric.collected_at < cutoff)
+                    .limit(5000)
+                    .all()
+                ]
+                if not ids:
+                    break
+                db.query(ServerMetric).filter(ServerMetric.id.in_(ids)).delete(
+                    synchronize_session=False
+                )
+                db.commit()
     except Exception:
         db.rollback()
     finally:
         db.close()
 
 
-def _poll_one(server: Server) -> None:
+def _store_kernel_events(server_id: int, boot_id: str, events) -> None:
+    """Dedup-insert kernel events; (server_id, dedup_hash) is unique."""
+    if not events:
+        return
     db = SessionLocal()
     try:
+        now = datetime.now(timezone.utc)
+        for ev in events:
+            h = hashlib.sha256(
+                f"{boot_id}|{ev.event_type}|{ev.xid}|{ev.raw_message[:200]}".encode()
+            ).hexdigest()[:40]
+            exists = (
+                db.query(KernelEventRow.id)
+                .filter(KernelEventRow.server_id == server_id,
+                        KernelEventRow.dedup_hash == h)
+                .first()
+            )
+            if exists:
+                continue
+            db.add(KernelEventRow(
+                server_id=server_id,
+                collected_at=now,
+                boot_id=boot_id,
+                event_type=ev.event_type,
+                severity=ev.severity,
+                gpu_uuid=ev.gpu_uuid,
+                xid=ev.xid,
+                message=ev.message,
+                raw_message=ev.raw_message,
+                dedup_hash=h,
+            ))
+        db.commit()
+    except Exception:
+        logger.exception("kernel event store failed for server %s", server_id)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _poll_one(server: Server) -> None:
+    if not _server_begin(server.id, "poll"):
+        logger.info("server %s poll still in flight; skipping", server.id)
+        return
+    try:
+        # SSH phase: no DB session held (collects run 30-120s on slow hosts)
         res = collect(
             host=server.host,
             port=server.port or 22,
@@ -247,6 +335,20 @@ def _poll_one(server: Server) -> None:
             passphrase_enc=server.passphrase or "",
             server_key=f"server_{server.id}",
         )
+    except Exception:
+        logger.exception("poll server %s failed", server.id)
+        return
+    finally:
+        _server_end(server.id, "poll")
+
+    if res.ok and getattr(res, "kernel_log", ""):
+        from .collectors_extra import parse_kernel_log
+        _store_kernel_events(
+            server.id, res.boot_id, parse_kernel_log(res.kernel_log, res.boot_id)
+        )
+
+    db = SessionLocal()
+    try:
         m = ServerMetric(
             server_id=server.id,
             collected_at=datetime.now(timezone.utc),
@@ -301,7 +403,7 @@ def _poll_one(server: Server) -> None:
         # built-in detectors run for both ok and error results
         run_detectors(server.id)
     except Exception:
-        logger.exception("poll server %s failed", server.id)
+        logger.exception("poll server %s store failed", server.id)
         try:
             db.rollback()
         except Exception:
@@ -310,56 +412,9 @@ def _poll_one(server: Server) -> None:
         db.close()
 
 
-def _kernel_one(server: Server) -> None:
-    """Incremental kernel event scan; dedup per boot_id + message hash."""
-    db = SessionLocal()
-    try:
-        boot_id, events, code, _dur = collect_kernel(
-            host=server.host,
-            port=server.port or 22,
-            username=server.username,
-            password_enc=server.password or "",
-            private_key_enc=server.private_key or "",
-            passphrase_enc=server.passphrase or "",
-            server_key=f"server_{server.id}",
-        )
-        if code != "OK" or not events:
-            return
-        now = datetime.now(timezone.utc)
-        for ev in events:
-            h = hashlib.sha256(
-                f"{boot_id}|{ev.event_type}|{ev.xid}|{ev.raw_message[:200]}".encode()
-            ).hexdigest()[:40]
-            exists = (
-                db.query(KernelEventRow.id)
-                .filter(KernelEventRow.server_id == server.id,
-                        KernelEventRow.dedup_hash == h)
-                .first()
-            )
-            if exists:
-                continue
-            db.add(KernelEventRow(
-                server_id=server.id,
-                collected_at=now,
-                boot_id=boot_id,
-                event_type=ev.event_type,
-                severity=ev.severity,
-                gpu_uuid=ev.gpu_uuid,
-                xid=ev.xid,
-                message=ev.message,
-                raw_message=ev.raw_message,
-                dedup_hash=h,
-            ))
-        db.commit()
-    except Exception:
-        logger.exception("kernel scan server %s failed", server.id)
-        db.rollback()
-    finally:
-        db.close()
-
-
 def _slow_one(server: Server) -> None:
-    db = SessionLocal()
+    if not _server_begin(server.id, "slow"):
+        return
     try:
         r = collect_slow(
             host=server.host,
@@ -370,8 +425,15 @@ def _slow_one(server: Server) -> None:
             passphrase_enc=server.passphrase or "",
             server_key=f"server_{server.id}",
         )
-        if not r.ok:
-            return
+    except Exception:
+        logger.exception("slow collect server %s failed", server.id)
+        return
+    finally:
+        _server_end(server.id, "slow")
+    if not r.ok:
+        return
+    db = SessionLocal()
+    try:
         db.add(SlowHealth(
             server_id=server.id,
             collected_at=datetime.now(timezone.utc),
@@ -387,14 +449,15 @@ def _slow_one(server: Server) -> None:
         ))
         db.commit()
     except Exception:
-        logger.exception("slow collect server %s failed", server.id)
+        logger.exception("slow store server %s failed", server.id)
         db.rollback()
     finally:
         db.close()
 
 
 def _inventory_one(server: Server) -> None:
-    db = SessionLocal()
+    if not _server_begin(server.id, "inventory"):
+        return
     try:
         r = collect_inventory(
             host=server.host,
@@ -405,8 +468,15 @@ def _inventory_one(server: Server) -> None:
             passphrase_enc=server.passphrase or "",
             server_key=f"server_{server.id}",
         )
-        if not r.ok:
-            return
+    except Exception:
+        logger.exception("inventory collect server %s failed", server.id)
+        return
+    finally:
+        _server_end(server.id, "inventory")
+    if not r.ok:
+        return
+    db = SessionLocal()
+    try:
         # keep one inventory row per server per day (replace today's)
         now = datetime.now(timezone.utc)
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -432,7 +502,7 @@ def _inventory_one(server: Server) -> None:
         ))
         db.commit()
     except Exception:
-        logger.exception("inventory collect server %s failed", server.id)
+        logger.exception("inventory store server %s failed", server.id)
         db.rollback()
     finally:
         db.close()
@@ -463,7 +533,6 @@ def _run_cycle() -> None:
     threads = []
     for server in servers:
         threads.append(threading.Thread(target=_poll_one, args=(server,), daemon=True))
-        threads.append(threading.Thread(target=_kernel_one, args=(server,), daemon=True))
         if do_slow:
             threads.append(threading.Thread(target=_slow_one, args=(server,), daemon=True))
         if do_inv:
@@ -511,13 +580,124 @@ def _load_interval() -> int:
     return settings.POLL_INTERVAL_SECONDS
 
 
+def _expire_maintenance() -> None:
+    """Maintenance windows with an expiry roll back to active automatically."""
+    from .models import ServerNote
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        rows = (
+            db.query(Server)
+            .filter(Server.status == "maintenance",
+                    Server.status_until.isnot(None),
+                    Server.status_until <= now)
+            .all()
+        )
+        for s in rows:
+            s.status = "active"
+            s.status_reason = ""
+            s.status_until = None
+            db.add(ServerNote(server_id=s.id, username="system", kind="note",
+                              content="维护窗口到期，自动恢复为 active"))
+        if rows:
+            db.commit()
+            logger.info("maintenance expired for %s", ", ".join(s.name for s in rows))
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _hourly_aggregate() -> None:
+    """Roll the previous completed hour into server_metrics_hourly (idempotent)."""
+    from sqlalchemy.orm import load_only
+    from .models import ServerMetricHourly
+
+    now = datetime.now(timezone.utc)
+    hour_end = now.replace(minute=0, second=0, microsecond=0)
+    hour_start = hour_end - timedelta(hours=1)
+    db = SessionLocal()
+    try:
+        servers = db.query(Server.id).filter(Server.enabled.is_(True)).all()
+        for (sid,) in servers:
+            existing = (
+                db.query(ServerMetricHourly)
+                .filter(ServerMetricHourly.server_id == sid,
+                        ServerMetricHourly.hour == hour_start)
+                .first()
+            )
+            rows = (
+                db.query(ServerMetric)
+                .options(load_only(
+                    ServerMetric.status, ServerMetric.cpu_percent,
+                    ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
+                    ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
+                ))
+                .filter(ServerMetric.server_id == sid,
+                        ServerMetric.collected_at >= hour_start,
+                        ServerMetric.collected_at < hour_end)
+                .all()
+            )
+            ok = [r for r in rows if r.status == "ok"]
+            agg = ServerMetricHourly(
+                server_id=sid, hour=hour_start, samples=len(rows), ok_samples=len(ok),
+            )
+            if ok:
+                cpus = [r.cpu_percent or 0 for r in ok]
+                agg.cpu_avg = round(sum(cpus) / len(cpus), 1)
+                agg.cpu_max = round(max(cpus), 1)
+                mems = [r.mem_used_mb / r.mem_total_mb * 100 for r in ok if r.mem_total_mb]
+                agg.mem_avg_pct = round(sum(mems) / len(mems), 1) if mems else 0
+                utils, mem_pcts, powers = [], [], []
+                idle_samples = 0
+                for r in ok:
+                    for g in (r.gpus or []):
+                        u = g.get("utilization", 0) or 0
+                        utils.append(u)
+                        tot, used = g.get("mem_total_mb", 0) or 0, g.get("mem_used_mb", 0) or 0
+                        if tot > 0:
+                            mem_pcts.append(used / tot * 100)
+                            if used / tot >= 0.30 and u <= 5:
+                                idle_samples += 1
+                        p = g.get("power_draw", 0) or 0
+                        if p:
+                            powers.append(p)
+                agg.gpu_util_avg = round(sum(utils) / len(utils), 1) if utils else 0
+                agg.gpu_util_max = round(max(utils), 1) if utils else 0
+                agg.gpu_mem_pct_avg = round(sum(mem_pcts) / len(mem_pcts), 1) if mem_pcts else 0
+                agg.gpu_power_avg = round(sum(powers) / len(powers), 1) if powers else 0
+                agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
+                agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
+                # approximate minutes of idle-but-held GPU samples
+                interval = _load_interval()
+                agg.idle_held_minutes = int(idle_samples * interval / 60)
+            if existing is not None:
+                db.delete(existing)
+                db.flush()
+            db.add(agg)
+            db.commit()
+    except Exception:
+        logger.exception("hourly aggregate failed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _scheduler_loop() -> None:
     logger.info("scheduler started")
+    last_hourly_day_hour = ""
     while not _stop_event.is_set():
         started = datetime.now(timezone.utc)
         try:
-            _run_cycle()
+            _expire_maintenance()
+            _run_cycle_guarded()
             _retention_cleanup()
+            hh = started.strftime("%Y-%m-%d %H")
+            if hh != last_hourly_day_hour and started.minute >= 2:
+                # roll up the previous hour once, shortly after it completes
+                last_hourly_day_hour = hh
+                _hourly_aggregate()
         except Exception:
             logger.exception("poll cycle failed")
         finished = datetime.now(timezone.utc)
@@ -525,7 +705,8 @@ def _scheduler_loop() -> None:
             _state["last_run"] = finished.isoformat()
             _state["last_duration"] = (finished - started).total_seconds()
             _state["interval"] = _load_interval()
-        _stop_event.wait(_state["interval"])
+            interval = _state["interval"]
+        _stop_event.wait(interval)
     logger.info("scheduler stopped")
 
 
@@ -540,8 +721,22 @@ def start_scheduler() -> None:
     _state["thread"] = t
 
 
-def trigger_poll() -> None:
-    threading.Thread(target=_run_cycle, daemon=True).start()
+def _run_cycle_guarded() -> None:
+    if not _cycle_lock.acquire(blocking=False):
+        logger.info("poll cycle already running; skipping")
+        return
+    try:
+        _run_cycle()
+    finally:
+        _cycle_lock.release()
+
+
+def trigger_poll() -> bool:
+    """Manual refresh; returns False when a cycle is already in flight."""
+    if _cycle_lock.locked():
+        return False
+    threading.Thread(target=_run_cycle_guarded, daemon=True).start()
+    return True
 
 
 def scheduler_status() -> dict:

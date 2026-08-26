@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import socket
+import time
 from typing import Optional
 
 import paramiko
@@ -163,11 +164,22 @@ def classify_ssh_error(e: Exception, host: str) -> tuple[str, str]:
 
 # ---------------------------------------------------------------- exec
 
+def _recv_exit_status(chan, timeout: int) -> int:
+    """Bounded wait for the remote exit status; recv_exit_status() alone can
+    block forever when the channel timeout is not honored."""
+    deadline = time.time() + timeout
+    while not chan.exit_status_ready():
+        if chan.closed or time.time() > deadline:
+            return -1
+        time.sleep(0.1)
+    return chan.recv_exit_status()
+
+
 def run_remote(client: paramiko.SSHClient, command: str, timeout: int = 15) -> tuple[int, str, str]:
     _, stdout, stderr = client.exec_command(command, timeout=timeout)
     out = stdout.read(MAX_OUTPUT_BYTES).decode("utf-8", errors="replace")
     err = stderr.read(65536).decode("utf-8", errors="replace")
-    code = stdout.channel.recv_exit_status()
+    code = _recv_exit_status(stdout.channel, timeout)
     return code, out, err
 
 
@@ -179,7 +191,7 @@ def run_script(client: paramiko.SSHClient, script: str, timeout: int = 30) -> tu
     chan.shutdown_write()
     out = stdout.read(MAX_OUTPUT_BYTES).decode("utf-8", errors="replace")
     err = stderr.read(65536).decode("utf-8", errors="replace")
-    code = chan.recv_exit_status()
+    code = _recv_exit_status(chan, timeout)
     return code, out, err
 
 
