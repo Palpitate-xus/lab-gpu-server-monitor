@@ -49,7 +49,7 @@
           <span style="font-size:12px;color:var(--csub)">{{ viewHint }}</span>
         </div>
       </template>
-      <el-table :data="filtered" size="small" v-loading="loading" :row-class-name="rowClass">
+      <el-table :data="filtered" size="small" v-loading="loading" :row-class-name="rowClass" max-height="560">
         <el-table-column label="服务器" width="130" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>

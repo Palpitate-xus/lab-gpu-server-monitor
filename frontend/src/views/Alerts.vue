@@ -14,7 +14,7 @@
       <el-col :span="10">
         <el-card class="page-card">
           <template #header>告警规则 ({{ rules.length }})</template>
-          <el-table :data="rules" size="small" v-loading="loadingRules">
+          <el-table :data="rules" size="small" v-loading="loadingRules" max-height="300">
             <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
             <el-table-column label="条件" min-width="150">
               <template #default="{ row }">
@@ -44,7 +44,7 @@
       <el-col :span="14">
         <el-card class="page-card">
           <template #header>告警事件</template>
-          <el-table :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass">
+          <el-table :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
             <el-table-column label="状态" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.recovered_at ? 'info' : 'danger'" size="small">

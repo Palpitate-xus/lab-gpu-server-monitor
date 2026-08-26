@@ -327,3 +327,9 @@ html.dark {
 .health-chip.hs-critical { border-left: 3px solid var(--cred); }
 .health-chip.hs-unknown { border-left: 3px solid var(--csub); }
 .health-chip-detail { font-size: 11px; color: var(--csub); }
+
+/* ===== capped, scrollable list panels ===== */
+.rank-scroll { max-height: 220px; overflow-y: auto; }
+.fill-list { max-height: 300px; overflow-y: auto; }
+.rank-scroll::-webkit-scrollbar, .fill-list::-webkit-scrollbar { width: 6px; }
+.rank-scroll::-webkit-scrollbar-thumb, .fill-list::-webkit-scrollbar-thumb { background: var(--cborder); border-radius: 3px; }

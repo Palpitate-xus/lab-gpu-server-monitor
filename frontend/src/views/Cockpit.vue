@@ -119,6 +119,7 @@
 
         <div class="cockpit-panel">
           <div class="cockpit-panel-title"><b>GPU 显存占用 TOP</b></div>
+          <div class="rank-scroll">
           <div v-for="(r, i) in gpuMemRank" :key="r.key" class="rank-row">
             <span class="rank-no" :class="i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''">{{ i + 1 }}</span>
             <div class="rank-main">
@@ -129,6 +130,7 @@
             <el-progress :percentage="r.pct" :stroke-width="6" :color="utilColor(r.pct)" style="width:90px" :show-text="false" />
           </div>
           <el-empty v-if="!gpuMemRank.length" description="—" :image-size="40" />
+          </div>
         </div>
       </div>
     </div>

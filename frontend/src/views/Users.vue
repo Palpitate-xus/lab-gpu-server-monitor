@@ -8,7 +8,7 @@
     </div>
 
     <el-card>
-      <el-table :data="users" v-loading="loading">
+      <el-table :data="users" v-loading="loading" max-height="640">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="username" label="用户名" min-width="120" />
         <el-table-column prop="display_name" label="显示名" min-width="120" />

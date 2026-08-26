@@ -133,7 +133,7 @@
               </el-descriptions>
               <div v-if="g.processes?.length" style="margin-top:8px">
                 <div style="font-size:12px;color:#909399;margin-bottom:4px">GPU 进程</div>
-                <el-table :data="g.processes" size="small">
+                <el-table :data="g.processes" size="small" max-height="220">
                   <el-table-column prop="pid" label="PID" width="80" />
                   <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip />
                   <el-table-column label="显存" width="100">
@@ -152,7 +152,7 @@
         <el-col :span="12">
           <el-card class="page-card">
             <template #header><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
-            <el-table :data="metric.net_ifaces || []" size="small">
+            <el-table :data="metric.net_ifaces || []" size="small" max-height="260">
               <el-table-column prop="iface" label="接口" min-width="110" />
               <el-table-column label="↓ 接收" width="120">
                 <template #default="{ row }"><span class="mono">{{ fmtNetRate(row.rx_bps) }}</span></template>
@@ -167,7 +167,7 @@
         <el-col :span="12">
           <el-card class="page-card">
             <template #header><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
-            <el-table :data="metric.disk_io || []" size="small">
+            <el-table :data="metric.disk_io || []" size="small" max-height="260">
               <el-table-column prop="device" label="设备" min-width="90" />
               <el-table-column label="读" width="110">
                 <template #default="{ row }"><span class="mono">{{ fmtDiskRate(row.read_bps) }}</span></template>
@@ -192,7 +192,7 @@
         <el-col :span="16">
           <el-card class="page-card">
             <template #header>磁盘分区</template>
-            <el-table :data="metric.disks || []" size="small">
+            <el-table :data="metric.disks || []" size="small" max-height="300">
               <el-table-column prop="mount" label="挂载点" min-width="130" show-overflow-tooltip />
               <el-table-column prop="device" label="设备" min-width="110" show-overflow-tooltip class-name="mono" />
               <el-table-column label="用量" width="200">
@@ -209,7 +209,7 @@
         <el-col :span="8">
           <el-card class="page-card">
             <template #header>登录用户</template>
-            <el-table :data="metric.users || []" size="small">
+            <el-table :data="metric.users || []" size="small" max-height="260">
               <el-table-column prop="user" label="用户" width="90" />
               <el-table-column prop="from" label="来源" min-width="110" show-overflow-tooltip />
               <el-table-column prop="login" label="登录时间" min-width="110" show-overflow-tooltip />
@@ -235,7 +235,7 @@
             </div>
           </div>
         </template>
-        <el-table :data="filteredProcs" size="small" height="420" v-loading="procsLoading"
+        <el-table :data="filteredProcs" size="small" max-height="420" v-loading="procsLoading"
                   :default-sort="{ prop: procSort === 'mem' ? 'rss_mb' : 'cpu', order: 'descending' }">
           <el-table-column prop="pid" label="PID" width="80" sortable />
           <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip sortable />
@@ -317,7 +317,7 @@
               <el-button size="small" :icon="Refresh" @click="loadEvents">刷新</el-button>
               <span style="font-size:12px;color:var(--csub)">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
             </div>
-            <el-table :data="events" size="small" height="320">
+            <el-table :data="events" size="small" max-height="320">
               <el-table-column label="时间" width="160">
                 <template #default="{ row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
               </el-table-column>
@@ -338,7 +338,7 @@
           </el-tab-pane>
 
           <el-tab-pane label="NVMe / 存储" name="nvme">
-            <el-table :data="slowHealth.nvme_smart || []" size="small" height="260">
+            <el-table :data="slowHealth.nvme_smart || []" size="small" max-height="260">
               <el-table-column prop="device" label="设备" width="110" />
               <el-table-column label="温度" width="80">
                 <template #default="{ row }">{{ row.temperature ? row.temperature + '°C' : '—' }}</template>
@@ -366,7 +366,7 @@
             <el-empty v-if="!(slowHealth.nvme_smart||[]).length" description="未检测到 NVMe 设备（或无 nvme-cli 权限）" :image-size="50" />
             <template v-if="(slowHealth.mdraid?.arrays||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">RAID 阵列</div>
-              <el-table :data="slowHealth.mdraid.arrays" size="small">
+              <el-table :data="slowHealth.mdraid.arrays" size="small" max-height="240">
                 <el-table-column prop="name" label="阵列" width="100" />
                 <el-table-column prop="level" label="级别" width="80" />
                 <el-table-column label="状态" width="120">
@@ -381,7 +381,7 @@
             </template>
             <template v-if="(slowHealth.nfs_mounts||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">NFS / 共享存储挂载</div>
-              <el-table :data="slowHealth.nfs_mounts" size="small">
+              <el-table :data="slowHealth.nfs_mounts" size="small" max-height="240">
                 <el-table-column prop="server" label="服务器" width="140" />
                 <el-table-column prop="export" label="导出路径" min-width="160" show-overflow-tooltip />
                 <el-table-column prop="mount" label="挂载点" min-width="140" show-overflow-tooltip />
@@ -394,7 +394,7 @@
             <el-row :gutter="14">
               <el-col :span="12">
                 <div class="chart-sub-title">关键服务状态</div>
-                <el-table :data="serviceRows" size="small">
+                <el-table :data="serviceRows" size="small" max-height="240">
                   <el-table-column prop="name" label="服务" width="180" />
                   <el-table-column label="状态" width="110">
                     <template #default="{ row }">
@@ -404,7 +404,7 @@
                 </el-table>
                 <template v-if="(slowHealth.systemd_failed||[]).length">
                   <div class="chart-sub-title" style="color:var(--cred)">失败的 systemd 单元</div>
-                  <el-table :data="slowHealth.systemd_failed" size="small">
+                  <el-table :data="slowHealth.systemd_failed" size="small" max-height="240">
                     <el-table-column prop="unit" label="单元" min-width="200" />
                     <el-table-column prop="active" label="状态" width="90" />
                   </el-table>
@@ -412,7 +412,7 @@
               </el-col>
               <el-col :span="12">
                 <div class="chart-sub-title">MIG（多实例 GPU）</div>
-                <el-table :data="slowHealth.mig || []" size="small">
+                <el-table :data="slowHealth.mig || []" size="small" max-height="240">
                   <el-table-column prop="gpu_index" label="GPU" width="70" />
                   <el-table-column label="MIG 模式" width="120">
                     <template #default="{ row }">
@@ -422,7 +422,7 @@
                 </el-table>
                 <el-empty v-if="!(slowHealth.mig||[]).length" description="无 MIG 支持 / 未启用" :image-size="40" />
                 <div class="chart-sub-title" style="margin-top:10px">IPMI / BMC 传感器</div>
-                <el-table :data="(slowHealth.ipmi||[]).slice(0, 8)" size="small">
+                <el-table :data="(slowHealth.ipmi||[]).slice(0, 8)" size="small" max-height="240">
                   <el-table-column prop="name" label="传感器" min-width="140" show-overflow-tooltip />
                   <el-table-column prop="value" label="值" width="90" />
                   <el-table-column prop="unit" label="单位" width="80" />
@@ -449,7 +449,7 @@
             <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
             <el-row :gutter="14">
               <el-col :span="12">
-                <el-table :data="(inventory.disks||[]).slice(0, 12)" size="small">
+                <el-table :data="(inventory.disks||[]).slice(0, 12)" size="small" max-height="300">
                   <el-table-column prop="name" label="磁盘" width="90" />
                   <el-table-column prop="size" label="容量" width="90" />
                   <el-table-column prop="type" label="类型" width="80" />
@@ -457,7 +457,7 @@
                 </el-table>
               </el-col>
               <el-col :span="12">
-                <el-table :data="physicalNics" size="small">
+                <el-table :data="physicalNics" size="small" max-height="240">
                   <el-table-column prop="name" label="网卡" width="110" />
                   <el-table-column prop="mac" label="MAC" min-width="140">
                     <template #default="{ row }"><span class="mono" style="font-size:11px">{{ row.mac }}</span></template>
