@@ -232,21 +232,42 @@
         </el-table>
       </el-card>
 
-      <!-- ===== history chart ===== -->
+      <!-- ===== history charts (cockpit style, multi-panel) ===== -->
       <el-card class="page-card">
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <span>趋势图</span>
+            <span>资源消耗趋势</span>
             <el-radio-group v-model="hours" size="small" @change="loadHistory">
               <el-radio-button :value="1">1小时</el-radio-button>
               <el-radio-button :value="3">3小时</el-radio-button>
               <el-radio-button :value="6">6小时</el-radio-button>
               <el-radio-button :value="24">24小时</el-radio-button>
+              <el-radio-button :value="168">7天</el-radio-button>
             </el-radio-group>
           </div>
         </template>
-        <v-chart v-if="history.length" :option="chartOption" class="chart-box" autoresize />
-        <el-empty v-else description="暂无历史数据" :image-size="60" />
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
+            <v-chart v-if="history.length" :option="gpuChartOption" class="chart-box" autoresize />
+            <el-empty v-else description="暂无历史数据" :image-size="50" />
+          </el-col>
+          <el-col :span="12">
+            <div class="chart-sub-title">CPU / 内存 / Swap / 每核负载</div>
+            <v-chart v-if="history.length" :option="sysChartOption" class="chart-box" autoresize />
+            <el-empty v-else description="暂无历史数据" :image-size="50" />
+          </el-col>
+        </el-row>
+        <el-row :gutter="14" style="margin-top:8px">
+          <el-col :span="12">
+            <div class="chart-sub-title">网络吞吐 (接收 / 发送)</div>
+            <v-chart v-if="history.length" :option="netChartOption" class="chart-box-sm" autoresize />
+          </el-col>
+          <el-col :span="12">
+            <div class="chart-sub-title">磁盘 IO (读 / 写)</div>
+            <v-chart v-if="history.length" :option="diskChartOption" class="chart-box-sm" autoresize />
+          </el-col>
+        </el-row>
       </el-card>
     </template>
     <el-empty v-else-if="!loading" description="暂无采集数据，请等待采集周期或点击「立即采集」" />
@@ -322,28 +343,77 @@ function coreClass(util) {
   return 'core-idle'
 }
 
-const chartOption = computed(() => {
+const _axisTime = computed(() => {
   const p = (n) => String(n).padStart(2, '0')
-  const fmt = (t) => { const d = new Date(t); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` }
-  return {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['CPU %', '内存 %', 'GPU 利用率 %', 'GPU 显存 %', 'GPU 温度 °C', 'GPU 功耗 W'] },
-    grid: { left: 50, right: 55, top: 40, bottom: 30 },
-    xAxis: { type: 'category', data: history.value.map(h => fmt(h.time)) },
-    yAxis: [
-      { type: 'value', max: 100, name: '%' },
-      { type: 'value', name: '°C / W' }
-    ],
-    series: [
-      { name: 'CPU %', type: 'line', showSymbol: false, smooth: true, data: history.value.map(h => h.cpu_percent) },
-      { name: '内存 %', type: 'line', showSymbol: false, smooth: true, data: history.value.map(h => h.mem_percent) },
-      { name: 'GPU 利用率 %', type: 'line', showSymbol: false, smooth: true, data: history.value.map(h => h.gpu_util) },
-      { name: 'GPU 显存 %', type: 'line', showSymbol: false, smooth: true, data: history.value.map(h => h.gpu_mem_percent) },
-      { name: 'GPU 温度 °C', type: 'line', showSymbol: false, smooth: true, yAxisIndex: 1, data: history.value.map(h => h.gpu_temp) },
-      { name: 'GPU 功耗 W', type: 'line', showSymbol: false, smooth: true, yAxisIndex: 1, data: history.value.map(h => h.gpu_power) }
-    ]
-  }
+  return history.value.map((t) => {
+    const d = new Date(t.time)
+    return hours.value >= 24 ? `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  })
 })
+
+const _darkBase = {
+  backgroundColor: 'transparent',
+  tooltip: { trigger: 'axis', backgroundColor: '#101a2e', borderColor: '#1e2d47', textStyle: { color: '#dce7f5' } },
+  legend: { textStyle: { color: '#7d90ad' }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+  grid: { left: 50, right: 54, top: 32, bottom: 28 },
+  dataZoom: [{ type: 'inside' }],
+}
+
+const _mk = (name, data, color, extra = {}) => ({
+  name, type: 'line', showSymbol: false, smooth: true, data,
+  lineStyle: { width: 2, color }, itemStyle: { color },
+  areaStyle: { opacity: 0.1, color }, ...extra,
+})
+
+const gpuChartOption = computed(() => ({
+  ..._darkBase,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  yAxis: [
+    { type: 'value', max: 100, axisLabel: { color: '#7d90ad' }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } },
+    { type: 'value', axisLabel: { color: '#7d90ad' }, splitLine: { show: false } },
+  ],
+  series: [
+    _mk('利用率 %', history.value.map(h => h.gpu_util), '#22d3ee'),
+    _mk('显存 %', history.value.map(h => h.gpu_mem_percent), '#a78bfa'),
+    _mk('温度 °C', history.value.map(h => h.gpu_temp), '#fbbf24', { yAxisIndex: 1 }),
+    _mk('功耗 W', history.value.map(h => h.gpu_power), '#f87171', { yAxisIndex: 1 }),
+  ],
+}))
+
+const sysChartOption = computed(() => ({
+  ..._darkBase,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  yAxis: [
+    { type: 'value', max: 100, axisLabel: { color: '#7d90ad' }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } },
+    { type: 'value', axisLabel: { color: '#7d90ad' }, splitLine: { show: false } },
+  ],
+  series: [
+    _mk('CPU %', history.value.map(h => h.cpu_percent), '#34d399'),
+    _mk('内存 %', history.value.map(h => h.mem_percent), '#22d3ee'),
+    _mk('Swap %', history.value.map(h => h.swap_percent ?? 0), '#fbbf24'),
+    _mk('每核负载', history.value.map(h => h.load_per_core ?? 0), '#a78bfa', { yAxisIndex: 1 }),
+  ],
+}))
+
+const netChartOption = computed(() => ({
+  ..._darkBase,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  yAxis: [{ type: 'value', axisLabel: { color: '#7d90ad', formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } }],
+  series: [
+    _mk('接收', history.value.map(h => h.net_rx_bps ?? 0), '#22d3ee'),
+    _mk('发送', history.value.map(h => h.net_tx_bps ?? 0), '#a78bfa'),
+  ],
+}))
+
+const diskChartOption = computed(() => ({
+  ..._darkBase,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  yAxis: [{ type: 'value', axisLabel: { color: '#7d90ad', formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } }],
+  series: [
+    _mk('读', history.value.map(h => h.disk_read_bps ?? 0), '#fbbf24'),
+    _mk('写', history.value.map(h => h.disk_write_bps ?? 0), '#f87171'),
+  ],
+}))
 
 async function load() {
   loading.value = true

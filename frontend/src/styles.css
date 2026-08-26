@@ -103,6 +103,14 @@ html, body, #app {
 .dot-off { background: #909399; }
 
 .chart-box { width: 100%; height: 300px; }
+.chart-box-sm { width: 100%; height: 210px; }
+.chart-sub-title {
+  font-size: 12px;
+  color: #7d90ad;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  padding-left: 2px;
+}
 
 @media (max-width: 768px) {
   .layout .el-aside { display: none; }
