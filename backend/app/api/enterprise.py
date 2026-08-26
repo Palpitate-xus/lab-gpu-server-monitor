@@ -187,6 +187,94 @@ def reset_hostkey(server_id: int, db: Session = Depends(get_db),
 
 # ------------------------------------------------------------- cluster level
 
+@router.get("/cluster/gpu-analysis")
+def cluster_gpu_analysis(db: Session = Depends(get_db),
+                         user: User = Depends(get_current_user)):
+    """Cluster-wide GPU idle-held detection (空占) + failure-risk ranking."""
+    from datetime import datetime, timedelta, timezone as tz
+    from ..health import gpu_risk_score
+
+    servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+    since = datetime.now(tz.utc) - timedelta(minutes=90)
+    out = []
+    for s in servers:
+        metrics = (
+            db.query(ServerMetric)
+            .filter(ServerMetric.server_id == s.id,
+                    ServerMetric.collected_at >= since,
+                    ServerMetric.status == "ok")
+            .order_by(ServerMetric.collected_at.asc())
+            .all()
+        )
+        if not metrics:
+            continue
+        latest = metrics[-1]
+        risks = {r["uuid"]: r for r in gpu_risk_score(s.id)}
+        uuids: dict[str, list[dict]] = {}
+        index_map = {}
+        for m in metrics:
+            for g in (m.gpus or []):
+                u = g.get("uuid")
+                if not u:
+                    continue
+                index_map[u] = g.get("index")
+                uuids.setdefault(u, []).append({
+                    "t": m.collected_at.replace(tzinfo=None) if m.collected_at.tzinfo is None else m.collected_at.astimezone(tz.utc).replace(tzinfo=None),
+                    "util": g.get("utilization", 0) or 0,
+                    "mem": g.get("mem_used_mb", 0) or 0,
+                    "total": g.get("mem_total_mb", 0) or 0,
+                    "procs": g.get("processes", []) or [],
+                })
+        for u, samples in uuids.items():
+            last = samples[-1]
+            mem_pct = (last["mem"] / last["total"] * 100) if last["total"] else 0
+            idle_minutes = 0.0
+            idle_held = False
+            if mem_pct >= 30:
+                n_idle = 0
+                for sm in reversed(samples):
+                    mp = (sm["mem"] / sm["total"] * 100) if sm["total"] else 0
+                    if sm["util"] < 5 and mp >= 30:
+                        n_idle += 1
+                    else:
+                        break
+                if n_idle >= 5:
+                    t_end = samples[-1]["t"]
+                    t_start = samples[len(samples) - n_idle]["t"]
+                    idle_minutes = max(0.0, (t_end - t_start).total_seconds() / 60)
+                    idle_held = idle_minutes >= 25
+            r = risks.get(u, {})
+            out.append({
+                "server_id": s.id,
+                "server_name": s.name,
+                "uuid": u,
+                "gpu_index": index_map.get(u),
+                "name": r.get("name", ""),
+                "util": last["util"],
+                "mem_pct": round(mem_pct, 1),
+                "mem_used_gb": round(last["mem"] / 1024, 1),
+                "idle_held": idle_held,
+                "idle_minutes": round(idle_minutes, 0),
+                "risk": r.get("risk", 0),
+                "risk_label": r.get("risk_label", "健康"),
+                "xid_events": r.get("xid_events", 0),
+                "ecc_uncorrected": r.get("ecc_uncorrected_max", 0),
+                "thermal_throttle": r.get("thermal_throttle_samples", 0),
+                "max_temp": r.get("max_temp", 0),
+                "processes": [
+                    {"pid": p.get("pid"), "user": p.get("user", ""), "command": (p.get("command") or "")[:60]}
+                    for p in last["procs"][:5]
+                ],
+            })
+    out.sort(key=lambda x: (not x["idle_held"], -(x["risk"])))
+    return {
+        "total_gpus": len(out),
+        "idle_held_count": sum(1 for x in out if x["idle_held"]),
+        "high_risk_count": sum(1 for x in out if x["risk"] >= 30),
+        "gpus": out,
+    }
+
+
 @router.get("/cluster/health-summary")
 def cluster_health_summary(db: Session = Depends(get_db),
                            user: User = Depends(get_current_user)):
