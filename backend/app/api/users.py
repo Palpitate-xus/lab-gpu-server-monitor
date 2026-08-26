@@ -5,6 +5,7 @@ from ..database import get_db
 from ..models import AuditLog, User
 from ..schemas import PasswordChange, UserCreate, UserOut, UserUpdate
 from ..security import get_current_user, hash_password, require_admin
+from .. import token_revocation
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -66,6 +67,9 @@ def update_user(
     if body.password:
         user.password_hash = hash_password(body.password)
     db.commit()
+    # security: credential/permission change invalidates existing sessions
+    if body.password or body.is_active is False or body.role is not None:
+        token_revocation.revoke_user_tokens(user.id)
     db.refresh(user)
     audit(db, admin.username, "user.update", f"updated user {user.username}")
     return user
@@ -81,6 +85,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depen
     username = user.username
     db.delete(user)
     db.commit()
+    token_revocation.revoke_user_tokens(user_id)
     audit(db, admin.username, "user.delete", f"deleted user {username}")
     return {"ok": True}
 
@@ -97,5 +102,6 @@ def change_password(
         raise HTTPException(status_code=400, detail="Old password is incorrect")
     current.password_hash = hash_password(body.new_password)
     db.commit()
+    token_revocation.revoke_user_tokens(current.id)  # kill all sessions incl. stolen tokens
     audit(db, current.username, "user.password", "changed own password")
     return {"ok": True}

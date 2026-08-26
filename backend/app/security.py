@@ -37,10 +37,15 @@ def verify_password(password: str, hashed: str) -> bool:
 def create_access_token(username: str, sub_id: int) -> str:
     from datetime import datetime, timedelta, timezone
 
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    from . import token_revocation
+
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": username,
         "uid": sub_id,
+        "iat": int(now.timestamp()),
+        "jti": token_revocation.new_jti(),
         "exp": expire,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
@@ -93,6 +98,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if username is None:
             raise cred_exc
     except JWTError:
+        raise cred_exc
+    from . import token_revocation
+    if token_revocation.is_revoked(
+        payload.get("jti"), payload.get("uid"), payload.get("iat")
+    ):
         raise cred_exc
     user = db.query(User).filter(User.username == username).first()
     if user is None or not user.is_active:
