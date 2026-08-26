@@ -8,8 +8,11 @@ services:
       - "8300:8000"
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
-      SECRET_KEY: "REMOVED-ROTATED-SECRET-KEY"
+      # SECRET_KEY now lives in .env (gitignored); never commit real keys here.
+      # SECRET_KEY: "change-me"
       INIT_ADMIN_USERNAME: "admin"
       INIT_ADMIN_PASSWORD: "admin123"
       POLL_INTERVAL_SECONDS: "60"
