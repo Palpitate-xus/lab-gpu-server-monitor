@@ -19,7 +19,7 @@
             <el-table-column label="条件" min-width="150">
               <template #default="{ row }">
                 {{ metricLabel(row.metric) }} {{ row.op }} {{ row.threshold }}{{ unit(row.metric) }}
-                <div v-if="row.duration_minutes" style="font-size:11px;color:#909399">持续 {{ row.duration_minutes }} 分钟</div>
+                <div v-if="row.duration_minutes" style="font-size:11px;color:var(--csub)">持续 {{ row.duration_minutes }} 分钟</div>
               </template>
             </el-table-column>
             <el-table-column label="范围" width="90">
@@ -88,11 +88,11 @@
             <el-option value="<" label="<" /><el-option value="<=" label="<=" />
           </el-select>
           <el-input-number v-model="form.threshold" :min="0" :max="100000" style="width:150px;margin-left:8px" />
-          <span style="margin-left:6px;color:#909399">{{ unit(form.metric) }}</span>
+          <span style="margin-left:6px;color:var(--csub)">{{ unit(form.metric) }}</span>
         </el-form-item>
         <el-form-item label="持续时间">
           <el-input-number v-model="form.duration_minutes" :min="0" :max="1440" />
-          <span style="margin-left:8px;color:#909399;font-size:12px">分钟（0 = 立即触发）</span>
+          <span style="margin-left:8px;color:var(--csub);font-size:12px">分钟（0 = 立即触发）</span>
         </el-form-item>
         <el-form-item label="作用范围">
           <el-select v-model="form.server_id" clearable placeholder="全部服务器" style="width:100%">
@@ -244,6 +244,6 @@ defineExpose({ eventFilter, loadAll })
 
 <style>
 .el-table .alert-row {
-  background: #fef0f0 !important;
+  background: color-mix(in srgb, var(--cred) 10%, transparent) !important;
 }
 </style>

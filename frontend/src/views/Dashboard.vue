@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-button type="primary" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
       <el-button :icon="DataLine" @click="load">刷新数据</el-button>
-      <span style="color:#909399;font-size:13px" v-if="lastUpdate">上次采集: {{ fmtTime(lastUpdate) }}</span>
+      <span style="color:var(--csub);font-size:13px" v-if="lastUpdate">上次采集: {{ fmtTime(lastUpdate) }}</span>
     </div>
 
     <el-row :gutter="14">
@@ -58,13 +58,13 @@
         <el-table-column label="GPU" width="150">
           <template #default="{ row }">
             <el-progress v-if="row.gpu_count" :percentage="pct(row.avgGpuUtil)" :color="cpuColor(row.avgGpuUtil)" :stroke-width="10" />
-            <span v-else style="color:#c0c4cc">无</span>
+            <span v-else style="color:var(--csub)">无</span>
           </template>
         </el-table-column>
         <el-table-column label="GPU 显存" width="170">
           <template #default="{ row }">
             <span v-if="row.gpu_count" class="mono">{{ fmtSizeMB(row.gpuMemUsed) }} / {{ fmtSizeMB(row.gpuMemTotal) }}</span>
-            <span v-else style="color:#c0c4cc">—</span>
+            <span v-else style="color:var(--csub)">—</span>
           </template>
         </el-table-column>
         <el-table-column label="磁盘" width="130">
@@ -125,10 +125,10 @@ function memPct(row) {
 }
 
 function cpuColor(v) {
-  if (v == null) return '#409eff'
-  if (v >= 90) return '#f56c6c'
-  if (v >= 70) return '#e6a23c'
-  return '#67c23a'
+  if (v == null) return 'var(--cprimary)'
+  if (v >= 90) return 'var(--cred)'
+  if (v >= 70) return 'var(--cyellow)'
+  return 'var(--cgreen)'
 }
 
 function goDetail(row) {

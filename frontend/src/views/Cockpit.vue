@@ -52,9 +52,9 @@
         <div class="cockpit-panel-title">
           <b>GPU 资源矩阵</b>
           <span>
-            <el-tag size="small" type="success" effect="dark" style="background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.4);color:#34d399">空闲</el-tag>
-            <el-tag size="small" effect="dark" style="background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.4);color:#fbbf24;margin-left:4px">繁忙</el-tag>
-            <el-tag size="small" effect="dark" style="background:rgba(248,113,113,.15);border-color:rgba(248,113,113,.4);color:#f87171;margin-left:4px">满载</el-tag>
+            <el-tag size="small" type="success" effect="dark" class="tag-idle">空闲</el-tag>
+            <el-tag size="small" effect="dark" class="tag-busy">繁忙</el-tag>
+            <el-tag size="small" effect="dark" class="tag-full">满载</el-tag>
           </span>
         </div>
         <div v-for="srv in gpuMatrix" :key="srv.server_id" style="margin-bottom:12px">
@@ -120,7 +120,7 @@
     <!-- ===== bottom: alerts ticker + process rank + net rank ===== -->
     <div class="bottom-grid">
       <div class="cockpit-panel stack">
-        <div class="cockpit-panel-title"><b>实时告警</b><span style="color:var(--csub)">{{ openAlerts }} 条未恢复</span></div>
+        <div class="cockpit-panel-title"><b>实时告警</b><span class="io-label">{{ openAlerts }} 条未恢复</span></div>
         <div class="ticker" v-if="alertTickerRows.length">
           <div class="ticker-inner">
             <div v-for="(a, i) in alertTickerRows" :key="i" class="ticker-row">
@@ -155,27 +155,27 @@
         <div class="cockpit-panel-title"><b>网络 / 磁盘吞吐</b></div>
         <div class="io-rows fill-list">
           <div class="io-row">
-            <span style="color:var(--csub)">↓ 集群接收</span>
+            <span class="io-label">↓ 集群接收</span>
             <b class="mono">{{ fmtBps(totalNetRx) }}</b>
           </div>
           <div class="io-row">
-            <span style="color:var(--csub)">↑ 集群发送</span>
+            <span class="io-label">↑ 集群发送</span>
             <b class="mono">{{ fmtBps(totalNetTx) }}</b>
           </div>
           <div class="io-row">
-            <span style="color:var(--csub)">▩ 磁盘读</span>
+            <span class="io-label">▩ 磁盘读</span>
             <b class="mono">{{ fmtBps(totalDiskRead) }}</b>
           </div>
           <div class="io-row">
-            <span style="color:var(--csub)">▩ 磁盘写</span>
+            <span class="io-label">▩ 磁盘写</span>
             <b class="mono">{{ fmtBps(totalDiskWrite) }}</b>
           </div>
           <div class="io-row" v-if="latestMetric">
-            <span style="color:var(--csub)">温度峰值</span>
+            <span class="io-label">温度峰值</span>
             <b class="mono" :style="{ color: tempColor(maxGpuTemp) }">{{ maxGpuTemp }}°C</b>
           </div>
           <div class="io-row" v-if="latestMetric">
-            <span style="color:var(--csub)">总功耗</span>
+            <span class="io-label">总功耗</span>
             <b class="mono">{{ totalGpuPower }} W</b>
           </div>
         </div>
@@ -197,6 +197,7 @@ import api from '../api'
 import { fmtBps, fmtSizeMB, fmtTime } from '../format'
 import '../cockpit.css'
 import { usePoll } from '../composables'
+import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
 
@@ -260,6 +261,7 @@ const maxGpuTemp = computed(() => Math.max(0, ...allGpus.value.map(g => g.temper
 const totalGpuPower = computed(() => Math.round(allGpus.value.reduce((s, g) => s + (g.power_draw || 0), 0)))
 
 const trendOption = computed(() => {
+  const T = chartTheme.value
   const mk = (name, data, color, extra = {}) => ({
     name, type: 'line', showSymbol: false, smooth: true, data,
     lineStyle: { width: 2, color }, itemStyle: { color }, areaStyle: { opacity: 0.12, color }, ...extra,
@@ -268,31 +270,31 @@ const trendOption = computed(() => {
   let series = []
   if (trendMetric.value === 'gpu') {
     series = [
-      mk('GPU 利用率 %', history.value.map(h => h.gpu_util), '#22d3ee'),
-      mk('GPU 显存 %', history.value.map(h => h.gpu_mem_percent), '#a78bfa'),
-      mk('GPU 温度 °C', history.value.map(h => h.gpu_temp), '#fbbf24', { yAxisIndex: 1 }),
+      mk('GPU 利用率 %', history.value.map(h => h.gpu_util), T.cyan),
+      mk('GPU 显存 %', history.value.map(h => h.gpu_mem_percent), T.purple),
+      mk('GPU 温度 °C', history.value.map(h => h.gpu_temp), T.yellow, { yAxisIndex: 1 }),
     ]
   } else if (trendMetric.value === 'cpu') {
     series = [
-      mk('CPU %', history.value.map(h => h.cpu_percent), '#34d399'),
-      mk('内存 %', history.value.map(h => h.mem_percent), '#22d3ee'),
+      mk('CPU %', history.value.map(h => h.cpu_percent), T.green),
+      mk('内存 %', history.value.map(h => h.mem_percent), T.cyan),
     ]
   } else {
     series = [
-      mk('网络 B/s', history.value.map(h => h.net_bps), '#22d3ee'),
-      mk('磁盘 B/s', history.value.map(h => h.disk_bps), '#fbbf24'),
+      mk('网络 B/s', history.value.map(h => h.net_bps), T.cyan),
+      mk('磁盘 B/s', history.value.map(h => h.disk_bps), T.yellow),
     ]
   }
   const percentMode = trendMetric.value !== 'io'
   return {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: '#101a2e', borderColor: '#1e2d47', textStyle: { color: '#dce7f5' } },
-    legend: { textStyle: { color: '#7d90ad' }, top: 0, right: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+    tooltip: { trigger: 'axis', backgroundColor: T.tooltipBg, borderColor: T.tooltipBorder, textStyle: { color: T.tooltipText } },
+    legend: { textStyle: { color: T.label }, top: 0, right: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
     grid: { left: 46, right: 46, top: 30, bottom: 42 },
-    xAxis: { type: 'category', data: t, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+    xAxis: { type: 'category', data: t, axisLine: { lineStyle: { color: T.axisLine } }, axisLabel: { color: T.label } },
     yAxis: [
-      { type: 'value', max: percentMode ? 100 : undefined, axisLabel: { color: '#7d90ad', formatter: percentMode ? '{value}' : (v) => fmtBps(v) }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } },
-      { type: 'value', show: !percentMode ? false : true, axisLabel: { color: '#7d90ad' }, splitLine: { show: false } },
+      { type: 'value', max: percentMode ? 100 : undefined, axisLabel: { color: T.label, formatter: percentMode ? '{value}' : (v) => fmtBps(v) }, splitLine: { lineStyle: { color: T.splitLine } } },
+      { type: 'value', show: !percentMode ? false : true, axisLabel: { color: T.label }, splitLine: { show: false } },
     ],
     dataZoom: [{ type: 'inside' }],
     series,
@@ -307,15 +309,17 @@ function shortName(n) {
 function fmtPct(v) { return (Math.round((Number(v) || 0) * 10) / 10).toFixed(1) }
 
 function utilColor(v) {
-  if (v >= 90) return '#f87171'
-  if (v >= 70) return '#fbbf24'
-  return '#34d399'
+  const T = chartTheme.value
+  if (v >= 90) return T.red
+  if (v >= 70) return T.yellow
+  return T.green
 }
 
 function tempColor(t) {
-  if (t >= 80) return '#f87171'
-  if (t >= 70) return '#fbbf24'
-  return '#34d399'
+  const T = chartTheme.value
+  if (t >= 80) return T.red
+  if (t >= 70) return T.yellow
+  return T.green
 }
 
 function utilGradient(u) {

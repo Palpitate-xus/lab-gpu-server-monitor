@@ -286,6 +286,7 @@ import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/compon
 import VChart from 'vue-echarts'
 import api from '../api'
 import { fmtBps, fmtDuration, fmtFreq, fmtSizeMB, fmtUptime, pct } from '../format'
+import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
@@ -351,13 +352,16 @@ const _axisTime = computed(() => {
   })
 })
 
-const _darkBase = {
-  backgroundColor: 'transparent',
-  tooltip: { trigger: 'axis', backgroundColor: '#101a2e', borderColor: '#1e2d47', textStyle: { color: '#dce7f5' } },
-  legend: { textStyle: { color: '#7d90ad' }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
-  grid: { left: 50, right: 54, top: 32, bottom: 28 },
-  dataZoom: [{ type: 'inside' }],
-}
+const _darkBase = computed(() => {
+  const T = chartTheme.value
+  return {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', backgroundColor: T.tooltipBg, borderColor: T.tooltipBorder, textStyle: { color: T.tooltipText } },
+    legend: { textStyle: { color: T.label }, top: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4 },
+    grid: { left: 50, right: 54, top: 32, bottom: 28 },
+    dataZoom: [{ type: 'inside' }],
+  }
+})
 
 const _mk = (name, data, color, extra = {}) => ({
   name, type: 'line', showSymbol: false, smooth: true, data,
@@ -366,52 +370,52 @@ const _mk = (name, data, color, extra = {}) => ({
 })
 
 const gpuChartOption = computed(() => ({
-  ..._darkBase,
-  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  ..._darkBase.value,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
   yAxis: [
-    { type: 'value', max: 100, axisLabel: { color: '#7d90ad' }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } },
-    { type: 'value', axisLabel: { color: '#7d90ad' }, splitLine: { show: false } },
+    { type: 'value', max: 100, axisLabel: { color: chartTheme.value.label }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+    { type: 'value', axisLabel: { color: chartTheme.value.label }, splitLine: { show: false } },
   ],
   series: [
-    _mk('利用率 %', history.value.map(h => h.gpu_util), '#22d3ee'),
-    _mk('显存 %', history.value.map(h => h.gpu_mem_percent), '#a78bfa'),
-    _mk('温度 °C', history.value.map(h => h.gpu_temp), '#fbbf24', { yAxisIndex: 1 }),
-    _mk('功耗 W', history.value.map(h => h.gpu_power), '#f87171', { yAxisIndex: 1 }),
+    _mk('利用率 %', history.value.map(h => h.gpu_util), chartTheme.value.cyan),
+    _mk('显存 %', history.value.map(h => h.gpu_mem_percent), chartTheme.value.purple),
+    _mk('温度 °C', history.value.map(h => h.gpu_temp), chartTheme.value.yellow, { yAxisIndex: 1 }),
+    _mk('功耗 W', history.value.map(h => h.gpu_power), chartTheme.value.red, { yAxisIndex: 1 }),
   ],
 }))
 
 const sysChartOption = computed(() => ({
-  ..._darkBase,
-  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
+  ..._darkBase.value,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
   yAxis: [
-    { type: 'value', max: 100, axisLabel: { color: '#7d90ad' }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } },
-    { type: 'value', axisLabel: { color: '#7d90ad' }, splitLine: { show: false } },
+    { type: 'value', max: 100, axisLabel: { color: chartTheme.value.label }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+    { type: 'value', axisLabel: { color: chartTheme.value.label }, splitLine: { show: false } },
   ],
   series: [
-    _mk('CPU %', history.value.map(h => h.cpu_percent), '#34d399'),
-    _mk('内存 %', history.value.map(h => h.mem_percent), '#22d3ee'),
-    _mk('Swap %', history.value.map(h => h.swap_percent ?? 0), '#fbbf24'),
-    _mk('每核负载', history.value.map(h => h.load_per_core ?? 0), '#a78bfa', { yAxisIndex: 1 }),
+    _mk('CPU %', history.value.map(h => h.cpu_percent), chartTheme.value.green),
+    _mk('内存 %', history.value.map(h => h.mem_percent), chartTheme.value.cyan),
+    _mk('Swap %', history.value.map(h => h.swap_percent ?? 0), chartTheme.value.yellow),
+    _mk('每核负载', history.value.map(h => h.load_per_core ?? 0), chartTheme.value.purple, { yAxisIndex: 1 }),
   ],
 }))
 
 const netChartOption = computed(() => ({
-  ..._darkBase,
-  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
-  yAxis: [{ type: 'value', axisLabel: { color: '#7d90ad', formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } }],
+  ..._darkBase.value,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
+  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
   series: [
-    _mk('接收', history.value.map(h => h.net_rx_bps ?? 0), '#22d3ee'),
-    _mk('发送', history.value.map(h => h.net_tx_bps ?? 0), '#a78bfa'),
+    _mk('接收', history.value.map(h => h.net_rx_bps ?? 0), chartTheme.value.cyan),
+    _mk('发送', history.value.map(h => h.net_tx_bps ?? 0), chartTheme.value.purple),
   ],
 }))
 
 const diskChartOption = computed(() => ({
-  ..._darkBase,
-  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: '#1e2d47' } }, axisLabel: { color: '#7d90ad' } },
-  yAxis: [{ type: 'value', axisLabel: { color: '#7d90ad', formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: 'rgba(30,45,71,.5)' } } }],
+  ..._darkBase.value,
+  xAxis: { type: 'category', data: _axisTime.value, axisLine: { lineStyle: { color: chartTheme.value.axisLine } }, axisLabel: { color: chartTheme.value.label } },
+  yAxis: [{ type: 'value', axisLabel: { color: chartTheme.value.label, formatter: (v) => fmtBps(v) }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } }],
   series: [
-    _mk('读', history.value.map(h => h.disk_read_bps ?? 0), '#fbbf24'),
-    _mk('写', history.value.map(h => h.disk_write_bps ?? 0), '#f87171'),
+    _mk('读', history.value.map(h => h.disk_read_bps ?? 0), chartTheme.value.yellow),
+    _mk('写', history.value.map(h => h.disk_write_bps ?? 0), chartTheme.value.red),
   ],
 }))
 
@@ -493,10 +497,10 @@ onUnmounted(() => clearInterval(liveTimer))
 .core-block {
   position: relative;
   height: 60px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--cborder, #dde5f0);
   border-radius: 4px;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--cpanel2, #f7f9fc);
   cursor: default;
 }
 .core-fill {
@@ -504,10 +508,10 @@ onUnmounted(() => clearInterval(liveTimer))
   bottom: 0; left: 0; right: 0;
   transition: height .4s;
 }
-.core-idle .core-fill { background: #c0c4cc66; }
-.core-ok   .core-fill { background: #67c23a88; }
-.core-warn .core-fill { background: #e6a23c99; }
-.core-crit .core-fill { background: #f56c6caa; }
+.core-idle .core-fill { background: color-mix(in srgb, var(--csub, #64748b) 40%, transparent); }
+.core-ok   .core-fill { background: color-mix(in srgb, var(--cgreen, #059669) 55%, transparent); }
+.core-warn .core-fill { background: color-mix(in srgb, var(--cyellow, #d97706) 60%, transparent); }
+.core-crit .core-fill { background: color-mix(in srgb, var(--cred, #dc2626) 65%, transparent); }
 .core-text {
   position: absolute;
   inset: 0;
@@ -516,6 +520,6 @@ onUnmounted(() => clearInterval(liveTimer))
   justify-content: center;
   font-size: 11px;
   font-weight: 600;
-  color: #303133;
+  color: var(--ctext, #1f2d3d);
 }
 </style>

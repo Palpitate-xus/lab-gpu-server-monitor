@@ -10,7 +10,7 @@
             </el-form-item>
             <el-form-item label="数据保留 (天)">
               <el-input-number v-model="retentionDays" :min="0" :max="3650" />
-              <div style="font-size:12px;color:#909399">0 = 永久保存全部历史数据</div>
+              <div style="font-size:12px;color:var(--csub)">0 = 永久保存全部历史数据</div>
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="saving" @click="saveSettings">保存</el-button>
@@ -35,7 +35,7 @@
             <el-form-item label="消息模板">
               <el-input v-model="webhookTemplate" type="textarea" :rows="4" class="mono"
                 placeholder='{"text": "[{{level}}] {{server_name}}: {{metric}}={{value}} {{op}} {{threshold}}"}' />
-              <div style="font-size:12px;color:#909399;line-height:1.6">
+              <div style="font-size:12px;color:var(--csub);line-height:1.6">
                 变量: {{level}} {{server_name}} {{metric}} {{value}} {{op}} {{threshold}} {{rule_name}} {{time}}<br>
                 默认发 JSON，可直接填企业微信/钉钉/飞书机器人兼容模板
               </div>
