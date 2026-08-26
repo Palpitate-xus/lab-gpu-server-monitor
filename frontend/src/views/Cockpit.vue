@@ -14,6 +14,8 @@
           <el-radio-button :value="6">6H</el-radio-button>
           <el-radio-button :value="24">24H</el-radio-button>
         </el-radio-group>
+        <RateUnitPicker v-show="trendMetric === 'net'" kind="net" @change="onUnitChange" />
+        <RateUnitPicker v-show="trendMetric === 'disk'" kind="disk" @change="onUnitChange" />
         <el-button size="small" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
       </div>
     </div>
@@ -108,7 +110,8 @@
             <el-radio-group v-model="trendMetric" size="small">
               <el-radio-button value="gpu">GPU</el-radio-button>
               <el-radio-button value="cpu">CPU/内存</el-radio-button>
-              <el-radio-button value="io">IO</el-radio-button>
+              <el-radio-button value="net">网络</el-radio-button>
+              <el-radio-button value="disk">磁盘</el-radio-button>
             </el-radio-group>
           </div>
           <v-chart :option="trendOption" class="cockpit-chart-lg" autoresize />
@@ -169,19 +172,19 @@
         <div class="io-rows fill-list">
           <div class="io-row">
             <span class="io-label">↓ 集群接收</span>
-            <b class="mono">{{ fmtBps(totalNetRx) }}</b>
+            <b class="mono">{{ fmtNetRate(totalNetRx) }}</b>
           </div>
           <div class="io-row">
             <span class="io-label">↑ 集群发送</span>
-            <b class="mono">{{ fmtBps(totalNetTx) }}</b>
+            <b class="mono">{{ fmtNetRate(totalNetTx) }}</b>
           </div>
           <div class="io-row">
             <span class="io-label">▩ 磁盘读</span>
-            <b class="mono">{{ fmtBps(totalDiskRead) }}</b>
+            <b class="mono">{{ fmtDiskRate(totalDiskRead) }}</b>
           </div>
           <div class="io-row">
             <span class="io-label">▩ 磁盘写</span>
-            <b class="mono">{{ fmtBps(totalDiskWrite) }}</b>
+            <b class="mono">{{ fmtDiskRate(totalDiskWrite) }}</b>
           </div>
           <div class="io-row" v-if="latestMetric">
             <span class="io-label">温度峰值</span>
@@ -207,7 +210,8 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import api from '../api'
-import { fmtBps, fmtSizeMB, fmtTime } from '../format'
+import RateUnitPicker from '../components/RateUnitPicker.vue'
+import { diskAxisFormatter, fmtDiskRate, fmtNetRate, fmtSizeMB, fmtTime, netAxisFormatter } from '../format'
 import '../cockpit.css'
 import { usePoll } from '../composables'
 import { chartTheme } from '../theme'
@@ -216,6 +220,8 @@ use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent
 
 const rangeHours = ref(6)
 const trendMetric = ref('gpu')
+const unitEpoch = ref(0)
+function onUnitChange() { unitEpoch.value++ }
 const refreshing = ref(false)
 const history = ref([])
 
@@ -275,6 +281,7 @@ const maxGpuTemp = computed(() => Math.max(0, ...allGpus.value.map(g => g.temper
 const totalGpuPower = computed(() => Math.round(allGpus.value.reduce((s, g) => s + (g.power_draw || 0), 0)))
 
 const trendOption = computed(() => {
+  unitEpoch.value  // recompute when rate unit preference changes
   const T = chartTheme.value
   const mk = (name, data, color, extra = {}) => ({
     name, type: 'line', showSymbol: false, smooth: true, data,
@@ -282,6 +289,8 @@ const trendOption = computed(() => {
   })
   const t = history.value.map(h => h.time)
   let series = []
+  let percentMode = true
+  let axisFmt = null
   if (trendMetric.value === 'gpu') {
     series = [
       mk('GPU 利用率 %', history.value.map(h => h.gpu_util), T.cyan),
@@ -293,13 +302,21 @@ const trendOption = computed(() => {
       mk('CPU %', history.value.map(h => h.cpu_percent), T.green),
       mk('内存 %', history.value.map(h => h.mem_percent), T.cyan),
     ]
-  } else {
+  } else if (trendMetric.value === 'net') {
+    percentMode = false
+    axisFmt = netAxisFormatter()
     series = [
-      mk('网络 B/s', history.value.map(h => h.net_bps), T.cyan),
-      mk('磁盘 B/s', history.value.map(h => h.disk_bps), T.yellow),
+      mk('集群接收', history.value.map(h => h.net_bps), T.cyan),
+      mk('集群发送', history.value.map(h => h.net_bps_tx || h.net_tx_bps), T.purple),
+    ]
+  } else { // disk
+    percentMode = false
+    axisFmt = diskAxisFormatter()
+    series = [
+      mk('磁盘读', history.value.map(h => h.disk_bps), T.yellow),
+      mk('磁盘写', history.value.map(h => h.disk_bps_write || h.disk_write_bps), T.red),
     ]
   }
-  const percentMode = trendMetric.value !== 'io'
   return {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: T.tooltipBg, borderColor: T.tooltipBorder, textStyle: { color: T.tooltipText } },
@@ -307,7 +324,7 @@ const trendOption = computed(() => {
     grid: { left: 46, right: 46, top: 30, bottom: 42 },
     xAxis: { type: 'category', data: t, axisLine: { lineStyle: { color: T.axisLine } }, axisLabel: { color: T.label } },
     yAxis: [
-      { type: 'value', max: percentMode ? 100 : undefined, axisLabel: { color: T.label, formatter: percentMode ? '{value}' : (v) => fmtBps(v) }, splitLine: { lineStyle: { color: T.splitLine } } },
+      { type: 'value', max: percentMode ? 100 : undefined, axisLabel: { color: T.label, formatter: percentMode ? '{value}' : axisFmt }, splitLine: { lineStyle: { color: T.splitLine } } },
       { type: 'value', show: !percentMode ? false : true, axisLabel: { color: T.label }, splitLine: { show: false } },
     ],
     dataZoom: [{ type: 'inside' }],
