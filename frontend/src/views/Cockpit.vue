@@ -46,6 +46,19 @@
       </div>
     </div>
 
+    <!-- ===== cluster health strip ===== -->
+    <div class="health-strip" v-if="healthSummary.length">
+      <div v-for="h in healthSummary" :key="h.server_id" class="health-chip" :class="`hs-${h.overall}`" @click="$router.push(`/servers/${h.server_id}`)">
+        <span class="live-dot" v-if="h.overall === 'ok'"></span>
+        <el-icon v-else-if="h.overall === 'critical'" color="var(--cred)"><CircleCloseFilled /></el-icon>
+        <el-icon v-else color="var(--cyellow)"><WarningFilled /></el-icon>
+        <b>{{ h.name }}</b>
+        <span class="health-chip-detail">
+          {{ h.overall === 'ok' ? '健康' : (h.error_code && h.error_code !== 'OK') ? faultLabel(h.error_code) : (h.critical ? `${h.critical} 严重` : `${h.warning} 警告`) }}
+        </span>
+      </div>
+    </div>
+
     <!-- ===== main grid: GPU matrix + cluster trend ===== -->
     <div class="main-grid">
       <div class="cockpit-panel">
@@ -207,6 +220,7 @@ const refreshing = ref(false)
 const history = ref([])
 
 const stats = ref({})
+const healthSummary = ref([])
 const gpuMatrix = ref([])
 const alerts = ref([])
 const latest = ref([])
@@ -337,17 +351,25 @@ function gpuCellClass(g) {
 }
 
 async function loadAll() {
-  const [a, b, c, d] = await Promise.all([
+  const [a, b, c, d, e] = await Promise.all([
     api.get('/metrics/dashboard').then(r => r.data),
     api.get('/metrics/cluster-gpus').then(r => r.data),
     api.get('/alerts/events?limit=20').then(r => r.data),
     api.get('/metrics/latest').then(r => r.data),
+    api.get('/cluster/health-summary').then(r => r.data).catch(() => []),
   ])
   stats.value = a
   gpuMatrix.value = b
   alerts.value = c
   latest.value = d
+  healthSummary.value = e
 }
+
+const FAULT_LABELS = {
+  SSH_AUTH_FAILED: '认证失败', SSH_HOSTKEY_CHANGED: '主机密钥变更', SSH_DNS_FAILED: 'DNS 失败',
+  SSH_REFUSED: '连接拒绝', SSH_DOWN: 'SSH 不可达', COLLECT_TIMEOUT: '采集超时', COLLECT_FAILED: '采集失败',
+}
+function faultLabel(code) { return FAULT_LABELS[code] || code }
 
 async function loadHistory() {
   try {
