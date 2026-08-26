@@ -18,7 +18,7 @@ settings = get_settings()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("gpumon")
 
-from .api import alerts, auth, cockpit, metrics, servers, server_test, users  # noqa: E402
+from .api import alerts, auth, cockpit, enterprise, metrics, servers, server_test, users  # noqa: E402
 
 
 @asynccontextmanager
@@ -72,6 +72,7 @@ app.include_router(servers.router)
 app.include_router(server_test.router)
 app.include_router(metrics.router)
 app.include_router(alerts.router)
+app.include_router(enterprise.router)
 app.include_router(cockpit.router)
 
 
