@@ -43,17 +43,32 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 
 ## 安全架构
 
+### 密钥与凭据
+- **SECRET_KEY 只存 `.env`（已 gitignore）**，compose 通过 `env_file` 注入；
+  **轮换密钥会使已存 SSH 凭据不可解密**（错误码 `CRED_DECRYPT_FAILED`），
+  需在服务器管理页重新录入——这是设计特性，防止旧密文被旧密钥解开
+- **SSH 凭据**：Fernet 加密存储（AES-128-CBC+HMAC，密钥由 SECRET_KEY 派生）；
+  建议专用 `monitor` 用户 + ED25519 key +
+  `authorized_keys` 限制（`no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`）
+- **登录密码**：bcrypt cost=12
+
+### 认证与访问
+- **登录速率限制**：同 IP / 同用户名 5 次失败锁 10 分钟（429 + 剩余时间提示），
+  成功登录清零；失败尝试写审计日志
+- **JWT 有效期 2 小时**，401 自动登出前端
+- **CORS 默认关闭**（同源部署，SPA 与 API 同源）；跨域部署需显式配置
+  `CORS_ORIGINS` 白名单；反代场景设 `TRUST_PROXY=yes` 才信任 X-Forwarded-For
+- 进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin；viewer 只读；
+  敏感操作全部审计日志
+
+### 采集安全
 - **Host Key 校验**：TOFU（首次信任并记录），密钥变化立即中止并告警（防 MITM）；
   管理员确认服务器重装后可一键重置
-- **凭据**：Fernet 加密存储；建议专用 `monitor` 用户 + ED25519 key +
-  `authorized_keys` 限制（`no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`）
 - **命令白名单**：采集命令全部内置固定模板，前端/用户**不可能**注入 shell
 - **服务器端零残留**：脚本经 stdin（`bash -s`）执行，不落盘、无后台进程
 - **输出限流**：单采集器 2MB 上限，`LC_ALL=C` 固定 locale
 - **最小 sudo**：全部指标无需 root；仅 `nvme smart-log`/`ipmitool`/`journalctl`
   建议按需放开（sudoers 白名单单条命令）
-- 进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin；viewer 只读；
-  敏感操作全部审计日志
 
 ## 平台功能
 
