@@ -53,6 +53,7 @@ class Server(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     tags: Mapped[list] = mapped_column(JSON, default=list)
     note: Mapped[str] = mapped_column(Text, default="")
+    expected_gpu_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -75,9 +76,11 @@ class ServerMetric(Base):
     os: Mapped[str] = mapped_column(String(255), default="")
     kernel: Mapped[str] = mapped_column(String(255), default="")
     uptime_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    boot_id: Mapped[str] = mapped_column(String(128), default="")
     cpu_model: Mapped[str] = mapped_column(String(255), default="")
     cpu_count: Mapped[int] = mapped_column(Integer, default=0)
     cpu_percent: Mapped[float] = mapped_column(Float, default=0)
+    cpu_iowait: Mapped[float] = mapped_column(Float, default=0)
     cpu_freq_avg: Mapped[float] = mapped_column(Float, default=0)
     cpu_temp_package: Mapped[float] = mapped_column(Float, default=0)
     cores: Mapped[list] = mapped_column(JSON, default=list)  # [{id,util,freq_mhz,temp}]
@@ -93,11 +96,16 @@ class ServerMetric(Base):
     disk_total_gb: Mapped[float] = mapped_column(Float, default=0)
     disk_used_gb: Mapped[float] = mapped_column(Float, default=0)
     disks: Mapped[list] = mapped_column(JSON, default=list)
+    inodes: Mapped[list] = mapped_column(JSON, default=list)
     disk_io: Mapped[list] = mapped_column(JSON, default=list)
     net_rx_bytes: Mapped[float] = mapped_column(Float, default=0)
     net_tx_bytes: Mapped[float] = mapped_column(Float, default=0)
     net_ifaces: Mapped[list] = mapped_column(JSON, default=list)
     users: Mapped[list] = mapped_column(JSON, default=list)
+    sock_estab: Mapped[int] = mapped_column(Integer, default=0)
+    sock_timewait: Mapped[int] = mapped_column(Integer, default=0)
+    fd_allocated: Mapped[int] = mapped_column(Integer, default=0)
+    fd_max: Mapped[int] = mapped_column(Integer, default=0)
 
     # gpu summary
     gpu_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -105,8 +113,10 @@ class ServerMetric(Base):
     gpus: Mapped[list] = mapped_column(JSON, default=list)
     processes: Mapped[list] = mapped_column(JSON, default=list)
     duration: Mapped[float] = mapped_column(Float, default=0)
+    ssh_latency: Mapped[float] = mapped_column(Float, default=0)
 
     status: Mapped[str] = mapped_column(String(16), default="ok")  # ok | error
+    error_code: Mapped[str] = mapped_column(String(32), default="OK")
     error: Mapped[str] = mapped_column(Text, default="")
 
     server: Mapped["Server"] = relationship(back_populates="metrics")
@@ -162,6 +172,75 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class HostInventory(Base):
+    __tablename__ = "host_inventory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    machine_id: Mapped[str] = mapped_column(String(128), default="")
+    dmi: Mapped[dict] = mapped_column(JSON, default=dict)
+    lscpu: Mapped[dict] = mapped_column(JSON, default=dict)
+    numa: Mapped[dict] = mapped_column(JSON, default=dict)
+    gpu_topology: Mapped[str] = mapped_column(Text, default="")
+    pci_numa: Mapped[list] = mapped_column(JSON, default=list)
+    disks: Mapped[list] = mapped_column(JSON, default=list)
+    nics: Mapped[list] = mapped_column(JSON, default=list)
+    ip_addrs: Mapped[list] = mapped_column(JSON, default=list)
+    ib: Mapped[dict] = mapped_column(JSON, default=dict)
+    time_info: Mapped[dict] = mapped_column(JSON, default=dict)
+    gpu_baseline: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class KernelEventRow(Base):
+    __tablename__ = "kernel_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    boot_id: Mapped[str] = mapped_column(String(128), default="")
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), default="info")
+    gpu_uuid: Mapped[str] = mapped_column(String(64), default="")
+    xid: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(Text, default="")
+    raw_message: Mapped[str] = mapped_column(Text, default="")
+    dedup_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SlowHealth(Base):
+    __tablename__ = "slow_health"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    nvme_smart: Mapped[list] = mapped_column(JSON, default=list)
+    mdraid: Mapped[dict] = mapped_column(JSON, default=dict)
+    nfs_mounts: Mapped[list] = mapped_column(JSON, default=list)
+    systemd_failed: Mapped[list] = mapped_column(JSON, default=list)
+    services: Mapped[dict] = mapped_column(JSON, default=dict)
+    mig: Mapped[list] = mapped_column(JSON, default=list)
+    nvlink: Mapped[dict] = mapped_column(JSON, default=dict)
+    ipmi: Mapped[list] = mapped_column(JSON, default=list)
+    duration: Mapped[float] = mapped_column(Float, default=0)
+
+
+class GpuBaseline(Base):
+    __tablename__ = "gpu_baseline"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    gpu_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    serial: Mapped[str] = mapped_column(String(128), default="")
+    pci_bus_id: Mapped[str] = mapped_column(String(32), default="")
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    missing_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def new_token(n: int = 32) -> str:
