@@ -1,0 +1,17 @@
+services:
+  gpu-monitor:
+    build: .
+    image: gpu-monitor:latest
+    container_name: gpu-monitor
+    restart: unless-stopped
+    ports:
+      - "8300:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      SECRET_KEY: "please-change-this-secret-key"
+      INIT_ADMIN_USERNAME: "admin"
+      INIT_ADMIN_PASSWORD: "admin123"
+      POLL_INTERVAL_SECONDS: "60"
+      METRICS_RETENTION_HOURS: "72"
+      TZ: "Asia/Shanghai"

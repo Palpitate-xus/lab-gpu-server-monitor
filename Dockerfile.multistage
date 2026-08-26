@@ -1,0 +1,23 @@
+# Multi-stage Dockerfile variant (requires network access to docker hub for the node image):
+#   docker build -f Dockerfile.multistage -t gpu-monitor:latest .
+FROM node:24-alpine AS frontend-build
+WORKDIR /build
+COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+RUN corepack enable && pnpm install --no-frozen-lockfile
+COPY frontend/ .
+RUN pnpm build
+
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/app ./app
+COPY backend/migrations ./migrations
+COPY --from=frontend-build /build/dist ./static
+ENV DATA_DIR=/app/data PYTHONUNBUFFERED=1
+RUN mkdir -p /app/data
+VOLUME /app/data
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
