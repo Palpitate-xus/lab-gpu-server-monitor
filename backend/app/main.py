@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .config import get_settings
+from .schemas import SettingsUpdate
 from .database import Base, SessionLocal, engine, get_db
 from .models import AuditLog, Setting, User
 from .schemas import AuditLogOut
@@ -55,7 +56,44 @@ async def lifespan(app):
     logger.info("shutting down")
 
 
-app = FastAPI(title=settings.APP_NAME, version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title=settings.APP_NAME,
+    version="1.0.0",
+    lifespan=lifespan,
+    # API docs are disabled unless explicitly enabled (DOCS_ENABLED=yes) —
+    # the schema maps the whole attack surface; don't hand it out unauthenticated.
+    docs_url="/docs" if settings.DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
+)
+
+
+# ---------------- security headers ----------------
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        resp = await call_next(request)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # SPA: no inline <script> is used by the Vite build; style-src needs
+        # 'unsafe-inline' for ECharts/Element Plus runtime styles.
+        resp.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'; font-src 'self' data:; "
+            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        )
+        if request.url.scheme == "https":
+            resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return resp
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 if settings.CORS_ORIGINS:
     app.add_middleware(
@@ -86,7 +124,7 @@ def list_audit_logs(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    return db.query(AuditLog).order_by(AuditLog.ts.desc()).limit(min(limit, 500)).all()
+    return db.query(AuditLog).order_by(AuditLog.ts.desc()).limit(max(1, min(limit, 500))).all()
 
 
 @misc_router.get("/settings")
@@ -116,29 +154,35 @@ def get_app_settings(_: User = Depends(require_admin)):
 
 
 @misc_router.put("/settings")
-def update_app_settings(body: dict, _: User = Depends(require_admin)):
+def update_app_settings(body: SettingsUpdate, _: User = Depends(require_admin)):
     db = SessionLocal()
     try:
-        if "poll_interval" in body and body["poll_interval"] is not None:
+        if body.poll_interval is not None and body.poll_interval is not None:
             try:
-                interval = int(body["poll_interval"])
+                interval = int(body.poll_interval)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="poll_interval must be an integer")
             if interval < 10:
                 raise HTTPException(status_code=400, detail="poll_interval must be >= 10 seconds")
             _set_setting(db, "poll_interval", str(interval))
-        if "retention_days" in body and body["retention_days"] is not None:
+        if body.retention_days is not None and body.retention_days is not None:
             try:
-                days = int(body["retention_days"])
+                days = int(body.retention_days)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="retention_days must be an integer")
             if days < 0:
                 raise HTTPException(status_code=400, detail="retention_days must be >= 0 (0 = keep forever)")
             _set_setting(db, "retention_days", str(days))
-        if "webhook_url" in body:
-            _set_setting(db, "alert_webhook_url", str(body["webhook_url"] or ""))
-        if "webhook_template" in body:
-            _set_setting(db, "alert_webhook_template", str(body["webhook_template"] or ""))
+        if body.webhook_url is not None:
+            url = str(body.webhook_url or "")
+            if url:
+                from .notifier import _validate_webhook_url
+                ok, why = _validate_webhook_url(url)
+                if not ok:
+                    raise HTTPException(status_code=400, detail=f"webhook url rejected: {why}")
+            _set_setting(db, "alert_webhook_url", url)
+        if body.webhook_template is not None:
+            _set_setting(db, "alert_webhook_template", str(body.webhook_template or ""))
     finally:
         db.close()
     return {"ok": True}

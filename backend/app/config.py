@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # enables X-Forwarded-For for rate limiting.
     TRUST_PROXY: str = "no"
 
+    # Expose /docs /redoc /openapi.json (authenticated use only; default off).
+    DOCS_ENABLED: str = "no"
+
     # mysql: mysql+pymysql://user:pass@host:3306/gpu_monitor?charset=utf8mb4
     # sqlite: sqlite:///./data/gpu_monitor.db
     DATABASE_URL: str = "mysql+pymysql://gpumon:gpumon_pass_2024@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
