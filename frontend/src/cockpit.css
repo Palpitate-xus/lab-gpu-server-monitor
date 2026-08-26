@@ -192,6 +192,8 @@ html.dark {
   gap: 10px;
   font-size: 13px;
   white-space: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .ticker-empty {
   flex: 1;
@@ -333,3 +335,38 @@ html.dark {
 .fill-list { max-height: 300px; overflow-y: auto; }
 .rank-scroll::-webkit-scrollbar, .fill-list::-webkit-scrollbar { width: 6px; }
 .rank-scroll::-webkit-scrollbar-thumb, .fill-list::-webkit-scrollbar-thumb { background: var(--cborder); border-radius: 3px; }
+
+/* ===== style-fix batch: card padding unification ===== */
+.cockpit .el-card.cockpit-panel { border: none; background: transparent; box-shadow: none; }
+.cockpit .el-card.cockpit-panel :deep(.el-card__body),
+.cockpit .el-card.cockpit-panel .el-card__body {
+  padding: 0;          /* cockpit-panel already provides 14px 16px */
+}
+
+/* fix 9: equal-height stat/KPI cards */
+.cockpit .el-row { align-items: stretch; }
+.cockpit .el-row .el-col { display: flex; flex-direction: column; }
+.cockpit .el-row .el-col > .el-card { flex: 1; display: flex; flex-direction: column; }
+
+/* fix 7: tables scroll horizontally instead of squashing/overflowing */
+.cockpit .el-table { width: 100%; }
+
+/* fix 11: cap the per-core grid so 100+ core hosts stay tidy */
+.core-grid {
+  max-height: 320px;
+  overflow-y: auto;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  padding-right: 4px;
+}
+.core-grid::-webkit-scrollbar { width: 6px; }
+.core-grid::-webkit-scrollbar-thumb { background: var(--cborder); border-radius: 3px; }
+
+/* fix 10: popper (dropdown/tooltip) follows app theme, not just html.dark */
+.cockpit .el-popper.is-light { background: var(--cpanel); border: 1px solid var(--cborder); color: var(--ctext); }
+.cockpit .el-popper.is-light .el-popper__arrow::before { background: var(--cpanel); border-color: var(--cborder); }
+.cockpit .el-dropdown-menu { background: transparent; }
+.cockpit .el-dropdown-menu__item { color: var(--ctext); }
+.cockpit .el-dropdown-menu__item:not(.is-disabled):hover { background: var(--ctable-hover); color: var(--cprimary); }
+.cockpit .el-dropdown-menu__item.is-disabled { color: var(--csub); opacity: .6; }
+
+.ticker-row span:last-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }

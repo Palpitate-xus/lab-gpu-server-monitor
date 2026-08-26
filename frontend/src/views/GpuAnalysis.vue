@@ -16,28 +16,28 @@
     <!-- ===== summary cards ===== -->
     <el-row :gutter="14" style="margin-bottom:14px">
       <el-col :span="6">
-        <el-card class="stat-card cockpit-panel">
+        <div class="cockpit-panel kpi-accent-cyan">
           <div class="kpi-value">{{ summary.total_gpus }}<span class="kpi-unit">卡</span></div>
           <div class="kpi-label">集群 GPU 总数</div>
-        </el-card>
+        </div>
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card cockpit-panel kpi-accent-yellow">
-          <div class="kpi-value" style="color:var(--cyellow)">{{ summary.idle_held_count }}<span class="kpi-unit">卡</span></div>
+        <div class="cockpit-panel kpi-accent-yellow">
+          <div class="kpi-value kpi-solid-yellow">{{ summary.idle_held_count }}<span class="kpi-unit">卡</span></div>
           <div class="kpi-label">空占（占卡不计算）</div>
-        </el-card>
+        </div>
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card cockpit-panel kpi-accent-purple">
-          <div class="kpi-value" style="color:var(--cpurple)">{{ summary.high_risk_count }}<span class="kpi-unit">卡</span></div>
+        <div class="cockpit-panel kpi-accent-purple">
+          <div class="kpi-value kpi-solid-purple">{{ summary.high_risk_count }}<span class="kpi-unit">卡</span></div>
           <div class="kpi-label">风险关注（≥30 分）</div>
-        </el-card>
+        </div>
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card cockpit-panel kpi-accent-green">
-          <div class="kpi-value" style="color:var(--cgreen)">{{ healthyCount }}<span class="kpi-unit">卡</span></div>
+        <div class="cockpit-panel kpi-accent-green">
+          <div class="kpi-value kpi-solid-green">{{ healthyCount }}<span class="kpi-unit">卡</span></div>
           <div class="kpi-label">健康（低风险无空占）</div>
-        </el-card>
+        </div>
       </el-col>
     </el-row>
 
@@ -215,6 +215,9 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <style scoped>
+.kpi-solid-yellow { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--cyellow); }
+.kpi-solid-purple { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--cpurple); }
+.kpi-solid-green  { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--cgreen); }
 .risk-factors { display: flex; gap: 4px; flex-wrap: wrap; }
 .proc-list { display: flex; flex-direction: column; gap: 2px; }
 .proc-line { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
