@@ -53,6 +53,12 @@
               </template>
             </el-table-column>
             <el-table-column prop="server_name" label="服务器" width="120" show-overflow-tooltip />
+            <el-table-column label="来源" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="!row.rule_id" size="small" type="warning" effect="plain">内置检测</el-tag>
+                <el-tag v-else size="small" type="info" effect="plain">自定义规则</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="内容" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">{{ row.message }}</template>
             </el-table-column>
