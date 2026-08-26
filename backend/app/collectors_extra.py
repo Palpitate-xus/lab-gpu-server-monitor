@@ -120,22 +120,24 @@ def _parse_mdstat(text: str) -> dict:
     out = {"personalities": [], "arrays": [], "raw": text[:2000]}
     for line in text.splitlines():
         line = line.strip()
-        m = re.match(r"^Personalities\s*:\s*\[(.*)\]$", line)
+        m = re.match(r"^Personalities\s*:\s*\[(.*)\]", line)
         if m:
-            out["personalities"] = [p.strip() for p in m.group(1).split("]") if p.strip().lstrip("[")]
+            out["personalities"] = re.findall(r"raid\d+|linear|multipath|faulty", m.group(1))
             continue
         m = re.match(r"^(md\d+)\s*:\s*(.*)$", line)
         if m:
             name, rest = m.group(1), m.group(2)
             arr = {"name": name}
-            lm = re.match(r"^(?:\S+\s+)?(\w+)\s+(?:raid\w+\s+)?(\S+)", rest)
             level = re.search(r"(raid\d+|linear|multipath|faulty)", rest)
             if level:
                 arr["level"] = level.group(1)
-            status = re.search(r"\[(\d+)/(\d+)\]\s+\[(\w+)\]", rest)
+            status = re.search(r"\[(\d+)/(\d+)\]\s+\[([U_]+)\]", rest)
             if status:
-                arr["active_disks"], arr["total_disks"], arr["state"] = (
-                    int(status.group(1)), int(status.group(2)), status.group(3))
+                arr["active_disks"] = int(status.group(1))
+                arr["total_disks"] = int(status.group(2))
+                arr["state"] = status.group(3)
+                if "_" in arr["state"]:
+                    arr["degraded"] = True
             rec = re.search(r"recovery\s*=\s*(\d+(?:\.\d+)?)%", rest)
             if rec:
                 arr["recovery_percent"] = float(rec.group(1))
