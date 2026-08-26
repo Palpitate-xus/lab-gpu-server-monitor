@@ -96,7 +96,7 @@ def server_latest(server_id: int, db: Session = Depends(get_db), _: User = Depen
 @router.get("/server/{server_id}/history")
 def server_history(
     server_id: int,
-    hours: int = Query(default=3, ge=1, le=24, description="1-24h raw points"),
+    hours: int = Query(default=3, ge=1, le=168, description="1-168h raw points"),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -117,6 +117,7 @@ def server_history(
         mem_pcts = []
         temps = []
         powers = []
+        clocks = []
         for g in gpus:
             total = g.get("mem_total_mb", 0) or 0
             used = g.get("mem_used_mb", 0) or 0
@@ -128,20 +129,35 @@ def server_history(
             p = g.get("power_draw", 0) or 0
             if p:
                 powers.append(p)
+            c = g.get("clock_graphics", 0) or 0
+            if c:
+                clocks.append(c)
         mem_pct = (m.mem_used_mb / m.mem_total_mb * 100) if m.mem_total_mb else 0
+        swap_pct = (m.swap_used_mb / m.swap_total_mb * 100) if m.swap_total_mb else 0
+        disk_pcts = [d.get("percent", 0) or 0 for d in (m.disks or [])]
+        net_rx = sum(i.get("rx_bps", 0) or 0 for i in (m.net_ifaces or []))
+        net_tx = sum(i.get("tx_bps", 0) or 0 for i in (m.net_ifaces or []))
+        disk_r = sum(d.get("read_bps", 0) or 0 for d in (m.disk_io or []))
+        disk_w = sum(d.get("write_bps", 0) or 0 for d in (m.disk_io or []))
         series.append(
             {
                 "time": m.collected_at.isoformat(),
                 "cpu_percent": m.cpu_percent,
                 "mem_percent": round(mem_pct, 1),
+                "swap_percent": round(swap_pct, 1),
+                "disk_percent": round(max(disk_pcts), 1) if disk_pcts else 0,
                 "gpu_util": gpu_util,
                 "gpu_mem_percent": round(sum(mem_pcts) / len(mem_pcts), 1) if mem_pcts else 0,
                 "gpu_mem_used_mb": round(sum(g.get("mem_used_mb", 0) or 0 for g in gpus), 1),
                 "gpu_temp": round(max(temps), 1) if temps else 0,
                 "gpu_power": round(sum(powers), 1) if powers else 0,
+                "gpu_clock": round(sum(clocks) / len(clocks)) if clocks else 0,
                 "load1": m.load1,
-                "net_rx_bps": round(m.net_rx_bytes or 0, 1),
-                "net_tx_bps": round(m.net_tx_bytes or 0, 1),
+                "load_per_core": round(m.load1 / m.cpu_count, 2) if m.cpu_count else 0,
+                "net_rx_bps": round(net_rx, 1),
+                "net_tx_bps": round(net_tx, 1),
+                "disk_read_bps": round(disk_r, 1),
+                "disk_write_bps": round(disk_w, 1),
             }
         )
     return series
