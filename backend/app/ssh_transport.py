@@ -29,25 +29,25 @@ MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 # ---------------------------------------------------------------- host keys
 
 class _TofuPolicy(paramiko.client.MissingHostKeyPolicy):
-    """Trust on first use: persist the key; never silently trust a changed one."""
+    """Trust on first use: record the key in paramiko host-entries format.
 
-    def __init__(self, path: str):
+    Entries are written as `[host]:port keytype base64` (or `host ...` for :22)
+    so `client.load_host_keys()` matches them on later connects. A changed key
+    surfaces as BadHostKeyException from connect(), mapped to
+    SSH_HOSTKEY_CHANGED in classify_ssh_error().
+    """
+
+    def __init__(self, path: str, host: str, port: int):
         self.path = path
+        self.pattern = f"[{host}]:{port}" if port != 22 else host
 
     def missing_host_key(self, client, hostname, key):
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             with open(self.path, "a") as f:
-                f.write(f"{key.get_name()} {key.get_base64()}\n")
+                f.write(f"{self.pattern} {key.get_name()} {key.get_base64()}\n")
         except Exception:
             logger.warning("cannot persist host key for %s", hostname)
-
-
-class _RejectChangedPolicy(paramiko.client.MissingHostKeyPolicy):
-    def missing_host_key(self, client, hostname, key):
-        raise paramiko.SSHException(
-            "HOSTKEY_CHANGED: server presented a key different from the recorded one"
-        )
 
 
 def hostkey_path(server_key: str) -> str:
@@ -101,9 +101,11 @@ def connect_host(
             client.load_host_keys(kh)
         except Exception:
             pass
-        client.set_missing_host_key_policy(_RejectChangedPolicy())
+        # recorded keys loaded; a *changed* key raises BadHostKeyException;
+        # anything still unmatched is rejected outright
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
     else:
-        client.set_missing_host_key_policy(_TofuPolicy(kh))
+        client.set_missing_host_key_policy(_TofuPolicy(kh, host, port))
     kwargs = {
         "hostname": host,
         "port": port,
@@ -139,6 +141,8 @@ def classify_ssh_error(e: Exception, host: str) -> tuple[str, str]:
     msg = str(e)
     if isinstance(e, paramiko.AuthenticationException):
         return "SSH_AUTH_FAILED", "SSH 认证失败（检查用户名/密码/密钥）"
+    if isinstance(e, paramiko.BadHostKeyException):
+        return "SSH_HOSTKEY_CHANGED", "SSH 主机密钥发生变化（可能被中间人攻击或服务器重装，需人工确认后重置）"
     if "HOSTKEY_CHANGED" in msg:
         return "SSH_HOSTKEY_CHANGED", "SSH 主机密钥发生变化（可能被中间人攻击或服务器重装，需人工确认后重置）"
     if isinstance(e, socket.gaierror):
