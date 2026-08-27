@@ -222,16 +222,15 @@ onUnmounted(() => clearInterval(timer))
   .sp-row-meta { gap: 8px; }
   .sp-latency { display: none; }
 }
-</style>
 
 .sp-gpus {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
   margin-bottom: 14px;
 }
 .sp-gpu-card {
-  border: 1px solid currentColor;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
   border-radius: 8px;
   padding: 8px 10px 9px;
   display: flex;
@@ -245,14 +244,14 @@ onUnmounted(() => clearInterval(timer))
 .sp-gpu-card.hot  { color: #f59e0b; background: rgba(245,158,11,.08); }
 .sp-gpu-top { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
 .sp-gpu-id { font-size: 11px; font-weight: 700; color: inherit; }
-.sp-gpu-name { font-size: 10px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 62px; }
-.sp-gpu-ring { position: relative; width: 52px; height: 52px; }
+.sp-gpu-name { font-size: 10px; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70px; letter-spacing: .02em; }
+.sp-gpu-ring { position: relative; width: 58px; height: 58px; margin: 2px 0; }
 .sp-gpu-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .sp-ring-bg { fill: none; stroke: currentColor; stroke-opacity: .15; stroke-width: 3; }
 .sp-ring-fg { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .6s; }
 .sp-gpu-pct {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
   color: inherit;
 }
 .sp-gpu-pct i { font-style: normal; font-size: 8px; opacity: .6; margin-left: 1px; }
@@ -260,4 +259,5 @@ onUnmounted(() => clearInterval(timer))
 .sp-gpu-membar { flex: 1; height: 4px; border-radius: 2px; background: currentColor; opacity: .18; overflow: hidden; }
 .sp-gpu-membar div { height: 100%; border-radius: 2px; background: currentColor; opacity: .9; transition: width .5s; }
 .sp-gpu-memtxt { font-size: 10px; opacity: .65; font-variant-numeric: tabular-nums; white-space: nowrap; }
-@media (max-width: 560px) { .sp-gpu-mem { display: none; } }
+@media (max-width: 560px) {  }
+</style>
