@@ -49,6 +49,33 @@
         <div class="kpi-value">{{ openAlerts }}<span class="kpi-unit">告警</span></div>
         <div class="kpi-label">未恢复告警 EVENTS</div>
       </div>
+      <div class="cockpit-panel kpi-accent-yellow">
+        <div class="kpi-value">{{ fmtPower(clusterPowerW) }}<span class="kpi-unit">W</span></div>
+        <div class="kpi-label" style="cursor:pointer" title="点击查看每日电量统计" @click="showEnergy = true">
+          GPU 集群功率 · 今日 {{ energy?.days?.at(-1)?.kwh ?? '—' }} kWh
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== daily energy panel ===== -->
+    <div class="cockpit-panel energy-panel" v-if="showEnergy">
+      <div class="cockpit-panel-title">
+        <b>每日电量消耗（GPU）</b>
+        <el-button size="small" text :icon="Close" @click="showEnergy = false">收起</el-button>
+      </div>
+      <div class="energy-summary">
+        <span>近 7 天合计 <b class="mono">{{ energy?.total_kwh ?? '—' }}</b> kWh</span>
+        <span>日均 <b class="mono">{{ energy?.avg_kwh_per_day ?? '—' }}</b> kWh</span>
+        <span v-if="energy?.total_cost != null">电费 <b class="mono">¥{{ energy.total_cost }}</b></span>
+        <span v-if="energy?.price">电价 ¥{{ energy.price }}/kWh</span>
+      </div>
+      <div class="energy-bars">
+        <div v-for="d in energy?.days || []" :key="d.date" class="energy-col" :title="`${d.date}: ${d.kwh} kWh · 平均 ${d.avg_w}W · 峰值 ${d.peak_w}W · 采样覆盖 ${(d.coverage*100).toFixed(0)}%`">
+          <div class="energy-col-bar" :style="{ height: barH(d.kwh) + '%', background: energyGrad(d.kwh) }"></div>
+          <span class="energy-col-val">{{ d.kwh }}</span>
+          <span class="energy-col-date">{{ d.date.slice(5) }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- ===== cluster health strip ===== -->
@@ -144,6 +171,7 @@
               <el-radio-button value="cpu">CPU/内存</el-radio-button>
               <el-radio-button value="net">网络</el-radio-button>
               <el-radio-button value="disk">磁盘</el-radio-button>
+              <el-radio-button value="power">功率</el-radio-button>
             </el-radio-group>
           </div>
           <v-chart :option="trendOption" class="cockpit-chart-lg" autoresize />
@@ -237,7 +265,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, CircleCheckFilled } from '@element-plus/icons-vue'
+import { Close, Refresh, CircleCheckFilled } from '@element-plus/icons-vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -262,6 +290,24 @@ const history = ref([])
 const stats = ref({})
 const healthSummary = ref([])
 const gpuMatrix = ref([])
+const clusterPowerW = ref(0)
+const energy = ref(null)
+const showEnergy = ref(false)
+
+function barH(kwh) {
+  const max = Math.max(...(energy.value?.days || []).map(d => d.kwh), 1)
+  return Math.max(6, (kwh / max) * 100)
+}
+function energyGrad(kwh) {
+  const max = Math.max(...(energy.value?.days || []).map(d => d.kwh), 1)
+  const r = kwh / max
+  if (r > 0.75) return 'linear-gradient(180deg, #f59e0b, #ef4444)'
+  if (r > 0.45) return 'linear-gradient(180deg, #22d3ee, #0891b2)'
+  return 'linear-gradient(180deg, #34d399, #10b981)'
+}
+function fmtPower(w) {
+  return w >= 1000 ? (w / 1000).toFixed(2) + 'k' : Math.round(w)
+}
 const matrixSort = ref('server')
 
 const sortedFlatGpus = computed(() => {
@@ -363,12 +409,19 @@ const trendOption = computed(() => {
       mk('集群接收', history.value.map(h => h.net_bps), T.cyan),
       mk('集群发送', history.value.map(h => h.net_bps_tx || h.net_tx_bps), T.purple),
     ]
-  } else { // disk
+  } else if (trendMetric.value === 'disk') {
     percentMode = false
     axisFmt = diskAxisFormatter()
     series = [
       mk('磁盘读', history.value.map(h => h.disk_bps), T.yellow),
       mk('磁盘写', history.value.map(h => h.disk_bps_write || h.disk_write_bps), T.red),
+    ]
+  } else { // power
+    percentMode = false
+    axisFmt = (v) => v + ' W'
+    series = [
+      mk('GPU 集群功率', history.value.map(h => h.gpu_power || 0), T.red,
+        { areaStyle: { opacity: 0.18, color: T.red } }),
     ]
   }
   return {
@@ -431,18 +484,22 @@ function gpuCellClass(g) {
 }
 
 async function loadAll() {
-  const [a, b, c, d, e] = await Promise.all([
+  const [dash, gpus, energyData, powerNow, evts, latestAll, health] = await Promise.all([
     api.get('/metrics/dashboard').then(r => r.data),
     api.get('/metrics/cluster-gpus').then(r => r.data),
+    api.get('/metrics/cluster-energy?days=7').then(r => r.data).catch(() => null),
+    api.get('/metrics/cluster-power-now').then(r => r.data).catch(() => null),
     api.get('/alerts/events?limit=20').then(r => r.data),
     api.get('/metrics/latest').then(r => r.data),
     api.get('/cluster/health-summary').then(r => r.data).catch(() => []),
   ])
-  stats.value = a
-  gpuMatrix.value = b
-  alerts.value = c
-  latest.value = d
-  healthSummary.value = e
+  stats.value = dash
+  gpuMatrix.value = gpus
+  alerts.value = evts
+  latest.value = latestAll
+  healthSummary.value = health
+  energy.value = energyData
+  clusterPowerW.value = powerNow?.total_w ?? 0
 }
 
 const FAULT_LABELS = {

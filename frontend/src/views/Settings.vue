@@ -12,6 +12,10 @@
               <el-input-number v-model="retentionDays" :min="0" :max="3650" />
               <div style="font-size:12px;color:var(--csub)">0 = 永久保存全部历史数据</div>
             </el-form-item>
+            <el-form-item label="电价 (¥/kWh)">
+              <el-input-number v-model="energyPrice" :min="0" :max="100" :step="0.05" :precision="2" />
+              <div style="font-size:12px;color:var(--csub)">用于驾驶舱电量统计的费用估算，0 = 不计算</div>
+            </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="savingSettings" @click="saveSettings">保存</el-button>
             </el-form-item>
@@ -165,6 +169,7 @@ const isAdmin = computed(() => isAdminSession())
 
 const pollInterval = ref(60)
 const retentionDays = ref(0)
+const energyPrice = ref(0)
 const webhookUrl = ref('')
 const webhookTemplate = ref('')
 const savingSettings = ref(false)
@@ -204,6 +209,7 @@ async function load() {
     const { data } = await api.get('/settings')
     pollInterval.value = data.poll_interval
     retentionDays.value = data.retention_days
+    energyPrice.value = data.energy_price ?? 0
     webhookUrl.value = data.webhook_url || ''
     webhookTemplate.value = data.webhook_template || ''
     status.value = data.scheduler || {}
@@ -227,7 +233,7 @@ async function loadLogs() {
 async function saveSettings() {
   savingSettings.value = true
   try {
-    await api.put('/settings', { poll_interval: pollInterval.value, retention_days: retentionDays.value })
+    await api.put('/settings', { poll_interval: pollInterval.value, retention_days: retentionDays.value, energy_price: energyPrice.value })
     ElMessage.success('已保存，下一轮采集生效')
     load()
   } catch (e) {
