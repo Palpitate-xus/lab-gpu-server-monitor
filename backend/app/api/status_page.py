@@ -27,6 +27,7 @@ DEFAULT_CONFIG = {
     "server_ids": [],            # empty = all enabled servers
     "show_history_days": 45,     # uptime bar chart days
     "show_latency": True,
+    "show_gpu": True,
     "theme": "auto",             # auto | light | dark
     "footer": "Powered by lab-gpu-server-monitor",
     "published": False,          # must be explicitly turned on
@@ -39,7 +40,8 @@ class StatusPageConfig(BaseModel):
     description: str = Field(default="", max_length=500)
     server_ids: list[int] = Field(default=[])
     show_history_days: int = Field(default=45, ge=1, le=365)
-    show_latency: bool = True
+    show_latency: bool = True,
+    show_gpu: bool = True
     theme: str = Field(default="auto", pattern="^(auto|light|dark)$")
     footer: str = Field(default="", max_length=300)
     published: bool = False
@@ -174,6 +176,18 @@ def status_public(db: Session = Depends(get_db)):
                 "n": len(samples),
             })
 
+        gpus = []
+        if latest and latest.status == "ok" and s.server_type != "cpu":
+            for g in (latest.gpus or []):
+                mem_total = g.get("mem_total_mb") or 0
+                mem_used = g.get("mem_used_mb") or 0
+                gpus.append({
+                    "index": g.get("index", 0),
+                    "name": (g.get("name") or "").replace("NVIDIA ", "").replace("GeForce ", ""),
+                    "util": g.get("utilization", 0) or 0,
+                    "mem_pct": round(mem_used / mem_total * 100, 0) if mem_total else 0,
+                })
+
         result.append({
             "id": s.id,
             "name": s.name,
@@ -183,6 +197,7 @@ def status_public(db: Session = Depends(get_db)):
             "avg_latency_ms": round((avg_latency or 0) * 1000, 0),
             "last_check": latest.collected_at.isoformat() if latest else None,
             "history": history,
+            "gpus": gpus,
         })
 
     overall = {
@@ -197,6 +212,7 @@ def status_public(db: Session = Depends(get_db)):
         "footer": cfg.get("footer", ""),
         "theme": cfg.get("theme", "auto"),
         "show_latency": cfg.get("show_latency", True),
+        "show_gpu": cfg.get("show_gpu", True),
         "overall": overall,
         "servers": result,
         "generated_at": now.isoformat(),
