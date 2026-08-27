@@ -579,6 +579,16 @@ const loading = ref(false)
 const server = ref(null)
 const isGpuServer = computed(() => (server.value?.server_type ?? 'gpu') === 'gpu')
 const metric = ref(null)
+let _lastFailToast = 0
+function loadFail(e) {
+  // one gentle toast per 30s — polling failures must not spam
+  const now = Date.now()
+  if (now - _lastFailToast < 30000) return
+  _lastFailToast = now
+  if (e?.response?.status === 401) return  // global interceptor handles logout
+  ElMessage.warning(e?.friendlyMessage || '部分数据加载失败')
+}
+
 const unitEpoch = ref(0)
 function onUnitChange() { unitEpoch.value++ }
 const history = ref([])
@@ -609,25 +619,25 @@ const noteKind = ref('note')
 const collectHealth = ref(null)
 
 async function loadHealth() {
-  try { health.value = (await api.get(`/servers/${serverId.value}/health`)).data } catch { health.value = null }
+  try { health.value = (await api.get(`/servers/${serverId.value}/health`)).data } catch (e) { loadFail(e); health.value = null }
 }
 async function loadRisk() {
-  try { riskGpus.value = (await api.get(`/servers/${serverId.value}/risk`)).data.gpus || [] } catch { riskGpus.value = [] }
+  try { riskGpus.value = (await api.get(`/servers/${serverId.value}/risk`)).data.gpus || [] } catch (e) { loadFail(e); riskGpus.value = [] }
 }
 async function loadEvents() {
   try {
     const { data } = await api.get(`/servers/${serverId.value}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
     events.value = data
-  } catch { events.value = [] }
+  } catch (e) { loadFail(e); events.value = [] }
 }
 async function loadSlowHealth() {
-  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data } catch { slowHealth.value = {} }
+  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data } catch (e) { loadFail(e); slowHealth.value = {} }
 }
 async function loadInventory() {
-  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data } catch { inventory.value = {} }
+  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data } catch (e) { loadFail(e); inventory.value = {} }
 }
 async function loadNotes() {
-  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data } catch { notes.value = [] }
+  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data } catch (e) { loadFail(e); notes.value = [] }
 }
 async function loadCollectHealth() {
   try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data } catch { collectHealth.value = null }
