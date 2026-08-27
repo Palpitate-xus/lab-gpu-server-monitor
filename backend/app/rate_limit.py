@@ -1,8 +1,9 @@
 """Login rate limiting: per-IP + per-username failed-attempt tracking.
 
 In-memory sliding window (single-process deployment; no Redis dependency).
-- per IP:          5 failures / 10 min  -> IP locked 10 min
 - per username:    5 failures / 10 min  -> account locked 10 min
+- per IP:         10 failures / 10 min  -> IP locked 10 min
+  (shared NAT/proxy offices won't brick each other so easily)
 - successful login clears the counters for that ip+username pair
 """
 
@@ -13,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 
 MAX_FAILURES = 5
+MAX_FAILURES_IP = 10
 WINDOW_SECONDS = 600  # 10 min
 LOCK_SECONDS = 600
 
@@ -46,6 +48,9 @@ class LoginRateLimiter:
                     return False, int(c.locked_until - now)
             return True, 0
 
+    def _threshold(self, table: dict) -> int:
+        return MAX_FAILURES_IP if table is self._by_ip else MAX_FAILURES
+
     def record_failure(self, ip: str, username: str) -> None:
         now = time.time()
         with self._lock:
@@ -53,7 +58,7 @@ class LoginRateLimiter:
                 c = table.setdefault(key, _Counter())
                 self._prune(c, now)
                 c.failures.append(now)
-                if len(c.failures) >= MAX_FAILURES:
+                if len(c.failures) >= self._threshold(table):
                     c.locked_until = now + LOCK_SECONDS
                     c.failures = []
             # opportunistically drop long-empty entries to bound memory
