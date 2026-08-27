@@ -5,7 +5,6 @@
       <header class="sp-header">
         <div class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></div>
         <h1>{{ data?.title || '服务状态' }}</h1>
-        <p class="sp-desc">{{ data?.description }}</p>
       </header>
 
       <!-- unpublished -->
@@ -155,7 +154,6 @@ onUnmounted(() => clearInterval(timer))
 
 .sp-header { text-align: center; margin-bottom: 28px; }
 .sp-header h1 { font-size: 26px; margin: 10px 0 6px; }
-.sp-desc { opacity: .65; font-size: 14px; margin: 0; }
 .sp-live-dot {
   width: 14px; height: 14px; border-radius: 50%; display: inline-block;
   animation: sp-pulse 2s infinite;

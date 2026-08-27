@@ -9,7 +9,6 @@
         <span class="live-dot"></span>
         <div class="login-title">GPU 集群监控平台</div>
       </div>
-      <div class="login-sub">LAB GPU-SERVER MONITOR · COCKPIT</div>
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="submit">
         <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="用户名" :prefix-icon="User" autofocus class="dark-input" />
@@ -138,6 +137,7 @@ async function submit() {
   right: 10px;
 }
 .login-title {
+  margin-bottom: 20px;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -145,13 +145,6 @@ async function submit() {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-}
-.login-sub {
-  text-align: center;
-  color: var(--csub);
-  font-size: 11px;
-  letter-spacing: 0.25em;
-  margin-bottom: 26px;
 }
 .dark-input :deep(.el-input__wrapper) {
   background: var(--cinput-bg);
