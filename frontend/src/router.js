@@ -3,6 +3,7 @@ import { getSession } from './composables'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { public: true } },
+  { path: '/status', name: 'status', component: () => import('./views/StatusPage.vue'), meta: { public: true } },
   {
     path: '/',
     component: () => import('./views/Layout.vue'),
