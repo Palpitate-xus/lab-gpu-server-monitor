@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -38,6 +39,8 @@ settings = get_settings()
 logger = logging.getLogger("gpumon.scheduler")
 
 SLOW_INTERVAL = 300      # 5 min
+# hard ceiling for one full poll cycle (all joins combined)
+CYCLE_JOIN_TIMEOUT = 180
 INVENTORY_INTERVAL = 86400  # 24h
 
 _state = {
@@ -537,11 +540,22 @@ def _run_cycle() -> None:
             threads.append(threading.Thread(target=_slow_one, args=(server,), daemon=True))
         if do_inv:
             threads.append(threading.Thread(target=_inventory_one, args=(server,), daemon=True))
+    cycle_start = time.monotonic()
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=180)
+        t.join(timeout=CYCLE_JOIN_TIMEOUT)
+    # alert evaluation must never see a half-finished cycle
     _eval_alerts()
+    slowest = [t for t in threads if t.is_alive()]
+    if slowest:
+        logger.warning(
+            "cycle finished with %d/%d threads still running after %ss "
+            "(unreachable hosts); alerts evaluated on available data",
+            len(slowest), len(threads), CYCLE_JOIN_TIMEOUT,
+        )
+    logger.info("collect cycle done: %d servers, %d tasks, %.1fs",
+                len(servers), len(threads), time.monotonic() - cycle_start)
 
 
 def _last_collect_time(model) -> Optional[datetime]:
