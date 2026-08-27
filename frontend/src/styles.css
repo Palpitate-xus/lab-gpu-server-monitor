@@ -38,9 +38,14 @@ html, body, #app {
   font-weight: 700;
   line-height: 1.4;
   color: var(--ctext, #1f2d3d);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.stat-label { font-size: 13px; color: var(--csub, #64748b); }
+.stat-label { font-size: 13px; color: var(--csub, #64748b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat-sub { font-size: 12px; color: var(--csub, #64748b); opacity: 0.85; margin-top: 2px; }
+
+/* description list labels never wrap (values may) */
+.el-descriptions__label { white-space: nowrap; }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .gpu-card { margin-bottom: 12px; }
@@ -68,6 +73,15 @@ html, body, #app {
   padding-left: 2px;
 }
 
+@media (max-width: 1199px) {
+  .stat-value { font-size: 22px; }
+}
+@media (max-width: 991px) {
+  .stat-value { font-size: 20px; }
+  .layout .el-main { padding: 12px; }
+}
 @media (max-width: 768px) {
   .layout .el-aside { display: none; }
+  .layout .el-main { padding: 10px; }
+  .toolbar { gap: 8px; }
 }

@@ -57,22 +57,22 @@
 
       <!-- ===== btop-style overview stats ===== -->
       <el-row :gutter="14">
-        <el-col :span="6"><el-card class="stat-card">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
           <div class="stat-value" :style="{color: utilColor(metric.cpu_percent)}">{{ metric.cpu_percent }}%</div>
           <div class="stat-label">CPU ({{ metric.cpu_count }} 核 {{ fmtFreq(metric.cpu_freq_avg) }})</div>
           <div class="stat-sub">{{ metric.cpu_model || '—' }}</div>
         </el-card></el-col>
-        <el-col :span="6"><el-card class="stat-card">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
           <div class="stat-value">{{ fmtSizeMB(metric.mem_used_mb) }} / {{ fmtSizeMB(metric.mem_total_mb) }}</div>
           <div class="stat-label">内存 ({{ memPct }}%)</div>
           <div class="stat-sub">可用 {{ fmtSizeMB(metric.mem_available_mb) }} · 缓存 {{ fmtSizeMB(metric.mem_cached_mb) }} · Swap {{ fmtSizeMB(metric.swap_used_mb) }}/{{ fmtSizeMB(metric.swap_total_mb) }}</div>
         </el-card></el-col>
-        <el-col :span="6"><el-card class="stat-card">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
           <div class="stat-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} / {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
           <div class="stat-label">磁盘 ({{ diskPct }}%)</div>
           <div class="stat-sub">{{ (metric.disks||[]).length }} 个挂载点</div>
         </el-card></el-col>
-        <el-col :span="6"><el-card class="stat-card">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
           <div class="stat-value">{{ fmtUptime(metric.uptime_seconds) }}</div>
           <div class="stat-label">运行时长</div>
           <div class="stat-sub">{{ metric.os }} · {{ metric.kernel }}</div>

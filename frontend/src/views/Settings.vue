@@ -1,7 +1,7 @@
 <template>
   <div class="cockpit">
     <el-row :gutter="14">
-      <el-col :span="12">
+      <el-col :span="12" :xs="{ span: 24 }">
         <el-card class="page-card">
           <template #header>采集与数据</template>
           <el-form label-width="130px" style="max-width:480px">
@@ -10,11 +10,11 @@
             </el-form-item>
             <el-form-item label="数据保留 (天)">
               <el-input-number v-model="retentionDays" :min="0" :max="3650" />
-              <div style="font-size:12px;color:var(--csub)">0 = 永久保存全部历史数据</div>
+              <div style="font-size:12px;color:var(--csub);width:100%">0 = 永久保存全部历史数据</div>
             </el-form-item>
             <el-form-item label="电价 (¥/kWh)">
               <el-input-number v-model="energyPrice" :min="0" :max="100" :step="0.05" :precision="2" />
-              <div style="font-size:12px;color:var(--csub)">用于驾驶舱电量统计的费用估算，0 = 不计算</div>
+              <div style="font-size:12px;color:var(--csub);width:100%">电量费用估算，0 = 不计算</div>
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="savingSettings" @click="saveSettings">保存</el-button>
@@ -29,7 +29,7 @@
           </el-descriptions>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="12" :xs="{ span: 24 }">
         <el-card class="page-card">
           <template #header>告警通知 (Webhook)</template>
           <el-form label-width="120px">
@@ -53,7 +53,7 @@
       </el-col>
     </el-row>
     <el-row :gutter="14">
-      <el-col :span="12">
+      <el-col :span="12" :xs="{ span: 24 }">
         <el-card v-if="isAdmin" class="page-card">
           <template #header>
             <div style="display:flex;align-items:center;justify-content:space-between">
@@ -86,7 +86,7 @@
           </el-table>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="12" :xs="{ span: 24 }">
         <el-card class="page-card">
           <template #header>检测阈值</template>
           <el-form label-width="150px" style="max-width:480px" v-loading="loadingThresholds">

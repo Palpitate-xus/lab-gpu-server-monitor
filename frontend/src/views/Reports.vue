@@ -14,17 +14,17 @@
     </div>
 
     <el-row :gutter="14" style="margin-top:14px">
-      <el-col :span="8"><el-card class="stat-card">
+      <el-col :span="8" :xs="{ span: 24 }"><el-card class="stat-card">
         <div class="stat-value">{{ report?.total_gpu_hours ?? 0 }}</div>
-        <div class="stat-label">GPU 运行卡时（窗口内）</div>
+        <div class="stat-label" title="窗口内">GPU 运行卡时</div>
       </el-card></el-col>
-      <el-col :span="8"><el-card class="stat-card">
+      <el-col :span="8" :xs="{ span: 24 }"><el-card class="stat-card">
         <div class="stat-value" style="color:var(--cyellow)">{{ report?.total_idle_gpu_hours ?? 0 }}</div>
-        <div class="stat-label">空占卡时（显存≥30% 且利用率≈0）</div>
+        <div class="stat-label" title="显存≥30% 且利用率≈0">空占卡时</div>
       </el-card></el-col>
-      <el-col :span="8"><el-card class="stat-card">
+      <el-col :span="8" :xs="{ span: 24 }"><el-card class="stat-card">
         <div class="stat-value">{{ idleRatio }}%</div>
-        <div class="stat-label">空占占比</div>
+        <div class="stat-label" title="空占卡时 / 总卡时">空占占比</div>
       </el-card></el-col>
     </el-row>
 

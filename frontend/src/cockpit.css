@@ -530,3 +530,12 @@ html.dark .kpi-value {
 .energy-col-val { font-size: 11px; color: var(--ctext); font-variant-numeric: tabular-nums; }
 .energy-col-date { font-size: 10px; color: var(--csub); font-variant-numeric: tabular-nums; }
 @media (max-width: 560px) { .energy-bars { height: 110px; } }
+
+/* responsive: keep KPI numbers on one line as cards narrow */
+@media (max-width: 1199px) {
+  .kpi-value { font-size: 28px; }
+}
+@media (max-width: 768px) {
+  .kpi-value { font-size: 24px; }
+  .kpi-unit { font-size: 12px; }
+}

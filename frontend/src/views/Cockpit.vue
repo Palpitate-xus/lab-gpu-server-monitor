@@ -51,8 +51,8 @@
       </div>
       <div class="cockpit-panel kpi-accent-yellow">
         <div class="kpi-value">{{ fmtPower(clusterPowerW) }}<span class="kpi-unit">W</span></div>
-        <div class="kpi-label" style="cursor:pointer" title="点击查看每日电量统计" @click="showEnergy = true">
-          GPU 集群功率 · 今日 {{ energy?.days?.at(-1)?.kwh ?? '—' }} kWh
+        <div class="kpi-label" style="cursor:pointer" title="GPU 集群功率 · 点击查看每日电量统计" @click="showEnergy = true">
+          今日电量 {{ energy?.days?.at(-1)?.kwh ?? '—' }} kWh
         </div>
       </div>
     </div>
@@ -542,7 +542,7 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 <style scoped>
 .kpi-band {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -563,7 +563,6 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 .io-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
 .rank-no-fix { min-width: 22px; }
 @media (max-width: 1400px) {
-  .kpi-band { grid-template-columns: repeat(3, 1fr); }
   .main-grid { grid-template-columns: 1fr; }
   .bottom-grid { grid-template-columns: 1fr; }
 }

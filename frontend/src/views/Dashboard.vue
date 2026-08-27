@@ -10,22 +10,22 @@
     </div>
 
     <el-row :gutter="14">
-      <el-col :span="6"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
         <div class="stat-value">{{ stats.servers_online }}/{{ stats.servers_total }}</div>
         <div class="stat-label">在线服务器</div>
         <div class="stat-sub">异常 {{ stats.servers_error }} · 禁用 {{ stats.servers_disabled }}</div>
       </el-card></el-col>
-      <el-col :span="6"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
         <div class="stat-value">{{ stats.gpus_total }}</div>
         <div class="stat-label">GPU 总数</div>
         <div class="stat-sub">平均利用率 {{ stats.avg_gpu_util }}%</div>
       </el-card></el-col>
-      <el-col :span="6"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
         <div class="stat-value">{{ fmtSizeMB(stats.gpu_mem_used_mb) }} / {{ fmtSizeMB(stats.gpu_mem_total_mb) }}</div>
         <div class="stat-label">GPU 显存</div>
         <div class="stat-sub">{{ gpuMemPct }}% 已用</div>
       </el-card></el-col>
-      <el-col :span="6"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
         <div class="stat-value">{{ stats.avg_cpu_percent }}%</div>
         <div class="stat-label">平均 CPU 使用率</div>
         <div class="stat-sub">内存 {{ fmtSizeMB(stats.mem_used_mb) }} / {{ fmtSizeMB(stats.mem_total_mb) }}</div>
