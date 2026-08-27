@@ -57,8 +57,9 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 - **Login passwords**: bcrypt cost=12
 
 ### Authentication & Access
-- **Login rate limiting**: 5 failures per IP / per username locks for 10 minutes
-  (429 with remaining-time message); success resets counters; failures are audit-logged
+- **Login rate limiting**: 5 failures per username / 10 per IP locks for 10 minutes
+  (429 with remaining time); the login button shows a lockout countdown; success resets
+  counters; failures are audit-logged
 - **JWT validity 2 hours + revocation** (jti): password change / disable / delete kills all existing tokens
 - **API docs disabled by default** (`/docs` `/redoc` `/openapi.json`); set `DOCS_ENABLED=yes` when needed
 - **Security headers**: CSP / X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy / HSTS
@@ -90,12 +91,16 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 - **Process operations (admin)**: live process table (15s refresh, sortable, filterable), kill/renice
 - **Alerts**: user rules (9 metrics) + built-in detector event stream, recovery records,
   acknowledgement, webhook
-- **Cockpit**: cluster health strip (click to drill down), GPU matrix heatmap,
-  cluster trends, live alert ticker
+- **Cockpit**: cluster health strip (click to drill down), GPU matrix heatmap
+  (sortable by server / utilization / memory / temperature), cluster trends, live alert ticker
 - **Server detail**: health model tree (connectivity/CPU/memory/filesystem/network/GPU/kernel events),
   btop-style core grid, GPU cards (ECC/PCIe/throttle/risk tags), kernel event stream,
   NVMe/RAID/NFS, services/MIG/IPMI, inventory/NUMA topology tabs
 - **GPU analysis**: cluster-wide idle-held detection (zombie VRAM) and failure-risk ranking
+- **Public status page** (Uptime-Kuma style, `/status` without login): overall health
+  banner, per-server uptime bars (7-90 days) + SSH latency + **per-GPU ring utilization
+  gauges**; admin-configurable publish toggle, title, server selection, window, theme
+  (configure in Settings → Status page)
 - **History**: retained forever by default (configurable via retention_days), trend charts 1/3/6/24h
 - **Dark/light theme**: follow-system auto + manual three-state toggle
 - **Online migrations**: idempotent MySQL/SQLite dual-dialect migrations (migrations/)
@@ -119,6 +124,7 @@ Open `http://<host>:8300`, default `admin / admin123` (**change it immediately**
 |---|---|---|
 | SECRET_KEY | change-me | JWT signing + credential encryption (**must change**; changing it invalidates stored credentials) |
 | INIT_ADMIN_USERNAME / PASSWORD | admin/admin123 | admin account created on first start |
+| DOCS_ENABLED | no | set yes to expose /docs /redoc /openapi.json (off by default) |
 | POLL_INTERVAL_SECONDS | 60 | collection interval (changeable online on the settings page) |
 
 The settings page also supports: data retention days (0 = forever), webhook URL and message template.

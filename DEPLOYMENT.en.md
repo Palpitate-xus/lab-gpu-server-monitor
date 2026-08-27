@@ -154,6 +154,20 @@ Data shows up in the cockpit within 30-60 seconds.
 
 ---
 
+## 3.5 Public Status Page (optional)
+
+Settings → "Public status page" card:
+
+1. Turn on the "published" switch (off by default — visitors see a placeholder only)
+2. Fill the title, pick servers to show, choose the history window (7-90 days),
+   toggle latency/GPU display
+3. Visit `http://<central-ip>:8300/status` — **no login required**, shareable
+   with lab members
+
+> Note: the status page is visible to anyone who can reach port 8300. If the
+> central server is exposed to the internet, show only necessary machines and
+> consider access control at the reverse proxy.
+
 ## 4. Upgrading
 
 ```bash
@@ -197,8 +211,8 @@ back up, `docker compose down`, wipe the database and start fresh
 (the admin is only created on an empty database).
 
 **Q: Login says "too many attempts, locked"?**
-5 failures per IP/username locks for 10 minutes — wait, or restart the container
-(the lock is in memory).
+5 failures per username / 10 per IP locks for 10 minutes; the login button shows
+a countdown — wait it out or restart the container (the lock is in memory).
 
 **Q: Monitor over a non-22 port?**
 Enter the real port (e.g. 23333) in the "Port" field when adding the server.
