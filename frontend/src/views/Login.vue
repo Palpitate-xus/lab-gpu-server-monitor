@@ -18,7 +18,9 @@
           <el-input v-model="form.password" type="password" placeholder="密码" show-password :prefix-icon="Lock" class="dark-input" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" style="width: 100%; height: 42px; font-size: 15px; letter-spacing: 0.2em" :loading="loading" @click="submit">登 录</el-button>
+          <el-button type="primary" style="width: 100%; height: 42px; font-size: 15px; letter-spacing: 0.2em" :loading="loading" :disabled="lockSeconds > 0" @click="submit">
+          {{ lockSeconds > 0 ? `已锁定 ${Math.floor(lockSeconds / 60)}:${String(lockSeconds % 60).padStart(2, '0')}` : '登 录' }}
+        </el-button>
         </el-form-item>
       </el-form>
       <div v-if="isDev" style="text-align:center;color:var(--csub);font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
@@ -42,6 +44,15 @@ const formRef = ref()
 const loading = ref(false)
 const isDev = import.meta.env.DEV
 const form = reactive({ username: '', password: '' })
+const lockSeconds = ref(0)
+let lockTimer = null
+function startLockCountdown() {
+  clearInterval(lockTimer)
+  lockTimer = setInterval(() => {
+    lockSeconds.value--
+    if (lockSeconds.value <= 0) { clearInterval(lockTimer); lockTimer = null }
+  }, 1000)
+}
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
@@ -62,9 +73,19 @@ async function submit() {
     const { data } = await api.post('/auth/login', new URLSearchParams(form))
     setSession(data.access_token, data.user)
     ElMessage.success(`欢迎，${data.user.display_name || data.user.username}`)
-    router.push(safeRedirect(route.query.redirect))
+    // hard navigation guarantees the guard re-runs with the fresh session
+    const target = safeRedirect(route.query.redirect)
+    if (router) router.push(target).catch(() => { location.href = target })
+    else location.href = target
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '登录失败')
+    const msg = e.friendlyMessage || '登录失败'
+    ElMessage.error(msg)
+    // 429 lockout: show a countdown so users stop hammering the button
+    const m = msg.match(/(\d+)\s*分\s*(\d+)\s*秒/)
+    if (e.response?.status === 429 || m) {
+      lockSeconds.value = m ? (+m[1] * 60 + +m[2]) : 600
+      startLockCountdown()
+    }
   } finally {
     loading.value = false
   }
