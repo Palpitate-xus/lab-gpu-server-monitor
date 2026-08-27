@@ -45,6 +45,11 @@
         <span class="sp-hint" style="margin-left:10px">SSH 探测延迟（毫秒）</span>
       </el-form-item>
 
+      <el-form-item label="显示 GPU">
+        <el-switch v-model="cfg.show_gpu" />
+        <span class="sp-hint" style="margin-left:10px">每张 GPU 的实时利用率与显存占用（GPU 服务器）</span>
+      </el-form-item>
+
       <el-form-item label="页面主题">
         <el-radio-group v-model="cfg.theme">
           <el-radio value="auto">跟随访客</el-radio>
@@ -72,7 +77,7 @@ import api from '../api'
 
 const cfg = ref({
   title: '服务状态', description: '', server_ids: [], show_history_days: 45,
-  show_latency: true, theme: 'auto', footer: '', published: false,
+  show_latency: true, show_gpu: true, theme: 'auto', footer: '', published: false,
 })
 const available = ref([])
 const saving = ref(false)

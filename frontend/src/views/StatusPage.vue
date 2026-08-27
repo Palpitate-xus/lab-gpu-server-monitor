@@ -40,6 +40,18 @@
             </div>
           </div>
 
+          <!-- GPU utilization -->
+          <div v-if="data.show_gpu && s.gpus?.length" class="sp-gpus">
+            <div v-for="g in s.gpus" :key="g.index" class="sp-gpu" :class="gpuClass(g.util)">
+              <span class="sp-gpu-label">GPU{{ g.index }}</span>
+              <div class="sp-gpu-bar">
+                <div class="sp-gpu-fill" :style="{ width: Math.min(g.util, 100) + '%' }"></div>
+              </div>
+              <span class="sp-gpu-val">{{ g.util }}%</span>
+              <span class="sp-gpu-mem">{{ g.mem_pct }}% 显存</span>
+            </div>
+          </div>
+
           <!-- uptime bars -->
           <div class="sp-bars">
             <el-tooltip v-for="(d, i) in s.history" :key="i" :disabled="!d.uptime" placement="top">
@@ -82,6 +94,12 @@ const themeClass = computed(() => {
   // auto: follow the app-level html.dark class if present
   return document.documentElement.classList.contains('dark') ? 'sp-dark' : 'sp-light'
 })
+
+function gpuClass(util) {
+  if (util >= 90) return 'hot'
+  if (util >= 50) return 'busy'
+  return 'idle'
+}
 
 function barClass(d) {
   if (d.uptime == null) return 'none'
@@ -195,3 +213,19 @@ onUnmounted(() => clearInterval(timer))
   .sp-latency { display: none; }
 }
 </style>
+
+.sp-gpus { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.sp-gpu { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sp-gpu-label { width: 44px; opacity: .65; font-variant-numeric: tabular-nums; flex: none; }
+.sp-gpu-bar { flex: 1; height: 6px; border-radius: 3px; background: currentColor; opacity: .9; overflow: hidden; position: relative; }
+.sp-gpu-bar::before { content: ''; position: absolute; inset: 0; opacity: .12; background: currentColor; }
+.sp-gpu-fill { height: 100%; border-radius: 3px; transition: width .5s; }
+.sp-gpu.idle .sp-gpu-fill { background: #10b981; }
+.sp-gpu.busy .sp-gpu-fill { background: #0891b2; }
+.sp-gpu.hot .sp-gpu-fill { background: #f59e0b; }
+.sp-gpu.idle .sp-gpu-bar { color: #10b981; }
+.sp-gpu.busy .sp-gpu-bar { color: #0891b2; }
+.sp-gpu.hot .sp-gpu-bar { color: #f59e0b; }
+.sp-gpu-val { width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
+.sp-gpu-mem { width: 64px; opacity: .55; font-variant-numeric: tabular-nums; flex: none; font-size: 11px; }
+@media (max-width: 560px) { .sp-gpu-mem { display: none; } }
