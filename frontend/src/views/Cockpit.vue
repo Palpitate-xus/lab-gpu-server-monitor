@@ -69,13 +69,42 @@
       <div class="cockpit-panel">
         <div class="cockpit-panel-title">
           <b>GPU 资源矩阵</b>
-          <span>
-            <el-tag size="small" type="success" effect="dark" class="tag-idle">空闲</el-tag>
-            <el-tag size="small" effect="dark" class="tag-busy">繁忙</el-tag>
-            <el-tag size="small" effect="dark" class="tag-full">满载</el-tag>
+          <span style="display:flex;gap:10px;align-items:center">
+            <el-select :value="matrixSort" size="small" style="width:128px" @change="matrixSort = $event">
+              <el-option value="server" label="按服务器" />
+              <el-option value="util-desc" label="利用率 ↓" />
+              <el-option value="util-asc" label="利用率 ↑" />
+              <el-option value="mem-desc" label="显存占用 ↓" />
+              <el-option value="temp-desc" label="温度 ↓" />
+            </el-select>
+            <span>
+              <el-tag size="small" type="success" effect="dark" class="tag-idle">空闲</el-tag>
+              <el-tag size="small" effect="dark" class="tag-busy">繁忙</el-tag>
+              <el-tag size="small" effect="dark" class="tag-full">满载</el-tag>
+            </span>
           </span>
         </div>
-        <div v-for="srv in gpuMatrix" :key="srv.server_id" style="margin-bottom:12px">
+
+        <!-- sorted flat view -->
+        <div v-if="matrixSort !== 'server'" class="gpu-matrix" style="margin-top:8px">
+          <div v-for="g in sortedFlatGpus" :key="g.key"
+               class="gpu-cell" :class="gpuCellClass(g)" @click="$router.push(`/servers/${g.server_id}`)">
+            <div class="gpu-cell-head">
+              <span class="gpu-cell-name">{{ g.server_short }}·{{ g.index }}</span>
+              <span class="gpu-cell-badge">{{ g.pstate || shortName(g.name) }}</span>
+            </div>
+            <div class="gpu-util-bar">
+              <div class="gpu-util-fill" :style="{ width: g.utilization + '%', background: utilGradient(g.utilization) }"></div>
+            </div>
+            <div class="gpu-cell-rows">
+              <span>利用 <span class="mono">{{ g.utilization }}%</span> · {{ g.temperature }}°C</span>
+              <span class="mono">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- grouped-by-server view (default) -->
+        <div v-for="srv in gpuMatrix" v-show="matrixSort === 'server'" :key="srv.server_id" style="margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
             <span class="live-dot" :class="{ err: !srv.online }" style="width:6px;height:6px"></span>
             <b style="cursor:pointer" @click="$router.push(`/servers/${srv.server_id}`)">{{ srv.server_name }}</b>
@@ -233,6 +262,26 @@ const history = ref([])
 const stats = ref({})
 const healthSummary = ref([])
 const gpuMatrix = ref([])
+const matrixSort = ref('server')
+
+const sortedFlatGpus = computed(() => {
+  const flat = gpuMatrix.value.flatMap(s =>
+    s.gpus.map(g => ({
+      ...g,
+      key: `${s.server_id}-${g.index}`,
+      server_id: s.server_id,
+      server_short: s.server_name.replace(/^gpu-/, '').replace(/-\d+$/, ''),
+    }))
+  )
+  const memPct = g => (g.mem_total_mb ? g.mem_used_mb / g.mem_total_mb : 0)
+  switch (matrixSort.value) {
+    case 'util-desc': return [...flat].sort((a, b) => b.utilization - a.utilization)
+    case 'util-asc': return [...flat].sort((a, b) => a.utilization - b.utilization)
+    case 'mem-desc': return [...flat].sort((a, b) => memPct(b) - memPct(a))
+    case 'temp-desc': return [...flat].sort((a, b) => (b.temperature || 0) - (a.temperature || 0))
+    default: return flat
+  }
+})
 const alerts = ref([])
 const latest = ref([])
 
