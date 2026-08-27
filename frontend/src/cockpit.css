@@ -247,7 +247,6 @@ html.dark {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--cgreen);
   display: inline-block;
-  animation: pulse 2s infinite;
 }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cgreen) 50%, transparent); }
@@ -370,3 +369,137 @@ html.dark {
 .cockpit .el-dropdown-menu__item.is-disabled { color: var(--csub); opacity: .6; }
 
 .ticker-row span:last-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ================================================================
+   GLOBAL AESTHETIC LAYER — glow / depth / motion (both themes)
+   All effects respect prefers-reduced-motion and stay subtle in light.
+   ================================================================ */
+
+/* ---- 1. primary buttons: gradient + glow ---- */
+.cockpit .el-button--primary {
+  background: linear-gradient(135deg, var(--cprimary), color-mix(in srgb, var(--cpurple) 55%, var(--cprimary)));
+  border: none;
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--cprimary) 35%, transparent);
+  transition: box-shadow .25s, transform .15s, filter .2s;
+}
+.cockpit .el-button--primary:hover {
+  filter: brightness(1.12);
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--cprimary) 55%, transparent);
+  transform: translateY(-1px);
+}
+.cockpit .el-button--primary:active { transform: translateY(0); }
+
+/* ---- 2. panels: hairline top-glow + hover lift ---- */
+.cockpit-panel {
+  transition: border-color .3s, box-shadow .3s, transform .3s;
+}
+.cockpit-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 5%, color-mix(in srgb, var(--cprimary) 65%, transparent), transparent 95%);
+  opacity: .45;
+  pointer-events: none;
+}
+.cockpit-panel:hover {
+  border-color: color-mix(in srgb, var(--cprimary) 35%, var(--cborder));
+  box-shadow: 0 6px 24px -8px color-mix(in srgb, var(--cprimary) 30%, transparent);
+}
+html.dark .cockpit-panel:hover {
+  box-shadow: 0 6px 28px -6px color-mix(in srgb, var(--cprimary) 22%, transparent),
+              inset 0 0 0 1px color-mix(in srgb, var(--cprimary) 12%, transparent);
+}
+
+/* ---- 3. KPI values: neon gradient + soft halo ---- */
+.kpi-value {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--cprimary) 35%, transparent);
+}
+html.dark .kpi-value {
+  text-shadow: 0 0 22px color-mix(in srgb, currentColor 45%, transparent), 0 0 46px color-mix(in srgb, currentColor 18%, transparent);
+}
+.stat-value { text-shadow: 0 0 14px color-mix(in srgb, var(--cprimary) 22%, transparent); }
+
+/* ---- 4. live dot: breathing pulse ---- */
+.live-dot { animation: ckt-breathe 2.4s ease-in-out infinite; }
+@keyframes ckt-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cgreen) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 5px transparent; }
+}
+.live-dot.err { animation: ckt-alarm 1.1s ease-in-out infinite; }
+@keyframes ckt-alarm {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cred) 60%, transparent); opacity: 1; }
+  50%      { box-shadow: 0 0 0 6px transparent; opacity: .55; }
+}
+
+/* ---- 5. GPU matrix cells: hover glow + full-load shimmer ---- */
+.gpu-cell { transition: transform .18s, box-shadow .25s, border-color .25s; }
+.gpu-cell:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--cprimary) 55%, transparent);
+  box-shadow: 0 5px 18px -4px color-mix(in srgb, var(--cprimary) 45%, transparent);
+  z-index: 2;
+}
+.gpu-cell-full { position: relative; overflow: hidden; }
+.gpu-cell-full::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--cyellow) 20%, transparent) 50%, transparent 70%);
+  animation: ckt-shimmer 2.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes ckt-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ---- 6. tables: row hover accent bar ---- */
+.cockpit .el-table__body tr:hover > td.el-table__cell:first-child {
+  box-shadow: inset 3px 0 0 var(--cprimary);
+}
+
+/* ---- 7. tabs & radio groups: pill glow on active ---- */
+.cockpit .el-radio-button__inner {
+  transition: all .2s;
+}
+.cockpit .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--cprimary) 45%, transparent);
+}
+
+/* ---- 8. dialogs: neon border + deeper presence ---- */
+.cockpit .el-dialog {
+  border: 1px solid color-mix(in srgb, var(--cprimary) 25%, var(--cborder));
+  box-shadow: 0 24px 70px -12px rgba(0,0,0,.35), 0 0 40px -18px color-mix(in srgb, var(--cprimary) 55%, transparent);
+}
+.cockpit .el-dialog__header { border-bottom: 1px solid color-mix(in srgb, var(--cprimary) 18%, var(--cborder)); }
+
+/* ---- 9. scrollbar: slim themed ---- */
+.cockpit ::-webkit-scrollbar { width: 8px; height: 8px; }
+.cockpit ::-webkit-scrollbar-track { background: transparent; }
+.cockpit ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--csub) 35%, transparent);
+  border-radius: 4px;
+}
+.cockpit ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--cprimary) 55%, transparent); }
+
+/* ---- 10. page enter: subtle fade-slide on router-view mount ---- */
+.dark-main > :first-child { animation: ckt-page-in .35s ease-out; }
+@keyframes ckt-page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- 11. tag emphasis ---- */
+.cockpit .el-tag--danger { box-shadow: 0 0 10px -2px color-mix(in srgb, var(--cred) 50%, transparent); }
+
+/* ---- 12. rank top-3 medals: glow ---- */
+.rank-no.top1 { box-shadow: 0 0 12px -2px color-mix(in srgb, #f59e0b 70%, transparent); }
+.rank-no.top2 { box-shadow: 0 0 10px -3px color-mix(in srgb, #94a3b8 60%, transparent); }
+.rank-no.top3 { box-shadow: 0 0 10px -3px color-mix(in srgb, #d97706 55%, transparent); }
+
+/* ---- reduced motion: strip animations, keep colors ---- */
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .live-dot.err, .gpu-cell-full::before { animation: none; }
+  .cockpit-panel, .gpu-cell, .dark-main > :first-child { transition: none; animation: none; }
+}
