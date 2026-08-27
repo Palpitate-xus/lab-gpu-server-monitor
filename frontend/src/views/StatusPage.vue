@@ -40,15 +40,25 @@
             </div>
           </div>
 
-          <!-- GPU utilization -->
+          <!-- GPU utilization cards -->
           <div v-if="data.show_gpu && s.gpus?.length" class="sp-gpus">
-            <div v-for="g in s.gpus" :key="g.index" class="sp-gpu" :class="gpuClass(g.util)">
-              <span class="sp-gpu-label">GPU{{ g.index }}</span>
-              <div class="sp-gpu-bar">
-                <div class="sp-gpu-fill" :style="{ width: Math.min(g.util, 100) + '%' }"></div>
+            <div v-for="g in s.gpus" :key="g.index" class="sp-gpu-card" :class="gpuClass(g.util)">
+              <div class="sp-gpu-top">
+                <span class="sp-gpu-id">GPU {{ g.index }}</span>
+                <span class="sp-gpu-name" :title="g.name">{{ g.name }}</span>
               </div>
-              <span class="sp-gpu-val">{{ g.util }}%</span>
-              <span class="sp-gpu-mem">{{ g.mem_pct }}% 显存</span>
+              <div class="sp-gpu-ring">
+                <svg viewBox="0 0 36 36">
+                  <circle class="sp-ring-bg" cx="18" cy="18" r="15.9"></circle>
+                  <circle class="sp-ring-fg" cx="18" cy="18" r="15.9"
+                    :stroke-dasharray="`${g.util}, 100`"></circle>
+                </svg>
+                <span class="sp-gpu-pct">{{ g.util }}<i>%</i></span>
+              </div>
+              <div class="sp-gpu-memrow">
+                <div class="sp-gpu-membar"><div :style="{ width: g.mem_pct + '%' }"></div></div>
+                <span class="sp-gpu-memtxt">{{ g.mem_pct }}% 显存</span>
+              </div>
             </div>
           </div>
 
@@ -214,18 +224,40 @@ onUnmounted(() => clearInterval(timer))
 }
 </style>
 
-.sp-gpus { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
-.sp-gpu { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.sp-gpu-label { width: 44px; opacity: .65; font-variant-numeric: tabular-nums; flex: none; }
-.sp-gpu-bar { flex: 1; height: 6px; border-radius: 3px; background: currentColor; opacity: .9; overflow: hidden; position: relative; }
-.sp-gpu-bar::before { content: ''; position: absolute; inset: 0; opacity: .12; background: currentColor; }
-.sp-gpu-fill { height: 100%; border-radius: 3px; transition: width .5s; }
-.sp-gpu.idle .sp-gpu-fill { background: #10b981; }
-.sp-gpu.busy .sp-gpu-fill { background: #0891b2; }
-.sp-gpu.hot .sp-gpu-fill { background: #f59e0b; }
-.sp-gpu.idle .sp-gpu-bar { color: #10b981; }
-.sp-gpu.busy .sp-gpu-bar { color: #0891b2; }
-.sp-gpu.hot .sp-gpu-bar { color: #f59e0b; }
-.sp-gpu-val { width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
-.sp-gpu-mem { width: 64px; opacity: .55; font-variant-numeric: tabular-nums; flex: none; font-size: 11px; }
+.sp-gpus {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.sp-gpu-card {
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 8px 10px 9px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: .92;
+}
+.sp-gpu-card.idle { color: #10b981; background: rgba(16,185,129,.06); }
+.sp-gpu-card.busy { color: #0891b2; background: rgba(8,145,178,.08); }
+.sp-gpu-card.hot  { color: #f59e0b; background: rgba(245,158,11,.08); }
+.sp-gpu-top { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
+.sp-gpu-id { font-size: 11px; font-weight: 700; color: inherit; }
+.sp-gpu-name { font-size: 10px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 62px; }
+.sp-gpu-ring { position: relative; width: 52px; height: 52px; }
+.sp-gpu-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.sp-ring-bg { fill: none; stroke: currentColor; stroke-opacity: .15; stroke-width: 3; }
+.sp-ring-fg { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .6s; }
+.sp-gpu-pct {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+.sp-gpu-pct i { font-style: normal; font-size: 8px; opacity: .6; margin-left: 1px; }
+.sp-gpu-memrow { width: 100%; display: flex; align-items: center; gap: 5px; }
+.sp-gpu-membar { flex: 1; height: 4px; border-radius: 2px; background: currentColor; opacity: .18; overflow: hidden; }
+.sp-gpu-membar div { height: 100%; border-radius: 2px; background: currentColor; opacity: .9; transition: width .5s; }
+.sp-gpu-memtxt { font-size: 10px; opacity: .65; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 560px) { .sp-gpu-mem { display: none; } }
