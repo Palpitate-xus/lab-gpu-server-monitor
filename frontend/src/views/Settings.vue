@@ -108,6 +108,9 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <StatusPageConfig />
+
     <el-card class="page-card">
       <template #header>操作日志</template>
       <el-table :data="logs" size="small" v-loading="loadingLogs" max-height="420">
@@ -154,6 +157,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '../api'
+import StatusPageConfig from '../components/StatusPageConfig.vue'
 import { isAdminSession } from '../composables'
 import { fmtTime } from '../format'
 
