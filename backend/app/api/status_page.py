@@ -7,11 +7,12 @@ The public endpoints (/api/status-public*) require NO authentication.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone as tz
+from time import monotonic
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func as sa_func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
 from ..models import Server, ServerMetric, Setting, User
@@ -40,7 +41,7 @@ class StatusPageConfig(BaseModel):
     description: str = Field(default="", max_length=500)
     server_ids: list[int] = Field(default=[])
     show_history_days: int = Field(default=45, ge=1, le=365)
-    show_latency: bool = True,
+    show_latency: bool = True
     show_gpu: bool = True
     theme: str = Field(default="auto", pattern="^(auto|light|dark)$")
     footer: str = Field(default="", max_length=300)
@@ -87,6 +88,7 @@ def get_config(db: Session = Depends(get_db), _: User = Depends(require_admin)):
 @router.put("/status-page/config")
 def put_config(body: StatusPageConfig, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     _save_config(db, body.model_dump())
+    _PUBLIC_CACHE.clear()
     return {"ok": True}
 
 
@@ -106,7 +108,19 @@ def status_public(db: Session = Depends(get_db)):
     cfg = _load_config(db)
     if not cfg.get("published"):
         return {"published": False}
+    cached = _PUBLIC_CACHE.get("payload")
+    if cached and monotonic() - _PUBLIC_CACHE.get("at", 0) < _PUBLIC_CACHE_TTL:
+        return cached
+    payload = _build_public_payload(db, cfg)
+    _PUBLIC_CACHE.update(payload=payload, at=monotonic())
+    return payload
 
+
+_PUBLIC_CACHE: dict = {}
+_PUBLIC_CACHE_TTL = 30  # seconds; page refreshes are infrequent by nature
+
+
+def _build_public_payload(db: Session, cfg: dict) -> dict:
     days = int(cfg.get("show_history_days", 45))
     now = datetime.now(tz.utc).replace(tzinfo=None)
     buckets = _bucketize(days, now)
@@ -140,6 +154,7 @@ def status_public(db: Session = Depends(get_db)):
 
         latest = (
             db.query(ServerMetric)
+            .options(load_only(ServerMetric.status, ServerMetric.gpus, ServerMetric.collected_at))
             .filter(ServerMetric.server_id == s.id)
             .order_by(ServerMetric.collected_at.desc())
             .first()

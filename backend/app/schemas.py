@@ -94,9 +94,6 @@ class ServerOut(BaseModel):
     status_until: Optional[datetime] = None
     tags: list
     note: str
-    status: Optional[str] = "active"
-    status_reason: Optional[str] = None
-    status_until: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     has_password: bool = False
