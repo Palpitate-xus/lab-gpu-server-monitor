@@ -89,10 +89,13 @@ class ServerOut(BaseModel):
     # username intentionally NOT returned (SSH account name is sensitive)
     enabled: bool
     server_type: str = "gpu"
+    status: Optional[str] = "active"
+    status_reason: Optional[str] = None
+    status_until: Optional[datetime] = None
     tags: list
     note: str
-    status: str = "active"
-    status_reason: str = ""
+    status: Optional[str] = "active"
+    status_reason: Optional[str] = None
     status_until: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

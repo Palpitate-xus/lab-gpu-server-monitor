@@ -1,0 +1,203 @@
+"""Public status page (Uptime-Kuma style) configuration + data.
+
+Config lives in the settings table as one JSON blob under "status_page".
+The public endpoints (/api/status-public*) require NO authentication.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone as tz
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func
+from sqlalchemy.orm import Session
+
+from ..database import get_db
+from ..models import Server, ServerMetric, Setting, User
+from ..security import require_admin
+
+router = APIRouter(prefix="/api", tags=["status-page"])
+
+SETTING_KEY = "status_page"
+
+DEFAULT_CONFIG = {
+    "title": "服务状态",
+    "description": "实验室 GPU 集群公开状态页",
+    "server_ids": [],            # empty = all enabled servers
+    "show_history_days": 45,     # uptime bar chart days
+    "show_latency": True,
+    "theme": "auto",             # auto | light | dark
+    "footer": "Powered by lab-gpu-server-monitor",
+    "published": False,          # must be explicitly turned on
+}
+
+
+# ---------------- config models ----------------
+class StatusPageConfig(BaseModel):
+    title: str = Field(default="服务状态", max_length=120)
+    description: str = Field(default="", max_length=500)
+    server_ids: list[int] = Field(default=[])
+    show_history_days: int = Field(default=45, ge=1, le=365)
+    show_latency: bool = True
+    theme: str = Field(default="auto", pattern="^(auto|light|dark)$")
+    footer: str = Field(default="", max_length=300)
+    published: bool = False
+
+
+def _load_config(db: Session) -> dict:
+    row = db.get(Setting, SETTING_KEY)
+    if row and row.value:
+        import json
+        try:
+            cfg = json.loads(row.value)
+        except Exception:
+            cfg = {}
+        merged = {**DEFAULT_CONFIG, **cfg}
+        return merged
+    return dict(DEFAULT_CONFIG)
+
+
+def _save_config(db: Session, cfg: dict) -> None:
+    import json
+    row = db.get(Setting, SETTING_KEY)
+    if row:
+        row.value = json.dumps(cfg)
+    else:
+        db.add(Setting(key=SETTING_KEY, value=json.dumps(cfg)))
+    db.commit()
+
+
+# ---------------- admin endpoints ----------------
+@router.get("/status-page/config")
+def get_config(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    cfg = _load_config(db)
+    servers = db.query(Server).order_by(Server.id).all()
+    return {
+        "config": cfg,
+        "available_servers": [
+            {"id": s.id, "name": s.name, "enabled": s.enabled, "server_type": s.server_type}
+            for s in servers
+        ],
+    }
+
+
+@router.put("/status-page/config")
+def put_config(body: StatusPageConfig, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    _save_config(db, body.model_dump())
+    return {"ok": True}
+
+
+# ---------------- public data ----------------
+def _bucketize(days: int, now):
+    """Return list of (start, end) UTC day buckets, oldest first."""
+    buckets = []
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    for i in range(days - 1, -1, -1):
+        start = today - timedelta(days=i)
+        buckets.append((start, start + timedelta(days=1)))
+    return buckets
+
+
+@router.get("/status-public")
+def status_public(db: Session = Depends(get_db)):
+    cfg = _load_config(db)
+    if not cfg.get("published"):
+        return {"published": False}
+
+    days = int(cfg.get("show_history_days", 45))
+    now = datetime.now(tz.utc).replace(tzinfo=None)
+    buckets = _bucketize(days, now)
+
+    q = db.query(Server).filter(Server.enabled.is_(True))
+    ids = cfg.get("server_ids") or []
+    if ids:
+        q = q.filter(Server.id.in_(ids))
+    servers = q.order_by(Server.id).all()
+
+    result = []
+    for s in servers:
+        rows = (
+            db.query(
+                ServerMetric.status,
+                sa_func.count(ServerMetric.id),
+                sa_func.avg(ServerMetric.ssh_latency),
+                sa_func.min(ServerMetric.collected_at),
+                sa_func.max(ServerMetric.collected_at),
+            )
+            .filter(
+                ServerMetric.server_id == s.id,
+                ServerMetric.collected_at >= buckets[0][0],
+            )
+            .group_by(ServerMetric.status)
+            .all()
+        )
+        total = sum(r[1] for r in rows)
+        ok = sum(r[1] for r in rows if r[0] == "ok")
+        avg_latency = next((r[2] for r in rows if r[0] == "ok" and r[2]), 0)
+
+        latest = (
+            db.query(ServerMetric)
+            .filter(ServerMetric.server_id == s.id)
+            .order_by(ServerMetric.collected_at.desc())
+            .first()
+        )
+
+        # per-day uptime buckets
+        day_rows = (
+            db.query(
+                ServerMetric.collected_at,
+                ServerMetric.status,
+            )
+            .filter(
+                ServerMetric.server_id == s.id,
+                ServerMetric.collected_at >= buckets[0][0],
+            )
+            .all()
+        )
+        # group by day
+        by_day: dict[str, list[str]] = {}
+        for t, st in day_rows:
+            key = t.strftime("%Y-%m-%d")
+            by_day.setdefault(key, []).append(st)
+        history = []
+        for start, _end in buckets:
+            key = start.strftime("%Y-%m-%d")
+            samples = by_day.get(key, [])
+            if not samples:
+                history.append({"date": key, "uptime": None, "n": 0})
+                continue
+            up = sum(1 for x in samples if x == "ok")
+            history.append({
+                "date": key,
+                "uptime": round(up / len(samples) * 100, 1),
+                "n": len(samples),
+            })
+
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "server_type": s.server_type,
+            "online": bool(latest and latest.status == "ok"),
+            "uptime_30d": round(ok / total * 100, 2) if total else None,
+            "avg_latency_ms": round((avg_latency or 0) * 1000, 0),
+            "last_check": latest.collected_at.isoformat() if latest else None,
+            "history": history,
+        })
+
+    overall = {
+        "all_operational": all(r["online"] for r in result) if result else True,
+        "servers_total": len(result),
+        "servers_online": sum(1 for r in result if r["online"]),
+    }
+    return {
+        "published": True,
+        "title": cfg.get("title", ""),
+        "description": cfg.get("description", ""),
+        "footer": cfg.get("footer", ""),
+        "theme": cfg.get("theme", "auto"),
+        "show_latency": cfg.get("show_latency", True),
+        "overall": overall,
+        "servers": result,
+        "generated_at": now.isoformat(),
+    }
