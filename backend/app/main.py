@@ -165,6 +165,11 @@ def get_app_settings(_: User = Depends(require_admin)):
                 retention_days = 0
         wh = db.get(Setting, "alert_webhook_url")
         wt = db.get(Setting, "alert_webhook_template")
+        ep = db.get(Setting, "energy_price")
+        try:
+            energy_price = float(ep.value) if ep and ep.value else 0.0
+        except ValueError:
+            energy_price = 0.0
     finally:
         db.close()
     return {
@@ -172,6 +177,7 @@ def get_app_settings(_: User = Depends(require_admin)):
         "retention_days": retention_days,
         "webhook_url": (wh.value if wh else "") or "",
         "webhook_template": (wt.value if wt else "") or "",
+        "energy_price": energy_price,
         "scheduler": scheduler.scheduler_status(),
     }
 
@@ -196,6 +202,11 @@ def update_app_settings(body: SettingsUpdate, _: User = Depends(require_admin)):
             if days < 0:
                 raise HTTPException(status_code=400, detail="retention_days must be >= 0 (0 = keep forever)")
             _set_setting(db, "retention_days", str(days))
+        if body.energy_price is not None:
+            price = float(body.energy_price or 0)
+            if price < 0 or price > 100:
+                raise HTTPException(status_code=400, detail="energy_price must be in [0, 100]")
+            _set_setting(db, "energy_price", str(price))
         if body.webhook_url is not None:
             url = str(body.webhook_url or "")
             if url:

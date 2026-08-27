@@ -267,6 +267,7 @@ class AlertEventOut(BaseModel):
 class SettingsUpdate(BaseModel):
     poll_interval: Optional[int] = Field(default=None, ge=10, le=86400)
     retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    energy_price: Optional[float] = Field(default=None, ge=0, le=100)
     webhook_url: Optional[str] = None
     webhook_template: Optional[str] = None
 
