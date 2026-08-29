@@ -52,6 +52,10 @@ class Server(Base):
     password: Mapped[str] = mapped_column(Text, default="")  # encrypted
     private_key: Mapped[str] = mapped_column(Text, default="")  # encrypted
     passphrase: Mapped[str] = mapped_column(Text, default="")  # encrypted
+    # out-of-band BMC (IPMI lanplus), collected from the monitor host
+    bmc_host: Mapped[str] = mapped_column(String(255), default="")
+    bmc_user: Mapped[str] = mapped_column(String(64), default="")
+    bmc_password: Mapped[str] = mapped_column(Text, default="")  # encrypted
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     server_type: Mapped[str] = mapped_column(String(8), default="gpu")  # gpu | cpu
     tags: Mapped[list] = mapped_column(JSON, default=list)
@@ -293,6 +297,27 @@ class ServerMetricHourly(Base):
     net_rx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
     net_tx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
     idle_held_minutes: Mapped[int] = mapped_column(Integer, default=0)  # 空占样本分钟数
+
+
+class IpmiSnapshot(Base):
+    """Full out-of-band IPMI dump (everything ipmitool returned)."""
+
+    __tablename__ = "ipmi_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    mc_info: Mapped[dict] = mapped_column(JSON, default=dict)
+    chassis: Mapped[dict] = mapped_column(JSON, default=dict)
+    power: Mapped[dict] = mapped_column(JSON, default=dict)
+    sensors: Mapped[list] = mapped_column(JSON, default=list)
+    sel: Mapped[list] = mapped_column(JSON, default=list)
+    sel_info: Mapped[dict] = mapped_column(JSON, default=dict)
+    fru: Mapped[list] = mapped_column(JSON, default=list)
+    lan: Mapped[dict] = mapped_column(JSON, default=dict)
+    duration: Mapped[float] = mapped_column(Float, default=0)
 
 
 class WebhookChannel(Base):

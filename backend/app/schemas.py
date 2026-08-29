@@ -57,6 +57,9 @@ class ServerBase(BaseModel):
     server_type: Literal["gpu", "cpu"] = "gpu"
     tags: list[str] = []
     note: str = ""
+    bmc_host: str = Field(default="", max_length=255)
+    bmc_user: str = Field(default="", max_length=64)
+    bmc_password: Optional[str] = None
 
 
 class ServerCreate(ServerBase):
@@ -76,6 +79,9 @@ class ServerUpdate(BaseModel):
     server_type: Optional[Literal["gpu", "cpu"]] = None
     tags: Optional[list[str]] = None
     note: Optional[str] = None
+    bmc_host: Optional[str] = Field(default=None, max_length=255)
+    bmc_user: Optional[str] = Field(default=None, max_length=64)
+    bmc_password: Optional[str] = None
 
 
 class ServerOut(BaseModel):
@@ -98,6 +104,9 @@ class ServerOut(BaseModel):
     updated_at: datetime
     has_password: bool = False
     has_key: bool = False
+    bmc_host: str = ""
+    bmc_user: str = ""
+    has_bmc: bool = False
 
 
 class ServerStatusUpdate(BaseModel):

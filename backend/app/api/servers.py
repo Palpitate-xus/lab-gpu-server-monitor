@@ -32,6 +32,7 @@ def _to_out(server: Server) -> ServerOut:
     out = ServerOut.model_validate(server)
     out.has_password = bool(server.password)
     out.has_key = bool(server.private_key)
+    out.has_bmc = bool(server.bmc_host)
     return out
 
 
@@ -55,8 +56,12 @@ def create_server(body: ServerCreate, db: Session = Depends(get_db), admin: User
         private_key=encrypt_text(body.private_key or ""),
         passphrase=encrypt_text(body.passphrase or ""),
         enabled=body.enabled,
+        server_type=body.server_type,
         tags=body.tags or [],
         note=body.note or "",
+        bmc_host=body.bmc_host or "",
+        bmc_user=body.bmc_user or "",
+        bmc_password=encrypt_text(body.bmc_password or ""),
     )
     db.add(server)
     db.commit()
@@ -109,6 +114,12 @@ def update_server(
         server.tags = body.tags
     if body.note is not None:
         server.note = body.note
+    if body.bmc_host is not None:
+        server.bmc_host = body.bmc_host
+    if body.bmc_user is not None:
+        server.bmc_user = body.bmc_user
+    if body.bmc_password is not None:
+        server.bmc_password = encrypt_text(body.bmc_password)
     db.commit()
     db.refresh(server)
     audit(db, admin.username, "server.update", f"updated server {server.name}")

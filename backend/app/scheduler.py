@@ -24,6 +24,7 @@ from .models import (
     AlertRule,
     GpuBaseline,
     HostInventory,
+    IpmiSnapshot,
     KernelEventRow,
     Server,
     ServerMetric,
@@ -852,6 +853,7 @@ def start_scheduler() -> None:
     t.start()
     _state["thread"] = t
     start_cache_warmer()
+    _start_ipmi_loop()
 
 
 # ---------------------------------------------------------------------------
@@ -913,6 +915,122 @@ def _warm_hot_keys() -> None:
     )
     with ThreadPoolExecutor(max_workers=6) as ex:
         list(ex.map(lambda item: app_cache.cached(*item), jobs))
+
+
+# ---------------------------------------------------------------------------
+# Out-of-band IPMI tier: independent 5-minute loop, direct BMC connections
+# from the monitor host (works even when the target OS is down).
+# ---------------------------------------------------------------------------
+
+_IPMI_INTERVAL = 300
+_ipmi_started = False
+
+
+def _start_ipmi_loop() -> None:
+    global _ipmi_started
+    if _ipmi_started:
+        return
+    _ipmi_started = True
+    threading.Thread(target=_ipmi_loop, name="gpumon-ipmi", daemon=True).start()
+
+
+def _ipmi_loop() -> None:
+    while not _stop_event.is_set():
+        _stop_event.wait(_IPMI_INTERVAL)
+        if _stop_event.is_set():
+            break
+        try:
+            _ipmi_cycle()
+        except Exception:
+            logger.exception("ipmi cycle failed")
+
+
+def _ipmi_cycle() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .ipmi_collector import collect_ipmi, ipmitool_available
+    from .security import decrypt_text
+
+    if not ipmitool_available():
+        logger.warning("ipmitool not installed on monitor host; IPMI tier disabled")
+        return
+    db = SessionLocal()
+    try:
+        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+        targets = [
+            (s.id, s.name, s.bmc_host, s.bmc_user, decrypt_text(s.bmc_password or ""))
+            for s in servers if s.bmc_host
+        ]
+    finally:
+        db.close()
+    if not targets:
+        return
+
+    started = time.time()
+
+    def one(t):
+        sid, name, host, user, pwd = t
+        try:
+            res = collect_ipmi(host, user, pwd)
+        except Exception as exc:  # collector itself should not raise
+            res = {"ok": False, "error": str(exc)[:300], "mc_info": {}, "chassis": {},
+                   "power": {}, "sensors": [], "sel": [], "sel_info": {},
+                   "fru": [], "lan": {}, "duration": 0}
+        _store_ipmi(sid, name, res)
+        return bool(res.get("ok"))
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        oks = list(ex.map(one, targets))
+    logger.info("ipmi cycle done: %d/%d BMC reachable, %.1fs",
+                sum(oks), len(targets), time.time() - started)
+
+
+def _store_ipmi(server_id: int, server_name: str, res: dict) -> None:
+    from . import health as health_mod
+    from .ipmi_collector import summarize
+
+    db = SessionLocal()
+    try:
+        db.add(IpmiSnapshot(
+            server_id=server_id,
+            collected_at=datetime.now(timezone.utc),
+            ok=bool(res.get("ok")),
+            error=res.get("error", ""),
+            mc_info=res.get("mc_info", {}),
+            chassis=res.get("chassis", {}),
+            power=res.get("power", {}),
+            sensors=res.get("sensors", []),
+            sel=res.get("sel", []),
+            sel_info=res.get("sel_info", {}),
+            fru=res.get("fru", []),
+            lan=res.get("lan", {}),
+            duration=res.get("duration", 0),
+        ))
+        db.commit()
+
+        if not res.get("ok"):
+            health_mod._fire(db, "BMC_UNREACHABLE", server_id, server_name,
+                             f"BMC 连接失败：{res.get('error', '')[:150]}")
+            return
+        health_mod._recover(db, "BMC_UNREACHABLE", server_id)
+
+        s = summarize(res)
+        if not s["power_on"]:
+            health_mod._fire(db, "CHASSIS_POWER_OFF", server_id, server_name,
+                             "BMC 报告机箱电源处于关闭状态")
+        else:
+            health_mod._recover(db, "CHASSIS_POWER_OFF", server_id)
+        for psu in s["psu_bad"]:
+            health_mod._fire(db, "PSU_FAULT", server_id, server_name,
+                             f"电源传感器异常：{psu}", key=psu)
+        for e in s["sel_critical"][-3:]:
+            key = f"{e.get('record', '')}-{(e.get('event') or '')[:40]}"
+            health_mod._fire(db, "SEL_CRITICAL", server_id, server_name,
+                             (e.get("event") or "")[:200], key=key)
+    except Exception:
+        logger.exception("ipmi store/detectors failed for %s", server_name)
+    finally:
+        db.close()
 
 
 def _run_cycle_guarded() -> None:
