@@ -236,25 +236,61 @@ def _cluster_energy(db: Session, days: int):
         finally:
             s.close()
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_agg, f_cnt, f_raw = ex.submit(q_agg), ex.submit(q_cnt), ex.submit(q_raw)
-        agg_rows, gpu_cnt_rows, raw_rows = f_agg.result(), f_cnt.result(), f_raw.result()
+    def q_ipmi():
+        # real measured whole-machine power from BMCs (DCMI), hourly means
+        from ..models import IpmiSnapshot
+        s = SessionLocal()
+        try:
+            if s.bind.dialect.name == "mysql":
+                hr_expr = func.date_format(IpmiSnapshot.collected_at, "%Y-%m-%d %H:00")
+            else:
+                hr_expr = func.strftime("%Y-%m-%d %H:00", IpmiSnapshot.collected_at)
+            return (
+                s.query(IpmiSnapshot.server_id, hr_expr.label("hr"),
+                        func.avg(IpmiSnapshot.power_w).label("w"))
+                .filter(IpmiSnapshot.collected_at >= since.replace(tzinfo=None),
+                        IpmiSnapshot.ok.is_(True),
+                        IpmiSnapshot.power_w > 0)
+                .group_by(IpmiSnapshot.server_id, "hr")
+                .all()
+            )
+        finally:
+            s.close()
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_agg, f_cnt, f_raw, f_ipmi = (ex.submit(q_agg), ex.submit(q_cnt),
+                                       ex.submit(q_raw), ex.submit(q_ipmi))
+        agg_rows = f_agg.result()
+        gpu_cnt_rows = f_cnt.result()
+        raw_rows = f_raw.result()
+        ipmi_rows = f_ipmi.result()
 
     gpu_count: dict[tuple[int, str], float] = {
         (r.server_id, r.hr): float(r.n_gpu or 0) for r in gpu_cnt_rows
     }
 
-    day_srv_hours: dict[str, dict[int, list[float]]] = {}
+    ipmi_hour = {(r.server_id, r.hr): float(r.w or 0) for r in ipmi_rows}
+    gpu_est: dict[tuple[int, str], float] = {}
     for r in agg_rows:
         hr_key = r.hour.strftime("%Y-%m-%d %H:00")
         n_gpu = gpu_count.get((r.server_id, hr_key), 0)
-        if not n_gpu:
-            continue  # no GPU samples that hour -> zero power, skip
-        day_srv_hours.setdefault(r.hour.strftime("%Y-%m-%d"), {}).setdefault(
-            r.server_id, []).append((r.gpu_power_avg or 0) * n_gpu)
+        if n_gpu:
+            gpu_est[(r.server_id, hr_key)] = (r.gpu_power_avg or 0) * n_gpu
+
+    day_srv_hours: dict[str, dict[int, list[float]]] = {}
+    for sid, hr_key in set(ipmi_hour) | set(gpu_est):
+        # IPMI-measured whole-machine power wins; the GPU power-sum is only
+        # an estimate, used for servers without BMC coverage that hour
+        watts = ipmi_hour.get((sid, hr_key)) or gpu_est.get((sid, hr_key))
+        if not watts:
+            continue
+        day_srv_hours.setdefault(hr_key[:10], {}).setdefault(sid, []).append(watts)
 
     today = day_start.strftime("%Y-%m-%d")
+    ipmi_servers_today = {sid for sid, hr in ipmi_hour if hr.startswith(today)}
     for m in raw_rows:
+        if m.server_id in ipmi_servers_today:
+            continue  # measured power already covers this server today
         watts = sum(g.get("power_draw", 0) or 0 for g in (m.gpus or []))
         day_srv_hours.setdefault(today, {}).setdefault(m.server_id, []).append(watts)
 

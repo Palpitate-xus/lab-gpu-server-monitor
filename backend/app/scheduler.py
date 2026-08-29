@@ -989,6 +989,7 @@ def _store_ipmi(server_id: int, server_name: str, res: dict) -> None:
     from . import health as health_mod
     from .ipmi_collector import summarize
 
+    s = summarize(res)
     db = SessionLocal()
     try:
         db.add(IpmiSnapshot(
@@ -1004,6 +1005,7 @@ def _store_ipmi(server_id: int, server_name: str, res: dict) -> None:
             sel_info=res.get("sel_info", {}),
             fru=res.get("fru", []),
             lan=res.get("lan", {}),
+            power_w=float(s["power_w"]),
             duration=res.get("duration", 0),
         ))
         db.commit()
@@ -1014,7 +1016,6 @@ def _store_ipmi(server_id: int, server_name: str, res: dict) -> None:
             return
         health_mod._recover(db, "BMC_UNREACHABLE", server_id)
 
-        s = summarize(res)
         if not s["power_on"]:
             health_mod._fire(db, "CHASSIS_POWER_OFF", server_id, server_name,
                              "BMC 报告机箱电源处于关闭状态")

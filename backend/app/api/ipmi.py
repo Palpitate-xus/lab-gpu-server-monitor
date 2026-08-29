@@ -109,6 +109,7 @@ def ipmi_test(server_id: int, db: Session = Depends(get_db),
     server = _server_or_404(db, server_id)
     host, user, pwd = _bmc_creds(server)
     res = collect_ipmi(host, user, pwd)
+    summ = summarize(res)
     snap = IpmiSnapshot(
         server_id=server.id,
         collected_at=datetime.now(timezone.utc),
@@ -122,6 +123,7 @@ def ipmi_test(server_id: int, db: Session = Depends(get_db),
         sel_info=res.get("sel_info", {}),
         fru=res.get("fru", []),
         lan=res.get("lan", {}),
+        power_w=float(summ["power_w"]),
         duration=res.get("duration", 0),
     )
     db.add(snap)
@@ -136,6 +138,6 @@ def ipmi_test(server_id: int, db: Session = Depends(get_db),
         "ok": bool(res.get("ok")),
         "error": res.get("error", ""),
         "duration": res.get("duration", 0),
-        "summary": summarize(res),
+        "summary": summ,
         "snapshot": _snap_to_dict(snap),
     }

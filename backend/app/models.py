@@ -317,6 +317,7 @@ class IpmiSnapshot(Base):
     sel_info: Mapped[dict] = mapped_column(JSON, default=dict)
     fru: Mapped[list] = mapped_column(JSON, default=list)
     lan: Mapped[dict] = mapped_column(JSON, default=dict)
+    power_w: Mapped[float] = mapped_column(Float, default=0)
     duration: Mapped[float] = mapped_column(Float, default=0)
 
 
