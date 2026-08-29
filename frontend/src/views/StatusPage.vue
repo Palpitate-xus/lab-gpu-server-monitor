@@ -7,6 +7,11 @@
         <h1>{{ data?.title || '服务状态' }}</h1>
       </header>
 
+      <!-- admin preview banner -->
+      <div v-if="preview" class="sp-card sp-preview-hint">
+        预览模式 · 仅管理员可见，尚未对外发布
+      </div>
+
       <!-- unpublished -->
       <div v-if="loaded && !data?.published" class="sp-card sp-empty">
         此状态页未发布。管理员可在「系统设置 → 状态页」中开启。
@@ -89,8 +94,13 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
+import api from '../api'
 import { fmtTime } from '../format'
+
+const route = useRoute()
+const preview = computed(() => route.query.preview === '1')
 
 const data = ref(null)
 const loaded = ref(false)
@@ -125,8 +135,11 @@ function axisLabel(history, pos) {
 
 async function load() {
   try {
-    // public endpoint — plain axios, no auth header
-    const { data: d } = await axios.get('/api/status-public')
+    // preview mode hits the admin endpoint (ignores the published flag);
+    // the public endpoint stays auth-free
+    const { data: d } = preview.value
+      ? await api.get('/status-page/preview')
+      : await axios.get('/api/status-public')
     data.value = d
   } catch {
     data.value = null
@@ -174,6 +187,12 @@ onUnmounted(() => clearInterval(timer))
 .sp-dark .sp-card { background: #131f36; border: 1px solid #1e2d47; }
 
 .sp-empty { text-align: center; opacity: .7; padding: 40px; }
+
+.sp-preview-hint {
+  text-align: center; font-size: 13px; font-weight: 600;
+  color: #d97706; border: 1px dashed #d97706 !important;
+  background: rgba(217, 119, 6, .08) !important;
+}
 
 .sp-banner { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
 .sp-banner.ok { border-left: 4px solid #10b981; }

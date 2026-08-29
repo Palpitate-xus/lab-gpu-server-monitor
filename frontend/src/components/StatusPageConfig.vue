@@ -112,7 +112,8 @@ async function openPreview() {
   } finally {
     previewing.value = false
   }
-  window.open('/status', '_blank')
+  // preview mode renders regardless of the publish toggle (admin-only endpoint)
+  window.open('/status?preview=1', '_blank')
 }
 
 onMounted(load)

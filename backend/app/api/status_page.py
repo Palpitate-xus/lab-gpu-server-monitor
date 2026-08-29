@@ -92,6 +92,14 @@ def put_config(body: StatusPageConfig, db: Session = Depends(get_db), _: User = 
     return {"ok": True}
 
 
+@router.get("/status-page/preview")
+def preview_payload(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Admin-only preview identical to /api/status-public, ignoring the
+    published flag: previewing must not require going live."""
+    cfg = _load_config(db)
+    return _build_public_payload(db, cfg)
+
+
 # ---------------- public data ----------------
 def _bucketize(days: int, now):
     """Return list of (start, end) UTC day buckets, oldest first."""
