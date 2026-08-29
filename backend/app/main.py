@@ -290,7 +290,17 @@ import os  # noqa: E402
 DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 
 if os.path.isdir(DIST_DIR):
-    app.mount("/assets", StaticFiles(directory=os.path.join(DIST_DIR, "assets")), name="assets")
+    class _ImmutableAssets(StaticFiles):
+        """Hashed filenames are immutable: let browsers cache them for a year.
+        Without this, StaticFiles sends only an ETag and browsers re-request
+        every chunk on every page load."""
+
+        def file_response(self, *args, **kwargs):
+            resp = super().file_response(*args, **kwargs)
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+
+    app.mount("/assets", _ImmutableAssets(directory=os.path.join(DIST_DIR, "assets")), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
@@ -309,8 +319,19 @@ if os.path.isdir(DIST_DIR):
             and candidate.startswith(root_real + os.sep)
             and os.path.isfile(candidate)
         ):
-            return FileResponse(candidate)
-        return FileResponse(os.path.join(DIST_DIR, "index.html"))
+            resp = FileResponse(candidate)
+            # hashed asset names are immutable -> cache aggressively;
+            # anything else (index.html, favicon...) must revalidate
+            if full_path.startswith("assets/"):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                resp.headers["Cache-Control"] = "no-cache"
+            return resp
+        # SPA entry: MUST revalidate every time, otherwise a stale cached
+        # index.html referencing dead hashed chunks = blank page after deploy
+        index_resp = FileResponse(os.path.join(DIST_DIR, "index.html"))
+        index_resp.headers["Cache-Control"] = "no-cache"
+        return index_resp
 
     logger.info("serving frontend from %s", DIST_DIR)
 else:
