@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
@@ -238,3 +238,52 @@ def cluster_energy(
         "price": price,
         "total_cost": round(total_kwh * price, 2) if price else None,
     }
+
+@router.get("/cluster-gpus")
+def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Latest per-GPU snapshot of every server for the cockpit matrix."""
+    servers = db.query(Server).order_by(Server.id).all()
+    sub = (
+        db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
+        .group_by(ServerMetric.server_id)
+        .subquery()
+    )
+    latest = {
+        m.server_id: m
+        for m in db.query(ServerMetric)
+        .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
+                        ServerMetric.collected_at == sub.c.mx))
+        .all()
+    }
+    result = []
+    for s in servers:
+        m = latest.get(s.id)
+        entry = {
+            "server_id": s.id,
+            "server_name": s.name,
+            "enabled": s.enabled,
+            "status": s.status or "active",
+            "tags": s.tags or [],
+            "online": bool(m and m.status == "ok"),
+            "error": m.error if (m and m.status != "ok") else "",
+            "hostname": m.hostname if m else "",
+            "gpus": [],
+        }
+        if m and m.status == "ok" and s.server_type != "cpu":
+            for g in m.gpus or []:
+                entry["gpus"].append(
+                    {
+                        "index": g.get("index", 0),
+                        "name": g.get("name", ""),
+                        "utilization": g.get("utilization", 0) or 0,
+                        "mem_used_mb": g.get("mem_used_mb", 0) or 0,
+                        "mem_total_mb": g.get("mem_total_mb", 0) or 0,
+                        "temperature": g.get("temperature", 0) or 0,
+                        "power_draw": g.get("power_draw", 0) or 0,
+                        "power_limit": g.get("power_limit", 0) or 0,
+                        "pstate": g.get("pstate", ""),
+                        "processes": g.get("processes", []),
+                    }
+                )
+        result.append(entry)
+    return result
