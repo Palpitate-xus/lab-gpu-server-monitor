@@ -13,6 +13,7 @@
           <el-icon><Cpu /></el-icon>GPU 分析
           <span v-if="idleHeldCount > 0" class="menu-badge menu-badge-warn">{{ idleHeldCount > 99 ? '99+' : idleHeldCount }}</span>
         </el-menu-item>
+        <el-menu-item index="/gpu-matrix"><el-icon><Grid /></el-icon>GPU 矩阵</el-menu-item>
         <el-menu-item index="/reports"><el-icon><TrendCharts /></el-icon>利用率报表</el-menu-item>
         <el-menu-item index="/alerts">
           <el-icon><Bell /></el-icon>告警
@@ -55,6 +56,7 @@
         <el-menu-item index="/dashboard">总览</el-menu-item>
         <el-menu-item index="/servers">服务器</el-menu-item>
         <el-menu-item index="/gpu-analysis">GPU 分析</el-menu-item>
+        <el-menu-item index="/gpu-matrix">GPU 矩阵</el-menu-item>
         <el-menu-item index="/reports">利用率报表</el-menu-item>
         <el-menu-item index="/alerts">告警</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users">用户管理</el-menu-item>

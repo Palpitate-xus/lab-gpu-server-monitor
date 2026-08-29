@@ -104,6 +104,7 @@
               <el-option value="mem-desc" label="显存占用 ↓" />
               <el-option value="temp-desc" label="温度 ↓" />
             </el-select>
+            <el-button size="small" type="primary" plain @click="$router.push('/gpu-matrix')">排序页 ↗</el-button>
             <span>
               <el-tag size="small" type="success" effect="dark" class="tag-idle">空闲</el-tag>
               <el-tag size="small" effect="dark" class="tag-busy">繁忙</el-tag>
@@ -492,7 +493,7 @@ async function loadAll() {
     api.get('/metrics/cluster-energy?days=7'),
     api.get('/metrics/cluster-power-now'),
     api.get('/alerts/events?limit=20'),
-    api.get('/metrics/latest'),
+    api.get('/metrics/latest?slim=1'),
     api.get('/cluster/health-summary'),
   ])
   const val = (r, fb) => (r.status === 'fulfilled' ? r.value.data : fb)
