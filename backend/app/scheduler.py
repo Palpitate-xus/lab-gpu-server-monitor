@@ -246,6 +246,123 @@ def _eval_alerts() -> None:
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# GPU idle-held (空占) state: persists idle_since per GPU so the analysis
+# page can report exact, unbounded idle durations without window scanning.
+# ---------------------------------------------------------------------------
+
+IDLE_STATE_KEY = "gpu_idle_state"
+_gpu_idle_mem: dict[str, str] | None = None
+_idle_lock = threading.Lock()
+
+
+def _gpu_is_idle_held(g: dict) -> bool:
+    total = g.get("mem_total_mb") or 0
+    return bool(
+        (g.get("utilization", 0) or 0) < 5
+        and total
+        and (g.get("mem_used_mb", 0) or 0) / total * 100 >= 30
+    )
+
+
+def _load_idle_state(db) -> dict[str, str]:
+    global _gpu_idle_mem
+    with _idle_lock:
+        if _gpu_idle_mem is not None:
+            return _gpu_idle_mem
+    row = db.get(Setting, IDLE_STATE_KEY)
+    try:
+        import json
+
+        state = json.loads(row.value) if row and row.value else {}
+    except Exception:
+        state = {}
+    with _idle_lock:
+        _gpu_idle_mem = state
+    return state
+
+
+def _save_idle_state(db, state: dict[str, str]) -> None:
+    import json
+
+    global _gpu_idle_mem
+    row = db.get(Setting, IDLE_STATE_KEY)
+    if row:
+        row.value = json.dumps(state)
+    else:
+        db.add(Setting(key=IDLE_STATE_KEY, value=json.dumps(state)))
+    db.commit()
+    with _idle_lock:
+        _gpu_idle_mem = state
+
+
+def _backfill_idle_start(db, server_id: int, uuid: str, before: datetime):
+    """Walk history backwards to find where the current idle run began."""
+    from sqlalchemy.orm import load_only
+
+    start = None
+    cursor = before
+    while True:
+        rows = (
+            db.query(ServerMetric)
+            .options(load_only(ServerMetric.collected_at, ServerMetric.gpus))
+            .filter(
+                ServerMetric.server_id == server_id,
+                ServerMetric.collected_at < cursor,
+                ServerMetric.status == "ok",
+            )
+            .order_by(ServerMetric.collected_at.desc())
+            .limit(2000)
+            .all()
+        )
+        if not rows:
+            break
+        for m in rows:
+            g = next((x for x in (m.gpus or []) if x.get("uuid") == uuid), None)
+            if g and _gpu_is_idle_held(g):
+                start = m.collected_at
+            else:
+                return start
+        cursor = rows[-1].collected_at
+        if len(rows) < 2000:
+            break
+    return start
+
+
+def update_gpu_idle_state(server_id: int, collected_at: datetime, gpus: list) -> None:
+    """Maintain idle_since per GPU; called on every successful poll."""
+    db = SessionLocal()
+    try:
+        state = dict(_load_idle_state(db))
+        changed = False
+        seen = set()
+        for g in gpus or []:
+            u = g.get("uuid")
+            if not u:
+                continue
+            key = f"{server_id}:{u}"
+            seen.add(key)
+            if _gpu_is_idle_held(g):
+                if key not in state:
+                    start = _backfill_idle_start(db, server_id, u, collected_at) or collected_at
+                    if start.tzinfo is None:
+                        start = start.replace(tzinfo=timezone.utc)
+                    state[key] = start.isoformat()
+                    changed = True
+            elif key in state:
+                del state[key]
+                changed = True
+        for key in [k for k in state if k.startswith(f"{server_id}:") and k not in seen]:
+            del state[key]
+            changed = True
+        if changed:
+            _save_idle_state(db, state)
+    except Exception:
+        logger.exception("idle-state update failed for server %s", server_id)
+    finally:
+        db.close()
+
+
 def _retention_cleanup() -> None:
     """Delete metrics older than retention_days (0 = keep forever), in batches
     so MySQL does not take a giant lock and SQLite stays responsive."""
@@ -403,6 +520,7 @@ def _poll_one(server: Server) -> None:
         db.commit()
         if res.ok:
             update_gpu_baseline(server.id, res.gpus)
+            update_gpu_idle_state(server.id, m.collected_at, res.gpus)
         # built-in detectors run for both ok and error results
         run_detectors(server.id)
     except Exception:
