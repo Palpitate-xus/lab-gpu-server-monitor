@@ -1,7 +1,7 @@
 <template>
   <div class="cockpit">
     <div class="toolbar">
-      <el-page-header content="GPU 智能分析" />
+      <b style="font-size:15px">GPU 智能分析</b>
       <div style="display:flex;gap:10px;align-items:center">
         <span v-if="lastUpdated" style="font-size:12px;color:var(--csub)">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
         <el-radio-group v-model="viewMode" size="small">
