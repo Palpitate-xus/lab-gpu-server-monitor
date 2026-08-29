@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     DB_ECHO: bool = False
     DATA_DIR: str = "./data"
 
+    # Optional shared cache backend (redis://... / rediss://...). Empty =
+    # in-process memory cache, which is correct for the single-worker setup.
+    REDIS_URL: str = ""
+
     # Initial admin account (created on first run)
     INIT_ADMIN_USERNAME: str = "admin"
     INIT_ADMIN_PASSWORD: str = "admin123"

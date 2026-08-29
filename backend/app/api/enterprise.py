@@ -387,6 +387,14 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
 def cluster_health_summary(db: Session = Depends(get_db),
                            user: User = Depends(get_current_user)):
     """One line per server: overall health + open detector counts."""
+    from .. import cache as app_cache
+
+    return app_cache.cached(
+        "cluster:health-summary", 15.0, lambda: _cluster_health_summary(db)
+    )
+
+
+def _cluster_health_summary(db: Session):
     from sqlalchemy import and_, func
     from sqlalchemy.orm import load_only
 

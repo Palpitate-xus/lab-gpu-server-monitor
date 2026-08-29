@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, load_only
 
+from .. import cache as app_cache
 from ..database import get_db
 from ..models import Server, ServerMetric, Setting, User
 from ..models import ServerMetricHourly as MetricHourly
@@ -38,6 +39,14 @@ def cluster_history(
     _: User = Depends(get_current_user),
 ):
     """Time series of cluster-wide averages for the cockpit trend chart."""
+    # scans tens of thousands of wide rows for long windows; cockpit polls
+    # every 30s, so a 60s cache matches the collection cadence exactly
+    return app_cache.cached(
+        f"cockpit:history:{hours}", 60.0, lambda: _cluster_history(db, hours)
+    )
+
+
+def _cluster_history(db: Session, hours: int):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (
         db.query(ServerMetric)
@@ -121,21 +130,29 @@ def cluster_power_now(
     _: User = Depends(get_current_user),
 ):
     """Current total GPU power draw (W) across the cluster (latest sample per server)."""
-    latest_ids = (
-        db.query(ServerMetric.server_id, func.max(ServerMetric.id))
+    return app_cache.cached("cockpit:power-now", 15.0, lambda: _cluster_power_now(db))
+
+
+def _cluster_power_now(db: Session):
+    sub = (
+        db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
         .filter(ServerMetric.status == "ok")
         .group_by(ServerMetric.server_id)
+        .subquery()
+    )
+    rows = (
+        db.query(ServerMetric.gpus)
+        .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
+                        ServerMetric.collected_at == sub.c.mx))
         .all()
     )
     total = 0.0
     servers = 0
-    for sid, mid in latest_ids:
-        m = db.get(ServerMetric, mid)
-        if m and m.gpus:
-            w = sum(g.get("power_draw", 0) or 0 for g in m.gpus)
-            if w:
-                total += w
-                servers += 1
+    for (gpus,) in rows:
+        w = sum(g.get("power_draw", 0) or 0 for g in (gpus or []))
+        if w:
+            total += w
+            servers += 1
     return {"total_w": round(total, 1), "servers_reporting": servers}
 
 
@@ -150,6 +167,13 @@ def cluster_energy(
     Energy per day = mean power (W) of that day's samples x 24h / 1000.
     Also returns an estimated cost when a price is configured (yuan/kWh).
     """
+    # expensive multi-scan query; daily figures barely move -> 5min cache
+    return app_cache.cached(
+        f"cockpit:energy:{days}", 300.0, lambda: _cluster_energy(db, days)
+    )
+
+
+def _cluster_energy(db: Session, days: int):
     since = datetime.now(timezone.utc) - timedelta(days=days + 1)
 
     # ---- historical days from the hourly aggregate (fast path) ----
@@ -164,17 +188,22 @@ def cluster_energy(
     )
     # gpu_power_avg in the hourly table is the mean W of a SINGLE GPU for that
     # hour (averaged across samples and cards). Server total = that mean x the
-    # number of GPUs the server reported. Count GPUs per (server, hour) from the
-    # raw table only once per hour-bucket via a cheap grouped query.
+    # number of GPUs the server reported. Count GPUs per (server, hour) from
+    # the raw table via a grouped query on the cheap gpu_count column (never
+    # JSON_LENGTH: that parses every JSON blob and can't use indexes).
+    if db.bind.dialect.name == "mysql":
+        hr_expr = func.date_format(ServerMetric.collected_at, "%Y-%m-%d %H:00")
+    else:
+        hr_expr = func.strftime("%Y-%m-%d %H:00", ServerMetric.collected_at)
     gpu_cnt_rows = (
         db.query(
             ServerMetric.server_id,
-            func.date_format(ServerMetric.collected_at, "%Y-%m-%d %H:00").label("hr"),
-            func.avg(func.json_length(ServerMetric.gpus)).label("n_gpu"),
+            hr_expr.label("hr"),
+            func.avg(ServerMetric.gpu_count).label("n_gpu"),
         )
         .filter(ServerMetric.collected_at >= since.replace(tzinfo=None),
                 ServerMetric.status == "ok",
-                func.json_length(ServerMetric.gpus) > 0)
+                ServerMetric.gpu_count > 0)
         .group_by(ServerMetric.server_id, "hr")
         .all()
     )
@@ -241,8 +270,18 @@ def cluster_energy(
 
 @router.get("/cluster-gpus")
 def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """Latest per-GPU snapshot of every server for the cockpit matrix."""
-    servers = db.query(Server).order_by(Server.id).all()
+    """Latest per-GPU snapshot of every GPU server for the cockpit matrix."""
+    return app_cache.cached("cockpit:cluster-gpus", 15.0, lambda: _cluster_gpus(db))
+
+
+def _cluster_gpus(db: Session):
+    # CPU servers never belong in the GPU matrix
+    servers = (
+        db.query(Server)
+        .filter(Server.server_type != "cpu")
+        .order_by(Server.id)
+        .all()
+    )
     sub = (
         db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
         .group_by(ServerMetric.server_id)

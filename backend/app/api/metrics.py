@@ -2,8 +2,9 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
+from .. import cache as app_cache
 from ..database import get_db
 from ..models import AuditLog, Server, ServerMetric, User
 from ..schemas import DashboardStats, MetricOut, ProcessAction
@@ -13,17 +14,24 @@ from .. import scheduler
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
+# heavy JSON columns the slim variant never needs (processes is ~100KB/row)
+_SLIM_DROP = {"processes", "cores", "users", "inodes"}
+_SLIM_KEYS = [c.key for c in ServerMetric.__table__.columns if c.key not in _SLIM_DROP]
+_SLIM_COLS = [getattr(ServerMetric, k) for k in _SLIM_KEYS]
 
-def _latest_by_server(db: Session) -> dict[int, ServerMetric]:
+
+def _latest_by_server(db: Session, slim: bool = False):
     """One query for the newest metric row of every server (no N+1)."""
     sub = (
         db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
         .group_by(ServerMetric.server_id)
         .subquery()
     )
+    q = db.query(ServerMetric)
+    if slim:
+        q = q.options(load_only(*_SLIM_COLS))
     rows = (
-        db.query(ServerMetric)
-        .join(
+        q.join(
             sub,
             and_(
                 ServerMetric.server_id == sub.c.server_id,
@@ -32,11 +40,25 @@ def _latest_by_server(db: Session) -> dict[int, ServerMetric]:
         )
         .all()
     )
+    if slim:
+        # plain dicts: touching a deferred column would re-issue the SELECT,
+        # and dicts keep the cached payload JSON-serializable
+        return {
+            m.server_id: {
+                **{c.key: getattr(m, c.key) for c in _SLIM_COLS},
+                "processes": [], "cores": [], "users": [], "inodes": [],
+            }
+            for m in rows
+        }
     return {m.server_id: m for m in rows}
 
 
 @router.get("/dashboard", response_model=DashboardStats)
 def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    return app_cache.cached("metrics:dashboard", 15.0, lambda: _dashboard(db))
+
+
+def _dashboard(db: Session) -> dict:
     servers = db.query(Server).all()
     stats = DashboardStats()
     stats.servers_total = len(servers)
@@ -79,18 +101,31 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
     stats.disk_used_gb = round(disk_used, 1)
     stats.gpu_mem_total_mb = round(gpu_mem_total, 1)
     stats.gpu_mem_used_mb = round(gpu_mem_used, 1)
-    return stats
+    return stats.model_dump()
 
 
 @router.get("/latest", response_model=list[MetricOut])
-def latest_metrics(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def latest_metrics(
+    slim: bool = Query(default=False, description="drop processes/cores/users/inodes"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    variant = "slim" if slim else "full"
+    return app_cache.cached(f"metrics:latest:{variant}", 10.0, lambda: _latest_payload(db, slim))
+
+
+def _latest_payload(db: Session, slim: bool) -> list[dict]:
     servers = db.query(Server).order_by(Server.id).all()
-    latest = _latest_by_server(db)
+    latest = _latest_by_server(db, slim=slim)
     out = []
     for s in servers:
         m = latest.get(s.id)
-        if m is not None:
+        if m is None:
+            continue
+        if slim:
             out.append(m)
+        else:
+            out.append({c.key: getattr(m, c.key) for c in ServerMetric.__table__.columns})
     return out
 
 

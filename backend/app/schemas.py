@@ -137,7 +137,7 @@ class MetricOut(BaseModel):
     cpu_percent: float
     cpu_freq_avg: float
     cpu_temp_package: float
-    cores: list
+    cores: list = []
     load1: float
     load5: float
     load15: float
@@ -155,7 +155,7 @@ class MetricOut(BaseModel):
     net_rx_bytes: float
     net_tx_bytes: float
     net_ifaces: list
-    users: list
+    users: list = []
     cpu_iowait: float = 0
     boot_id: str = ""
     sock_estab: int = 0
@@ -165,7 +165,7 @@ class MetricOut(BaseModel):
     gpu_count: int
     gpu_driver: str
     gpus: list
-    processes: list
+    processes: list = []
     duration: float
     ssh_latency: float = 0
     status: str
