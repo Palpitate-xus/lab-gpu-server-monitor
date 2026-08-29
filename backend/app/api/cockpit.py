@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
 from ..models import Server, ServerMetric, Setting, User
+from ..models import ServerMetricHourly as MetricHourly
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
@@ -150,28 +151,67 @@ def cluster_energy(
     Also returns an estimated cost when a price is configured (yuan/kWh).
     """
     since = datetime.now(timezone.utc) - timedelta(days=days + 1)
-    rows = (
+
+    # ---- historical days from the hourly aggregate (fast path) ----
+    # gpu_power_avg holds the per-server mean W for that hour; daily energy =
+    # sum over servers of (mean over reported hours) * 24h / 1000.
+    agg_rows = (
+        db.query(MetricHourly)
+        .options(load_only(MetricHourly.server_id, MetricHourly.hour,
+                           MetricHourly.gpu_power_avg, MetricHourly.samples))
+        .filter(MetricHourly.hour >= since.replace(tzinfo=None))
+        .all()
+    )
+    # gpu_power_avg in the hourly table is the mean W of a SINGLE GPU for that
+    # hour (averaged across samples and cards). Server total = that mean x the
+    # number of GPUs the server reported. Count GPUs per (server, hour) from the
+    # raw table only once per hour-bucket via a cheap grouped query.
+    gpu_cnt_rows = (
+        db.query(
+            ServerMetric.server_id,
+            func.date_format(ServerMetric.collected_at, "%Y-%m-%d %H:00").label("hr"),
+            func.avg(func.json_length(ServerMetric.gpus)).label("n_gpu"),
+        )
+        .filter(ServerMetric.collected_at >= since.replace(tzinfo=None),
+                ServerMetric.status == "ok",
+                func.json_length(ServerMetric.gpus) > 0)
+        .group_by(ServerMetric.server_id, "hr")
+        .all()
+    )
+    gpu_count: dict[tuple[int, str], float] = {
+        (r.server_id, r.hr): float(r.n_gpu or 0) for r in gpu_cnt_rows
+    }
+
+    day_srv_hours: dict[str, dict[int, list[float]]] = {}
+    for r in agg_rows:
+        hr_key = r.hour.strftime("%Y-%m-%d %H:00")
+        n_gpu = gpu_count.get((r.server_id, hr_key), 0)
+        if not n_gpu:
+            continue  # no GPU samples that hour -> zero power, skip
+        day_srv_hours.setdefault(r.hour.strftime("%Y-%m-%d"), {}).setdefault(
+            r.server_id, []).append((r.gpu_power_avg or 0) * n_gpu)
+
+    # ---- today: aggregate row not finalized yet -> bounded raw scan ----
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    raw_rows = (
         db.query(ServerMetric)
         .options(load_only(ServerMetric.server_id, ServerMetric.collected_at, ServerMetric.gpus))
-        .filter(ServerMetric.collected_at >= since, ServerMetric.status == "ok")
+        .filter(ServerMetric.collected_at >= day_start, ServerMetric.status == "ok")
         .order_by(ServerMetric.collected_at.asc())
         .all()
     )
-    # per-day per-server watt samples; a server's daily mean is weighted
-    # equally regardless of how many samples it managed to report
-    day_samples: dict[str, dict[int, list[float]]] = {}
-    for m in rows:
+    today = day_start.strftime("%Y-%m-%d")
+    for m in raw_rows:
         watts = sum(g.get("power_draw", 0) or 0 for g in (m.gpus or []))
-        day = m.collected_at.strftime("%Y-%m-%d")
-        day_samples.setdefault(day, {}).setdefault(m.server_id, []).append(watts)
+        day_srv_hours.setdefault(today, {}).setdefault(m.server_id, []).append(watts)
 
     # price config from settings (admin editable on settings page)
     price_row = db.get(Setting, "energy_price")
     price = float(price_row.value) if price_row and price_row.value else 0.0
 
     out = []
-    for day in sorted(day_samples.keys()):
-        by_srv = day_samples[day]
+    for day in sorted(day_srv_hours.keys()):
+        by_srv = day_srv_hours[day]
         if not by_srv:
             continue
         srv_means = [sum(v) / len(v) for v in by_srv.values()]
@@ -198,55 +238,3 @@ def cluster_energy(
         "price": price,
         "total_cost": round(total_kwh * price, 2) if price else None,
     }
-
-
-@router.get("/cluster-gpus")
-def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """Flat GPU inventory across all servers for the cockpit heatmap matrix."""
-    from sqlalchemy import and_, func
-
-    servers = db.query(Server).order_by(Server.id).all()
-    sub = (
-        db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
-        .group_by(ServerMetric.server_id)
-        .subquery()
-    )
-    latest = {
-        m.server_id: m
-        for m in db.query(ServerMetric)
-        .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
-                        ServerMetric.collected_at == sub.c.mx))
-        .all()
-    }
-    result = []
-    for s in servers:
-        m = latest.get(s.id)
-        entry = {
-            "server_id": s.id,
-            "server_name": s.name,
-            "enabled": s.enabled,
-            "status": s.status or "active",
-            "tags": s.tags or [],
-            "online": bool(m and m.status == "ok"),
-            "error": m.error if (m and m.status != "ok") else "",
-            "hostname": m.hostname if m else "",
-            "gpus": [],
-        }
-        if m and m.status == "ok" and s.server_type != "cpu":
-            for g in m.gpus or []:
-                entry["gpus"].append(
-                    {
-                        "index": g.get("index", 0),
-                        "name": g.get("name", ""),
-                        "utilization": g.get("utilization", 0) or 0,
-                        "mem_used_mb": g.get("mem_used_mb", 0) or 0,
-                        "mem_total_mb": g.get("mem_total_mb", 0) or 0,
-                        "temperature": g.get("temperature", 0) or 0,
-                        "power_draw": g.get("power_draw", 0) or 0,
-                        "power_limit": g.get("power_limit", 0) or 0,
-                        "pstate": g.get("pstate", ""),
-                        "processes": g.get("processes", []),
-                    }
-                )
-        result.append(entry)
-    return result
