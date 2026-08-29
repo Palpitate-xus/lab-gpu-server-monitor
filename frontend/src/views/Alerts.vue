@@ -219,9 +219,9 @@ async function loadAll(opts = {}) {
   const silent = !!opts.silent
   loadingRules.value = true
   try {
-    const [r, s] = await Promise.all([api.get('/alerts/rules'), api.get('/servers')])
-    rules.value = r.data
-    servers.value = s.data
+    const [r, s] = await Promise.allSettled([api.get('/alerts/rules'), api.get('/servers')])
+    if (r.status === 'fulfilled') rules.value = r.value.data
+    if (s.status === 'fulfilled') servers.value = s.value.data
   } catch (err) {
     if (silent) pollError.value = err.friendlyMessage || '加载失败'
     else ElMessage.error(err.friendlyMessage || '加载失败')

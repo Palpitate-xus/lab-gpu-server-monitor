@@ -823,13 +823,15 @@ async function load() {
   if (invalidId.value || document.hidden) return
   loading.value = !metric.value
   try {
-    const [serverList, latest] = await Promise.all([
+    const [serverList, latest] = await Promise.allSettled([
       api.get('/servers').then(r => r.data),
-      api.get(`/metrics/server/${serverId.value}/latest`).then(r => r.data).catch(() => null),
+      api.get(`/metrics/server/${serverId.value}/latest`).then(r => r.data),
       loadHistory()
     ])
-    server.value = serverList.find(s => s.id === serverId.value) || null
-    metric.value = latest
+    server.value = serverList.status === 'fulfilled'
+      ? (serverList.value || []).find(s => s.id === serverId.value) || null
+      : server.value
+    metric.value = latest.status === 'fulfilled' ? latest.value : null
   } catch (e) {
     if (!metric.value) ElMessage.error(e.friendlyMessage || '加载失败')
   } finally {

@@ -89,12 +89,12 @@ let alertTimer = null
 async function loadOpenAlerts() {
   if (document.hidden) return
   try {
-    const [events, analysis] = await Promise.all([
+    const [events, analysis] = await Promise.allSettled([
       api.get('/alerts/events?open_only=true&limit=100'),
-      api.get('/cluster/gpu-analysis').catch(() => null),
+      api.get('/cluster/gpu-analysis'),
     ])
-    openAlerts.value = events.data.length
-    if (analysis) idleHeldCount.value = analysis.data.idle_held_count || 0
+    openAlerts.value = events.status === 'fulfilled' ? events.value.data.length : 0
+    if (analysis.status === 'fulfilled') idleHeldCount.value = analysis.value.data.idle_held_count || 0
   } catch {
     openAlerts.value = 0
   }

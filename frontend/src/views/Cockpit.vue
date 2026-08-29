@@ -484,22 +484,28 @@ function gpuCellClass(g) {
 }
 
 async function loadAll() {
-  const [dash, gpus, energyData, powerNow, evts, latestAll, health] = await Promise.all([
-    api.get('/metrics/dashboard').then(r => r.data),
-    api.get('/metrics/cluster-gpus').then(r => r.data),
-    api.get('/metrics/cluster-energy?days=7').then(r => r.data).catch(() => null),
-    api.get('/metrics/cluster-power-now').then(r => r.data).catch(() => null),
-    api.get('/alerts/events?limit=20').then(r => r.data),
-    api.get('/metrics/latest').then(r => r.data),
-    api.get('/cluster/health-summary').then(r => r.data).catch(() => []),
+  // allSettled: one failing endpoint must never blank the whole cockpit;
+  // each panel degrades independently with its own fallback value
+  const [dash, gpus, energyData, powerNow, evts, latestAll, health] = await Promise.allSettled([
+    api.get('/metrics/dashboard'),
+    api.get('/metrics/cluster-gpus'),
+    api.get('/metrics/cluster-energy?days=7'),
+    api.get('/metrics/cluster-power-now'),
+    api.get('/alerts/events?limit=20'),
+    api.get('/metrics/latest'),
+    api.get('/cluster/health-summary'),
   ])
-  stats.value = dash
-  gpuMatrix.value = gpus
-  alerts.value = evts
-  latest.value = latestAll
-  healthSummary.value = health
-  energy.value = energyData
-  clusterPowerW.value = powerNow?.total_w ?? 0
+  const val = (r, fb) => (r.status === 'fulfilled' ? r.value.data : fb)
+  stats.value = val(dash, { servers_online: 0, servers_total: 0 })
+  gpuMatrix.value = val(gpus, [])
+  alerts.value = val(evts, [])
+  latest.value = val(latestAll, [])
+  healthSummary.value = val(health, [])
+  energy.value = val(energyData, null)
+  const pw = val(powerNow, null)
+  clusterPowerW.value = pw?.total_w ?? 0
+  const failed = [dash, gpus, evts, latestAll].filter(r => r.status === 'rejected')
+  if (failed.length) console.warn('[cockpit] endpoints failed:', failed.length)
 }
 
 const FAULT_LABELS = {

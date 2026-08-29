@@ -145,14 +145,14 @@ function goDetail(row) {
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    const [a, b, c] = await Promise.all([
+    const [a, b, c] = await Promise.allSettled([
       api.get('/metrics/dashboard'),
       api.get('/metrics/latest'),
       api.get('/servers')
     ])
-    stats.value = a.data
-    metrics.value = b.data
-    servers.value = c.data
+    if (a.status === 'fulfilled') stats.value = a.value.data
+    if (b.status === 'fulfilled') metrics.value = b.value.data
+    if (c.status === 'fulfilled') servers.value = c.value.data
     loadError.value = ''
   } catch (e) {
     loadError.value = e.friendlyMessage || '加载失败'
