@@ -297,42 +297,163 @@ def cluster_utilization_report(
 def cluster_gpu_analysis(db: Session = Depends(get_db),
                          user: User = Depends(get_current_user)):
     """Cluster-wide GPU idle-held detection (空占) + failure-risk ranking."""
+    from .. import cache as app_cache
+
+    return app_cache.cached(
+        "cluster:gpu-analysis", 300.0, lambda: _gpu_analysis(db)
+    )
+
+
+def _gpu_analysis(db: Session):
     from datetime import datetime, timedelta, timezone as tz
+    from sqlalchemy.orm import load_only
     from ..health import gpu_risk_score
 
     servers = db.query(Server).filter(Server.enabled.is_(True), Server.server_type != "cpu").all()
-    since = datetime.now(tz.utc) - timedelta(minutes=90)
-    out = []
-    from sqlalchemy.orm import load_only
-    for s in servers:
-        metrics = (
-            db.query(ServerMetric)
-            .options(load_only(ServerMetric.gpus, ServerMetric.collected_at, ServerMetric.status))
-            .filter(ServerMetric.server_id == s.id,
-                    ServerMetric.collected_at >= since,
-                    ServerMetric.status == "ok")
-            .order_by(ServerMetric.collected_at.asc())
-            .all()
-        )
-        if not metrics:
-            continue
-        latest = metrics[-1]
-        risks = {r["uuid"]: r for r in gpu_risk_score(s.id)}
-        uuids: dict[str, list[dict]] = {}
-        index_map = {}
-        for m in metrics:
-            for g in (m.gpus or []):
+    if not servers:
+        return {"total_gpus": 0, "idle_held_count": 0, "high_risk_count": 0, "gpus": []}
+
+    sids = [s.id for s in servers]
+
+    def load_pairs(wmin: int) -> dict[int, list]:
+        """Per server: ascending list of (collected_at, slim_gpu_dicts).
+
+        MySQL extracts only the five scalars the idle math needs straight in
+        the DB (JSON_EXTRACT); transferring whole gpus blobs for a widened
+        window was ~15x slower."""
+        since = datetime.now(tz.utc) - timedelta(minutes=wmin)
+        pairs: dict[int, list] = {sid: [] for sid in sids}
+        if db.bind.dialect.name == "mysql":
+            from sqlalchemy import bindparam, text
+            rows = db.execute(
+                text(
+                    """
+                    SELECT server_id, collected_at,
+                           JSON_EXTRACT(gpus, '$[*].uuid')         AS uuids,
+                           JSON_EXTRACT(gpus, '$[*].index')        AS idxs,
+                           JSON_EXTRACT(gpus, '$[*].utilization')  AS utils,
+                           JSON_EXTRACT(gpus, '$[*].mem_used_mb')  AS mems,
+                           JSON_EXTRACT(gpus, '$[*].mem_total_mb') AS totals
+                    FROM server_metrics
+                    WHERE server_id IN :ids
+                      AND collected_at >= :since AND status = 'ok'
+                    ORDER BY server_id, collected_at
+                    """
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"ids": sids, "since": since.replace(tzinfo=None)},
+            )
+            import json as _json
+            for sid, t, u, i, ut, me, to in rows:
+                us = _json.loads(u) if u else []
+                if not us:
+                    continue
+                is_ = _json.loads(i) if i else []
+                uts = _json.loads(ut) if ut else []
+                mes = _json.loads(me) if me else []
+                tos = _json.loads(to) if to else []
+                for k, uuid in enumerate(us):
+                    if not uuid:
+                        continue
+                    pairs[sid].append((t, {
+                        "uuid": uuid,
+                        "index": is_[k] if k < len(is_) else None,
+                        "utilization": (uts[k] or 0) if k < len(uts) else 0,
+                        "mem_used_mb": (mes[k] or 0) if k < len(mes) else 0,
+                        "mem_total_mb": (tos[k] or 0) if k < len(tos) else 0,
+                    }))
+        else:
+            for sid in sids:
+                rows = (
+                    db.query(ServerMetric)
+                    .options(load_only(ServerMetric.gpus, ServerMetric.collected_at, ServerMetric.status))
+                    .filter(ServerMetric.server_id == sid,
+                            ServerMetric.collected_at >= since,
+                            ServerMetric.status == "ok")
+                    .order_by(ServerMetric.collected_at.asc())
+                    .all()
+                )
+                pairs[sid] = [(m.collected_at, m.gpus or []) for m in rows]
+        return pairs
+
+    def build_samples(pairs_by_srv: dict[int, list]):
+        """Per-server, per-GPU-uuid sample timeline; returns (samples, oldest_t)."""
+        out: dict[int, tuple[dict[str, list[dict]], dict[str, int], datetime]] = {}
+        for sid, pairs in pairs_by_srv.items():
+            if not pairs:
+                continue
+            uuids: dict[str, list[dict]] = {}
+            index_map: dict[str, int] = {}
+            for t, g in pairs:
                 u = g.get("uuid")
                 if not u:
                     continue
                 index_map[u] = g.get("index")
                 uuids.setdefault(u, []).append({
-                    "t": m.collected_at.replace(tzinfo=None) if m.collected_at.tzinfo is None else m.collected_at.astimezone(tz.utc).replace(tzinfo=None),
+                    "t": t.replace(tzinfo=None) if t.tzinfo is None
+                         else t.astimezone(tz.utc).replace(tzinfo=None),
                     "util": g.get("utilization", 0) or 0,
                     "mem": g.get("mem_used_mb", 0) or 0,
                     "total": g.get("mem_total_mb", 0) or 0,
-                    "procs": g.get("processes", []) or [],
                 })
+            out[sid] = (uuids, index_map, pairs[0][0])
+        return out
+
+    # Adaptive lookback: a fixed window silently caps the reported idle
+    # duration (a GPU idle for days used to show "~1h29m"). Start small and
+    # widen only while some trailing idle run still reaches the window edge.
+    WINDOW_STEPS = [180, 1440, 4320, 10080]  # 3h, 24h, 72h, 7d
+    samples_by_srv = {}
+    for wmin in WINDOW_STEPS:
+        pairs_by_srv = load_pairs(wmin)
+        samples_by_srv = build_samples(pairs_by_srv)
+        if wmin == WINDOW_STEPS[-1]:
+            break
+        edge_hit = False
+        for sid, (uuids, _idx, oldest_t) in samples_by_srv.items():
+            # only widen if data actually exists at the window edge; a server
+            # that was offline has no older samples anyway
+            if (datetime.now(timezone.utc) - oldest_t.replace(tzinfo=timezone.utc)).total_seconds() < wmin * 60 - 180:
+                continue
+            for u, sams in uuids.items():
+                if not sams:
+                    continue
+                last = sams[-1]
+                total = last["total"]
+                if total and last["util"] < 5 and last["mem"] / total * 100 >= 30:
+                    first = sams[0]
+                    if first["util"] < 5 and first["mem"] / (first["total"] or 1) * 100 >= 30:
+                        edge_hit = True
+                        break
+            if edge_hit:
+                break
+        if not edge_hit:
+            break
+
+    # newest row per server, only for the displayed process lists
+    from sqlalchemy import and_, func as sa_func
+    latest_gpu_by_srv: dict[int, dict] = {}
+    sub = (
+        db.query(ServerMetric.server_id, sa_func.max(ServerMetric.collected_at).label("mx"))
+        .filter(ServerMetric.server_id.in_(sids))
+        .group_by(ServerMetric.server_id)
+        .subquery()
+    )
+    for m in (
+        db.query(ServerMetric)
+        .options(load_only(ServerMetric.server_id, ServerMetric.gpus))
+        .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
+                        ServerMetric.collected_at == sub.c.mx))
+        .all()
+    ):
+        latest_gpu_by_srv[m.server_id] = {
+            g.get("uuid"): g for g in (m.gpus or []) if g.get("uuid")
+        }
+
+    out = []
+    srv_by_id = {s.id: s for s in servers}
+    for sid, (uuids, index_map, _oldest) in samples_by_srv.items():
+        s = srv_by_id[sid]
+        risks = {r["uuid"]: r for r in gpu_risk_score(s.id)}
         for u, samples in uuids.items():
             last = samples[-1]
             mem_pct = (last["mem"] / last["total"] * 100) if last["total"] else 0
@@ -371,7 +492,7 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
                 "max_temp": r.get("max_temp", 0),
                 "processes": [
                     {"pid": p.get("pid"), "user": p.get("user", ""), "command": (p.get("command") or "")[:60]}
-                    for p in last["procs"][:5]
+                    for p in (latest_gpu_by_srv.get(sid, {}).get(u, {}).get("processes") or [])[:5]
                 ],
             })
     out.sort(key=lambda x: (not x["idle_held"], -(x["risk"])))
