@@ -168,23 +168,25 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
             .first()
         )
 
-        # per-day uptime buckets
+        # per-day uptime buckets, aggregated in the DB (never row-by-row:
+        # the window spans the whole published history)
         day_rows = (
             db.query(
-                ServerMetric.collected_at,
+                sa_func.date(ServerMetric.collected_at).label("d"),
                 ServerMetric.status,
+                sa_func.count(ServerMetric.id),
             )
             .filter(
                 ServerMetric.server_id == s.id,
                 ServerMetric.collected_at >= buckets[0][0],
             )
+            .group_by("d", ServerMetric.status)
             .all()
         )
-        # group by day
         by_day: dict[str, list[str]] = {}
-        for t, st in day_rows:
-            key = t.strftime("%Y-%m-%d")
-            by_day.setdefault(key, []).append(st)
+        for d, st, n in day_rows:
+            key = d if isinstance(d, str) else d.strftime("%Y-%m-%d")
+            by_day.setdefault(key, []).extend([st] * n)
         history = []
         for start, _end in buckets:
             key = start.strftime("%Y-%m-%d")

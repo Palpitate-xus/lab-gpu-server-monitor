@@ -851,6 +851,68 @@ def start_scheduler() -> None:
     t = threading.Thread(target=_scheduler_loop, name="gpumon-scheduler", daemon=True)
     t.start()
     _state["thread"] = t
+    start_cache_warmer()
+
+
+# ---------------------------------------------------------------------------
+# Cache warmer: rebuilds hot endpoint payloads in the background just before
+# they expire, so interactive requests never pay the cold-build cost.
+# ---------------------------------------------------------------------------
+
+_warmer_started = False
+
+
+def start_cache_warmer() -> None:
+    global _warmer_started
+    if _warmer_started:
+        return
+    _warmer_started = True
+    threading.Thread(target=_cache_warm_loop, name="gpumon-cache-warmer", daemon=True).start()
+
+
+def _cache_warm_loop() -> None:
+    while not _stop_event.is_set():
+        try:
+            _warm_hot_keys()
+        except Exception:
+            logger.exception("cache warm cycle failed")
+        _stop_event.wait(10)
+
+
+def _warm_hot_keys() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import cache as app_cache
+    from .api import cockpit as ck
+    from .api import enterprise as ent
+    from .api import metrics as mt
+
+    def _own_session(fn):
+        def run():
+            s = SessionLocal()
+            try:
+                return fn(s)
+            finally:
+                s.close()
+        return run
+
+    # cached() is a no-op while a payload is still fresh, so this idles
+    # cheaply and only rebuilds what is about to expire; concurrent sessions
+    # keep a slow rebuild from stalling the rest
+    jobs = (
+        ("metrics:dashboard", 15.0, _own_session(lambda s: mt._dashboard(s))),
+        ("metrics:latest:slim", 10.0, _own_session(lambda s: mt._latest_payload(s, True))),
+        ("metrics:latest:full", 10.0, _own_session(lambda s: mt._latest_payload(s, False))),
+        ("cockpit:cluster-gpus", 15.0, _own_session(lambda s: ck._cluster_gpus(s))),
+        ("cockpit:power-now", 15.0, _own_session(lambda s: ck._cluster_power_now(s))),
+        ("cluster:health-summary", 15.0, _own_session(lambda s: ent._cluster_health_summary(s))),
+        ("cockpit:history:6", 60.0, _own_session(lambda s: ck._cluster_history(s, 6))),
+        ("cockpit:history:24", 60.0, _own_session(lambda s: ck._cluster_history(s, 24))),
+        ("cockpit:energy:7", 300.0, _own_session(lambda s: ck._cluster_energy(s, 7))),
+        ("cluster:gpu-analysis", 300.0, _own_session(lambda s: ent._gpu_analysis(s))),
+    )
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        list(ex.map(lambda item: app_cache.cached(*item), jobs))
 
 
 def _run_cycle_guarded() -> None:

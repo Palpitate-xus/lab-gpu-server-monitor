@@ -308,7 +308,6 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
 def _gpu_analysis(db: Session):
     from datetime import timezone as tz
     import json as _json
-    from ..health import gpu_risk_score
 
     servers = db.query(Server).filter(Server.enabled.is_(True), Server.server_type != "cpu").all()
     if not servers:
@@ -341,12 +340,22 @@ def _gpu_analysis(db: Session):
         .all()
     }
 
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _risks_for(server_id: int):
+        from ..health import gpu_risk_score
+
+        return server_id, {r["uuid"]: r for r in gpu_risk_score(server_id)}
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        risks_by_srv = dict(ex.map(_risks_for, [s.id for s in servers if s.id in latest_by_srv]))
+
     out = []
     for s in servers:
         m = latest_by_srv.get(s.id)
         if m is None:
             continue
-        risks = {r["uuid"]: r for r in gpu_risk_score(s.id)}
+        risks = risks_by_srv.get(s.id, {})
         for g in (m.gpus or []):
             u = g.get("uuid")
             if not u:

@@ -174,39 +174,72 @@ def cluster_energy(
 
 
 def _cluster_energy(db: Session, days: int):
-    since = datetime.now(timezone.utc) - timedelta(days=days + 1)
+    from concurrent.futures import ThreadPoolExecutor
 
-    # ---- historical days from the hourly aggregate (fast path) ----
-    # gpu_power_avg holds the per-server mean W for that hour; daily energy =
-    # sum over servers of (mean over reported hours) * 24h / 1000.
-    agg_rows = (
-        db.query(MetricHourly)
-        .options(load_only(MetricHourly.server_id, MetricHourly.hour,
-                           MetricHourly.gpu_power_avg, MetricHourly.samples))
-        .filter(MetricHourly.hour >= since.replace(tzinfo=None))
-        .all()
-    )
-    # gpu_power_avg in the hourly table is the mean W of a SINGLE GPU for that
-    # hour (averaged across samples and cards). Server total = that mean x the
-    # number of GPUs the server reported. Count GPUs per (server, hour) from
-    # the raw table via a grouped query on the cheap gpu_count column (never
-    # JSON_LENGTH: that parses every JSON blob and can't use indexes).
-    if db.bind.dialect.name == "mysql":
-        hr_expr = func.date_format(ServerMetric.collected_at, "%Y-%m-%d %H:00")
-    else:
-        hr_expr = func.strftime("%Y-%m-%d %H:00", ServerMetric.collected_at)
-    gpu_cnt_rows = (
-        db.query(
-            ServerMetric.server_id,
-            hr_expr.label("hr"),
-            func.avg(ServerMetric.gpu_count).label("n_gpu"),
-        )
-        .filter(ServerMetric.collected_at >= since.replace(tzinfo=None),
-                ServerMetric.status == "ok",
-                ServerMetric.gpu_count > 0)
-        .group_by(ServerMetric.server_id, "hr")
-        .all()
-    )
+    from ..database import SessionLocal
+
+    since = datetime.now(timezone.utc) - timedelta(days=days + 1)
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # ---- three independent scans, run concurrently on separate sessions ----
+    def q_agg():
+        # historical days from the hourly aggregate: gpu_power_avg holds the
+        # per-server mean W for that hour
+        s = SessionLocal()
+        try:
+            return (
+                s.query(MetricHourly)
+                .options(load_only(MetricHourly.server_id, MetricHourly.hour,
+                                   MetricHourly.gpu_power_avg, MetricHourly.samples))
+                .filter(MetricHourly.hour >= since.replace(tzinfo=None))
+                .all()
+            )
+        finally:
+            s.close()
+
+    def q_cnt():
+        # gpu_power_avg is the mean W of a SINGLE GPU; server total needs the
+        # GPU count per (server, hour) - grouped on the cheap gpu_count column
+        # (never JSON_LENGTH: that parses every blob and can't use indexes)
+        s = SessionLocal()
+        try:
+            if s.bind.dialect.name == "mysql":
+                hr_expr = func.date_format(ServerMetric.collected_at, "%Y-%m-%d %H:00")
+            else:
+                hr_expr = func.strftime("%Y-%m-%d %H:00", ServerMetric.collected_at)
+            return (
+                s.query(
+                    ServerMetric.server_id,
+                    hr_expr.label("hr"),
+                    func.avg(ServerMetric.gpu_count).label("n_gpu"),
+                )
+                .filter(ServerMetric.collected_at >= since.replace(tzinfo=None),
+                        ServerMetric.status == "ok",
+                        ServerMetric.gpu_count > 0)
+                .group_by(ServerMetric.server_id, "hr")
+                .all()
+            )
+        finally:
+            s.close()
+
+    def q_raw():
+        # today: the hourly row is not finalized yet -> bounded raw scan
+        s = SessionLocal()
+        try:
+            return (
+                s.query(ServerMetric)
+                .options(load_only(ServerMetric.server_id, ServerMetric.collected_at, ServerMetric.gpus))
+                .filter(ServerMetric.collected_at >= day_start, ServerMetric.status == "ok")
+                .order_by(ServerMetric.collected_at.asc())
+                .all()
+            )
+        finally:
+            s.close()
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_agg, f_cnt, f_raw = ex.submit(q_agg), ex.submit(q_cnt), ex.submit(q_raw)
+        agg_rows, gpu_cnt_rows, raw_rows = f_agg.result(), f_cnt.result(), f_raw.result()
+
     gpu_count: dict[tuple[int, str], float] = {
         (r.server_id, r.hr): float(r.n_gpu or 0) for r in gpu_cnt_rows
     }
@@ -220,15 +253,6 @@ def _cluster_energy(db: Session, days: int):
         day_srv_hours.setdefault(r.hour.strftime("%Y-%m-%d"), {}).setdefault(
             r.server_id, []).append((r.gpu_power_avg or 0) * n_gpu)
 
-    # ---- today: aggregate row not finalized yet -> bounded raw scan ----
-    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    raw_rows = (
-        db.query(ServerMetric)
-        .options(load_only(ServerMetric.server_id, ServerMetric.collected_at, ServerMetric.gpus))
-        .filter(ServerMetric.collected_at >= day_start, ServerMetric.status == "ok")
-        .order_by(ServerMetric.collected_at.asc())
-        .all()
-    )
     today = day_start.strftime("%Y-%m-%d")
     for m in raw_rows:
         watts = sum(g.get("power_draw", 0) or 0 for g in (m.gpus or []))
