@@ -486,6 +486,69 @@
             </el-row>
           </el-tab-pane>
 
+          <el-tab-pane label="带外 IPMI" name="ipmi">
+            <div v-if="!server?.has_bmc" style="padding:20px;text-align:center;color:var(--csub)">
+              未配置带外管理。请在「编辑服务器」中填写 BMC 地址 / 账号，即可从监控主机直连 IPMI（关机 / 宕机也能监控）。
+            </div>
+            <template v-else-if="ipmi?.snapshot">
+              <el-alert v-if="!ipmi.snapshot.ok" type="error" :closable="false" show-icon
+                :title="`BMC 连接失败：${ipmi.snapshot.error}`" style="margin-bottom:12px" />
+              <el-row :gutter="12" style="margin-bottom:12px">
+                <el-col :span="6"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></el-col>
+                <el-col :span="6"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></el-col>
+                <el-col :span="6"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></el-col>
+                <el-col :span="6"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></el-col>
+              </el-row>
+              <el-row :gutter="12">
+                <el-col :span="12" :xs="24">
+                  <div class="chart-sub-title">BMC 信息（mc info）</div>
+                  <el-descriptions :column="1" border size="small">
+                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.mc_info" :key="k" :label="k">{{ v }}</el-descriptions-item>
+                  </el-descriptions>
+                  <div class="chart-sub-title" style="margin-top:10px">机箱状态（chassis）</div>
+                  <el-descriptions :column="1" border size="small">
+                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.chassis" :key="k" :label="k">{{ v }}</el-descriptions-item>
+                  </el-descriptions>
+                  <div class="chart-sub-title" style="margin-top:10px">功耗统计（dcmi power）</div>
+                  <el-descriptions :column="1" border size="small">
+                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.power" :key="k" :label="k">{{ v }}</el-descriptions-item>
+                  </el-descriptions>
+                  <div class="chart-sub-title" style="margin-top:10px">BMC 网络（lan）</div>
+                  <el-descriptions :column="1" border size="small">
+                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.lan" :key="k" :label="k">{{ v }}</el-descriptions-item>
+                  </el-descriptions>
+                </el-col>
+                <el-col :span="12" :xs="24">
+                  <div class="chart-sub-title">全部传感器（sdr）</div>
+                  <el-table :data="ipmi.snapshot.sensors || []" size="small" max-height="300">
+                    <el-table-column prop="name" label="传感器" min-width="130" show-overflow-tooltip />
+                    <el-table-column prop="reading" label="读数" width="130" show-overflow-tooltip />
+                    <el-table-column label="状态" width="80">
+                      <template #default="{ row }">
+                        <el-tag size="small" :type="row.status === 'ok' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                  <div class="chart-sub-title" style="margin-top:10px">硬件事件日志（SEL，新→旧）</div>
+                  <el-table :data="(ipmi.snapshot.sel || []).slice().reverse()" size="small" max-height="260">
+                    <el-table-column prop="record" label="#" width="56" />
+                    <el-table-column label="时间" width="150">
+                      <template #default="{ row }"><span class="mono">{{ row.date }} {{ row.time }}</span></template>
+                    </el-table-column>
+                    <el-table-column prop="event" label="事件" min-width="180" show-overflow-tooltip />
+                  </el-table>
+                  <el-empty v-if="!(ipmi.snapshot.sel || []).length" description="无 SEL 事件" :image-size="40" />
+                  <div class="chart-sub-title" style="margin-top:10px">FRU 资产信息</div>
+                  <el-descriptions v-for="(f, i) in ipmi.snapshot.fru" :key="i" :column="1" border size="small" style="margin-bottom:8px">
+                    <el-descriptions-item v-for="(v, k) in f" :key="k" :label="k">{{ v }}</el-descriptions-item>
+                  </el-descriptions>
+                  <el-empty v-if="!(ipmi.snapshot.fru || []).length" description="无 FRU 信息" :image-size="40" />
+                </el-col>
+              </el-row>
+            </template>
+            <el-empty v-else description="等待首次 IPMI 采集（每 5 分钟一次）" :image-size="60" />
+          </el-tab-pane>
+
           <el-tab-pane label="台账" name="notes">
             <div v-if="isAdmin" style="display:flex;gap:8px;margin-bottom:12px">
               <el-select v-model="noteKind" size="small" style="width:110px">
@@ -633,6 +696,10 @@ async function loadEvents() {
 async function loadSlowHealth() {
   try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data } catch (e) { loadFail(e); slowHealth.value = {} }
 }
+const ipmi = ref(null)
+async function loadIpmi() {
+  try { ipmi.value = (await api.get(`/servers/${serverId.value}/ipmi/latest`)).data } catch { ipmi.value = null }
+}
 async function loadInventory() {
   try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data } catch (e) { loadFail(e); inventory.value = {} }
 }
@@ -643,7 +710,7 @@ async function loadCollectHealth() {
   try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data } catch { collectHealth.value = null }
 }
 function loadEnterprise() {
-  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth()
+  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth(); loadIpmi()
 }
 
 async function setStatus(status) {
@@ -1003,4 +1070,12 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   font-weight: 600;
   color: var(--ctext, #1f2d3d);
 }
+
+.ipmi-kpi {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: var(--cpanel2, #f7f9fc); border: 1px solid var(--cborder, #dde5f0);
+  border-radius: 8px; padding: 10px 6px;
+}
+.ipmi-kpi b { font-size: 17px; }
+.ipmi-kpi span { font-size: 11px; color: var(--csub, #64748b); }
 </style>

@@ -116,6 +116,14 @@
             <el-input v-model="form.passphrase" type="password" show-password placeholder="私钥口令（没有可留空）" />
           </el-form-item>
         </template>
+        <el-form-item label="带外管理">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
+            <el-input v-model="form.bmc_host" placeholder="BMC/IPMI 地址（可留空）" style="flex:2;min-width:150px" />
+            <el-input v-model="form.bmc_user" placeholder="BMC 用户" style="flex:1;min-width:100px" />
+            <el-input v-model="form.bmc_password" type="password" show-password
+              :placeholder="editId && hasBmc ? '留空保持不变' : 'BMC 密码'" style="flex:1;min-width:120px" />
+          </div>
+        </el-form-item>
         <el-form-item label="标签">
           <div>
             <el-tag v-for="(t, i) in form.tags" :key="i" closable style="margin-right:6px" @close="form.tags.splice(i, 1)">{{ t }}</el-tag>
@@ -133,6 +141,7 @@
       </el-form>
       <template #footer>
         <el-button @click="testConn" :loading="testing">测试连接</el-button>
+        <el-button v-if="editId" @click="testIpmi" :loading="testingIpmi">测试 IPMI</el-button>
         <el-button @click="dlg = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
@@ -171,9 +180,12 @@ const newTag = ref('')
 
 const blank = () => ({
   name: '', host: '', port: 22, auth_type: 'password', username: 'root', server_type: 'gpu',
-  password: '', private_key: '', passphrase: '', tags: [], note: '', enabled: true
+  password: '', private_key: '', passphrase: '', tags: [], note: '', enabled: true,
+  bmc_host: '', bmc_user: '', bmc_password: ''
 })
 const form = reactive(blank())
+const hasBmc = ref(false)
+const testingIpmi = ref(false)
 
 const rules = computed(() => ({
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
@@ -225,10 +237,12 @@ function openEdit(row) {
   Object.assign(form, blank(), {
     name: row.name, host: row.host, port: row.port, auth_type: row.auth_type,
     username: '', server_type: row.server_type || 'gpu',
-    tags: [...(row.tags || [])], note: row.note || '', enabled: row.enabled
+    tags: [...(row.tags || [])], note: row.note || '', enabled: row.enabled,
+    bmc_host: row.bmc_host || '', bmc_user: row.bmc_user || ''
   })
   hasPassword.value = row.has_password
   hasKey.value = row.has_key
+  hasBmc.value = row.has_bmc
   dlg.value = true
 }
 
@@ -247,6 +261,7 @@ async function save() {
       if (!payload.password) delete payload.password
       if (!payload.private_key) delete payload.private_key
       if (!payload.passphrase) delete payload.passphrase
+      if (!payload.bmc_password) delete payload.bmc_password
       await api.put(`/servers/${editId.value}`, payload)
     } else {
       await api.post('/servers', payload)
@@ -258,6 +273,33 @@ async function save() {
     ElMessage.error(e.friendlyMessage || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function testIpmi() {
+  if (!editId.value) return
+  testingIpmi.value = true
+  try {
+    const payload = { ...form }
+    if (!payload.username) delete payload.username
+    if (!payload.password) delete payload.password
+    if (!payload.private_key) delete payload.private_key
+    if (!payload.passphrase) delete payload.passphrase
+    if (!payload.bmc_password) delete payload.bmc_password
+    await api.put(`/servers/${editId.value}`, payload)
+    const { data } = await api.post(`/servers/${editId.value}/ipmi/test`)
+    if (data.ok) {
+      const s = data.summary || {}
+      ElMessage.success(`IPMI 正常 · 电源${s.power_on ? '开启' : '关闭'} · 整机功耗 ${s.power_w}W · 传感器 ${(data.snapshot?.sensors || []).length} 项 · ${data.duration}s`)
+      hasBmc.value = true
+    } else {
+      ElMessage.error('IPMI 连接失败：' + (data.error || '未知错误'))
+    }
+    load()
+  } catch (e) {
+    ElMessage.error(e.friendlyMessage || 'IPMI 测试失败')
+  } finally {
+    testingIpmi.value = false
   }
 }
 

@@ -5,8 +5,8 @@
 FROM python:3.12-slim
 WORKDIR /app
 
-# libffi for paramiko/cryptography, openssh-client for ssh-keyscan (optional convenience)
-RUN apt-get update && apt-get install -y --no-install-recommends libffi-dev \
+# libffi for paramiko/cryptography; ipmitool for the out-of-band IPMI tier
+RUN apt-get update && apt-get install -y --no-install-recommends libffi-dev ipmitool \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -r -u 10001 appuser
