@@ -294,6 +294,14 @@ if os.path.isdir(DIST_DIR):
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
+        # /api/* must never fall through to the SPA: a deleted/renamed endpoint
+        # returning HTML(200) makes the frontend parse JSON out of a doctype and
+        # fail silently. Answer a real JSON 404 instead.
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse(
+                status_code=404,
+                content={"detail": f"no such API endpoint: /{full_path}"},
+            )
         root_real = os.path.realpath(DIST_DIR)
         candidate = os.path.realpath(os.path.join(DIST_DIR, full_path))
         if (
