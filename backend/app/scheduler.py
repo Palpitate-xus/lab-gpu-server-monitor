@@ -364,9 +364,83 @@ def update_gpu_idle_state(server_id: int, collected_at: datetime, gpus: list) ->
         db.close()
 
 
+def _archive_expired_metrics(cutoff: datetime) -> bool:
+    """Export every server_metrics row older than cutoff to a tar.gz JSONL
+    archive in ARCHIVE_DIR. Returns True only when it is safe to delete:
+    the archive was written, or there was nothing to archive. Any failure
+    (or an unset ARCHIVE_DIR) returns False so retention skips the delete
+    and no data is ever lost."""
+    import json
+    import os
+    import tarfile
+
+    from sqlalchemy import func as sa_func
+
+    archive_dir = get_settings().ARCHIVE_DIR.strip()
+    db = SessionLocal()
+    try:
+        n = (
+            db.query(sa_func.count(ServerMetric.id))
+            .filter(ServerMetric.collected_at < cutoff)
+            .scalar()
+        )
+        if not n:
+            return True
+        if not archive_dir:
+            logger.warning(
+                "retention wants to delete %d expired metrics but ARCHIVE_DIR "
+                "is not set; refusing to delete", n)
+            return False
+        os.makedirs(archive_dir, exist_ok=True)
+
+        now = datetime.now(timezone.utc)
+        stamp = now.strftime("%Y-%m-%d_%H%M%S")
+        jsonl_name = f"server_metrics_{stamp}.jsonl"
+        part_path = os.path.join(archive_dir, f".{jsonl_name}.part")
+        cols = [c.key for c in ServerMetric.__table__.columns]
+
+        written = 0
+        with open(part_path, "w", encoding="utf-8") as fh:
+            q = (
+                db.query(ServerMetric)
+                .filter(ServerMetric.collected_at < cutoff)
+                .order_by(ServerMetric.id.asc())
+            )
+            for m in q.yield_per(300):
+                fh.write(json.dumps(
+                    {c: getattr(m, c) for c in cols}, default=str,
+                ) + "\n")
+                written += 1
+
+        # servers snapshot alongside the metrics: restores need the FK targets
+        servers_name = f"servers_{stamp}.jsonl"
+        servers_part = os.path.join(archive_dir, f".{servers_name}.part")
+        srv_cols = [c.key for c in Server.__table__.columns]
+        with open(servers_part, "w", encoding="utf-8") as fh:
+            for s in db.query(Server).order_by(Server.id.asc()):
+                fh.write(json.dumps(
+                    {c: getattr(s, c) for c in srv_cols}, default=str,
+                ) + "\n")
+
+        tar_path = os.path.join(archive_dir, f"server_metrics_{stamp}.tar.gz")
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(part_path, arcname=jsonl_name)
+            tf.add(servers_part, arcname=servers_name)
+        os.remove(part_path)
+        os.remove(servers_part)
+        logger.info("archived %d expired metrics -> %s", written, tar_path)
+        return written == n or written > 0
+    except Exception:
+        logger.exception("metric archive failed; retention delete skipped")
+        return False
+    finally:
+        db.close()
+
+
 def _retention_cleanup() -> None:
     """Delete metrics older than retention_days (0 = keep forever), in batches
-    so MySQL does not take a giant lock and SQLite stays responsive."""
+    so MySQL does not take a giant lock and SQLite stays responsive. Rows are
+    archived to ARCHIVE_DIR first; a failed archive blocks the delete."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with _state["lock"]:
         if _state["last_retention_day"] == today:
@@ -383,6 +457,8 @@ def _retention_cleanup() -> None:
                 days = 0
         if days > 0:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            if not _archive_expired_metrics(cutoff):
+                return
             while True:
                 ids = [
                     i for (i,) in db.query(ServerMetric.id)

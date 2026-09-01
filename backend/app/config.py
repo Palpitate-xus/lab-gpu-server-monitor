@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     POLL_INTERVAL_SECONDS: int = 60
     METRICS_RETENTION_HOURS: int = 0  # 0 = keep forever (per-metric history is the point)
     RETENTION_DAYS_SETTING: str = "retention_days"  # settings key, 0 = forever
+    # Directory receiving daily tar.gz exports of metrics that retention is
+    # about to delete. Empty = retention refuses to delete (no data loss).
+    ARCHIVE_DIR: str = ""
     SSH_CONNECT_TIMEOUT: int = 8
     SSH_COMMAND_TIMEOUT: int = 30
 
