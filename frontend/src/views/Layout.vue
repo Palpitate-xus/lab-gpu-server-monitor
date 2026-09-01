@@ -19,6 +19,7 @@
           <el-icon><Bell /></el-icon>告警
           <span v-if="openAlerts > 0" class="menu-badge">{{ openAlerts > 99 ? '99+' : openAlerts }}</span>
         </el-menu-item>
+        <el-menu-item index="/help"><el-icon><QuestionFilled /></el-icon>帮助 / MCP</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users"><el-icon><UserFilled /></el-icon>用户管理</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
       </el-menu>
@@ -59,6 +60,7 @@
         <el-menu-item index="/gpu-matrix">GPU 矩阵</el-menu-item>
         <el-menu-item index="/reports">利用率报表</el-menu-item>
         <el-menu-item index="/alerts">告警</el-menu-item>
+        <el-menu-item index="/help">帮助 / MCP</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users">用户管理</el-menu-item>
         <el-menu-item v-if="isAdmin" index="/settings">系统设置</el-menu-item>
       </el-menu>
@@ -124,6 +126,7 @@ onUnmounted(() => clearInterval(alertTimer))
 .dark-aside {
   background: var(--cpanel2) !important;
   border-right: 1px solid var(--cborder) !important;
+  overflow-y: auto;
 }
 .menu-title {
   height: 60px;

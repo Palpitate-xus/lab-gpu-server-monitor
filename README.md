@@ -108,6 +108,14 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 - **深色/浅色主题**：跟随系统自动切换 + 手动三态
 - **在线迁移**：MySQL/SQLite 双方言幂等迁移（migrations/，按方言自动选择）
 
+## MCP 接入
+
+仓库包含一个只读 MCP Server，可让 Codex、Claude Desktop、Cursor 等 MCP 宿主查询
+集群 GPU 状态、单机 GPU/ECC/PCIe 明细、历史趋势、计算进程、风险评分和告警。
+它复用现有 REST API 与 viewer 权限，不直接接触 SSH/数据库凭据，也不提供任何写操作。
+
+安装、账号和宿主配置见 **[GPU Monitor MCP Server](mcp_server/README.md)**。
+
 ## 快速开始
 
 详细步骤见 **[部署指南 / Deployment Guide](DEPLOYMENT.md)**（[English](DEPLOYMENT.en.md)）。

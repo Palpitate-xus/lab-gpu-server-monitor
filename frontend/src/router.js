@@ -17,6 +17,7 @@ const routes = [
       { path: 'gpu-analysis', name: 'gpu-analysis', component: () => import('./views/GpuAnalysis.vue'), meta: { title: 'GPU 分析' } },
       { path: 'gpu-matrix', name: 'gpu-matrix', component: () => import('./views/GpuMatrix.vue'), meta: { title: 'GPU 矩阵' } },
       { path: 'reports', name: 'reports', component: () => import('./views/Reports.vue'), meta: { title: '利用率报表' } },
+      { path: 'help', name: 'help', component: () => import('./views/Help.vue'), meta: { title: '帮助与 MCP' } },
       { path: 'users', name: 'users', component: () => import('./views/Users.vue'), meta: { title: '用户管理', admin: true } },
       { path: 'settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', admin: true } }
     ]
