@@ -150,6 +150,18 @@ class ServerMetric(Base):
     server: Mapped["Server"] = relationship(back_populates="metrics")
 
 
+class ServerProcessSnapshot(Base):
+    """Latest host process sample; process lists are not historical metrics."""
+
+    __tablename__ = "server_process_snapshots"
+
+    server_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("servers.id", ondelete="CASCADE"), primary_key=True
+    )
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processes: Mapped[list] = mapped_column(JSON, default=list)
+
+
 class AlertRule(Base):
     __tablename__ = "alert_rules"
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, load_only
 
 from .. import cache as app_cache
 from ..database import get_db
-from ..models import AuditLog, Server, ServerMetric, User
+from ..models import AuditLog, Server, ServerMetric, ServerProcessSnapshot, User
 from ..privacy import minimize_metric
 from ..schemas import DashboardStats, MetricOut, ProcessAction
 from ..security import (
@@ -139,6 +139,14 @@ def latest_metrics(
 def _latest_payload(db: Session, slim: bool) -> list[dict]:
     servers = db.query(Server).options(load_only(Server.id)).order_by(Server.id).all()
     latest = _latest_by_server(db, slim=slim)
+    snapshots = {}
+    if not slim and latest:
+        snapshots = {
+            row.server_id: row
+            for row in db.query(ServerProcessSnapshot)
+            .filter(ServerProcessSnapshot.server_id.in_(latest))
+            .all()
+        }
     out = []
     for s in servers:
         m = latest.get(s.id)
@@ -147,7 +155,11 @@ def _latest_payload(db: Session, slim: bool) -> list[dict]:
         if slim:
             out.append(m)
         else:
-            out.append({c.key: getattr(m, c.key) for c in ServerMetric.__table__.columns})
+            row = {c.key: getattr(m, c.key) for c in ServerMetric.__table__.columns}
+            snapshot = snapshots.get(s.id)
+            if snapshot is not None and snapshot.collected_at == m.collected_at:
+                row["processes"] = snapshot.processes or []
+            out.append(row)
     return out
 
 
@@ -161,7 +173,11 @@ def server_latest(server_id: int, db: Session = Depends(get_db), _: User = Depen
     )
     if m is None:
         raise HTTPException(status_code=404, detail="No metrics for this server yet")
-    return minimize_metric(m)
+    payload = {c.key: getattr(m, c.key) for c in ServerMetric.__table__.columns}
+    snapshot = db.get(ServerProcessSnapshot, server_id)
+    if snapshot is not None and snapshot.collected_at == m.collected_at:
+        payload["processes"] = snapshot.processes or []
+    return minimize_metric(payload)
 
 
 @router.get("/server/{server_id}/history")

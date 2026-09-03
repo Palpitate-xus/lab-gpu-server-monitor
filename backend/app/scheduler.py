@@ -29,6 +29,7 @@ from .models import (
     KernelEventRow,
     Server,
     ServerMetric,
+    ServerProcessSnapshot,
     Setting,
     SlowHealth,
 )
@@ -684,7 +685,10 @@ def _poll_one(server: Server) -> None:
             gpu_count=len(res.gpus),
             gpu_driver=res.gpu_driver,
             gpus=res.gpus,
-            processes=res.processes,
+            # The full host process table is a latest-only view. Keeping it in
+            # every history row dominated metric storage without serving any
+            # historical endpoint.
+            processes=[],
             duration=res.duration,
             ssh_latency=res.ssh_latency,
             status="ok" if res.ok else "error",
@@ -692,6 +696,16 @@ def _poll_one(server: Server) -> None:
             error=res.error,
         )
         db.add(m)
+        process_snapshot = db.get(ServerProcessSnapshot, server.id)
+        if process_snapshot is None:
+            db.add(ServerProcessSnapshot(
+                server_id=server.id,
+                collected_at=m.collected_at,
+                processes=res.processes,
+            ))
+        else:
+            process_snapshot.collected_at = m.collected_at
+            process_snapshot.processes = res.processes
         db.commit()
         if res.ok:
             update_gpu_baseline(server.id, res.gpus)
