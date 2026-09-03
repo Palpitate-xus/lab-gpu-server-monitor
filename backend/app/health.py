@@ -211,12 +211,9 @@ def _detect_gpu_idle(db, server: Server, m: ServerMetric) -> None:
             _recover(db, "GPU_IDLE_VRAM_HELD", server.id, key=key)
 
 
-def _detect_gpu_missing(db, server: Server, m: ServerMetric) -> None:
-    baseline = (
-        db.query(GpuBaseline)
-        .filter(GpuBaseline.server_id == server.id)
-        .all()
-    )
+def _detect_gpu_missing(
+    db, server: Server, m: ServerMetric, baseline: list[GpuBaseline]
+) -> None:
     if not baseline:
         return
     seen = {g.get("uuid") for g in (m.gpus or [])}
@@ -235,7 +232,9 @@ def _detect_gpu_missing(db, server: Server, m: ServerMetric) -> None:
     db.commit()
 
 
-def _detect_gpu_ecc(db, server: Server, m: ServerMetric) -> None:
+def _detect_gpu_ecc(
+    db, server: Server, m: ServerMetric, baseline_by_uuid: dict[str, GpuBaseline]
+) -> None:
     for g in (m.gpus or []):
         if not g.get("ecc_supported"):
             continue
@@ -247,11 +246,7 @@ def _detect_gpu_ecc(db, server: Server, m: ServerMetric) -> None:
         if volatile > 0:
             problems.append(f"本次启动新增 {volatile} 条")
         if uuid:
-            b = (
-                db.query(GpuBaseline)
-                .filter(GpuBaseline.server_id == server.id, GpuBaseline.gpu_uuid == uuid)
-                .first()
-            )
+            b = baseline_by_uuid.get(uuid)
             if b is not None:
                 if b.ecc_uncorrected_baseline is None:
                     b.ecc_uncorrected_baseline = aggregate
@@ -551,8 +546,13 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
         _detect_ssh_fault(db, server, m)
         if m.status == "ok":
             _detect_gpu_idle(db, server, m)
-            _detect_gpu_missing(db, server, m)
-            _detect_gpu_ecc(db, server, m)
+            baseline = (
+                db.query(GpuBaseline)
+                .filter(GpuBaseline.server_id == server.id)
+                .all()
+            )
+            _detect_gpu_missing(db, server, m, baseline)
+            _detect_gpu_ecc(db, server, m, {row.gpu_uuid: row for row in baseline})
             _detect_gpu_throttle(db, server, m)
             _detect_storage_bottleneck(db, server, m)
         since = datetime.now(timezone.utc) - timedelta(minutes=10)
