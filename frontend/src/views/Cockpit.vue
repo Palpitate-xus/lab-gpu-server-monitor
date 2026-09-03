@@ -4,13 +4,15 @@
               :title="`数据加载失败：${error}，正在重试`" />
 
     <!-- ===== header ===== -->
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:12px">
+    <div class="cockpit-page-head">
+      <div class="cockpit-page-identity">
         <span class="live-dot" :class="{ err: hasError }"></span>
-        <span style="font-size:20px;font-weight:700;letter-spacing:0.04em">GPU 集群驾驶舱</span>
-        <span style="font-size:12px;color:var(--csub)">CLUSTER COCKPIT</span>
+        <div>
+          <span class="cockpit-page-title">GPU 集群驾驶舱</span>
+          <span class="cockpit-page-kicker">CLUSTER COCKPIT</span>
+        </div>
       </div>
-      <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--csub)">
+      <div class="cockpit-page-actions">
         <span v-if="lastUpdated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
         <el-radio-group v-model="rangeHours" size="small" @change="loadHistory">
           <el-radio-button :value="1">1H</el-radio-button>
@@ -49,7 +51,7 @@
         <div class="kpi-value">{{ openAlerts }}<span class="kpi-unit">告警</span></div>
         <div class="kpi-label">未恢复告警 EVENTS</div>
       </div>
-      <div class="cockpit-panel kpi-accent-yellow">
+      <div class="cockpit-panel kpi-accent-yellow energy-kpi">
         <div class="kpi-value">{{ fmtPower(clusterPowerW) }}<span class="kpi-unit">W</span></div>
         <div class="kpi-label" style="cursor:pointer" title="GPU 集群功率 · 点击查看每日电量统计" @click="showEnergy = true">
           今日电量 {{ energy?.days?.at(-1)?.kwh ?? '—' }} kWh
@@ -94,9 +96,9 @@
     <!-- ===== main grid: GPU matrix + cluster trend ===== -->
     <div class="main-grid">
       <div class="cockpit-panel">
-        <div class="cockpit-panel-title">
+        <div class="cockpit-panel-title matrix-panel-title">
           <b>GPU 资源矩阵</b>
-          <span style="display:flex;gap:10px;align-items:center">
+          <span class="matrix-panel-actions">
             <el-select :value="matrixSort" size="small" style="width:128px" @change="matrixSort = $event">
               <el-option value="server" label="按服务器" />
               <el-option value="util-desc" label="利用率 ↓" />
@@ -165,7 +167,7 @@
 
       <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
         <div class="cockpit-panel">
-          <div class="cockpit-panel-title">
+          <div class="cockpit-panel-title trend-panel-title">
             <b>集群资源趋势</b>
             <el-radio-group v-model="trendMetric" size="small">
               <el-radio-button value="gpu">GPU</el-radio-button>
@@ -549,10 +551,30 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 <style scoped>
 .kpi-band {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
+.cockpit-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+.cockpit-page-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cockpit-page-identity > div { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.cockpit-page-title { font-size: 20px; font-weight: 700; letter-spacing: .035em; white-space: nowrap; }
+.cockpit-page-kicker { color: var(--csub); font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
+.cockpit-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  color: var(--csub);
+  font-size: 12px;
+}
+.matrix-panel-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .main-grid {
   display: grid;
   grid-template-columns: 1.25fr 1fr;
@@ -572,5 +594,30 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 @media (max-width: 1400px) {
   .main-grid { grid-template-columns: 1fr; }
   .bottom-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1100px) {
+  .kpi-band { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cockpit-page-head { align-items: flex-start; }
+  .cockpit-page-actions { flex-wrap: wrap; }
+}
+@media (max-width: 768px) {
+  .cockpit-page-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .cockpit-page-identity > div { flex-direction: column; gap: 2px; }
+  .cockpit-page-title { font-size: 18px; }
+  .cockpit-page-actions { justify-content: flex-start; gap: 8px; }
+  .cockpit-page-actions > span:first-child { width: 100%; }
+  .kpi-band { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .energy-kpi { grid-column: 1 / -1; }
+  .matrix-panel-title,
+  .trend-panel-title { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .matrix-panel-actions { justify-content: flex-start; }
+  .trend-panel-title :deep(.el-radio-group) { max-width: 100%; overflow-x: auto; }
+  .health-strip { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .health-chip { flex: 0 0 auto; }
+  .cockpit-chart-lg { height: 260px; }
+}
+@media (max-width: 420px) {
+  .kpi-value { font-size: 22px; }
+  .kpi-label { letter-spacing: .02em; }
 }
 </style>
