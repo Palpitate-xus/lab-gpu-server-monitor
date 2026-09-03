@@ -35,7 +35,7 @@
     <el-card class="page-card" style="margin-top:14px">
       <template #header>服务器状态</template>
       <el-table class="desktop-only" :data="rows" v-loading="loading" @row-click="goDetail" style="cursor:pointer">
-        <el-table-column label="状态" width="50">
+        <el-table-column label="状态" width="60">
           <template #default="{ row }">
             <span v-if="!row.server_enabled" class="tag-dot dot-off" title="已禁用"></span>
             <span v-else-if="row.status === 'ok'" class="tag-dot dot-ok" title="正常"></span>
