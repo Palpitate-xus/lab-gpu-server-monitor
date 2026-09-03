@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy import and_, func
 from sqlalchemy.orm import load_only
 
 from .config import get_settings
@@ -172,18 +173,42 @@ def _eval_alerts() -> None:
         rules = db.query(AlertRule).filter(AlertRule.enabled.is_(True)).all()
         if not rules:
             return
-        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+        servers = (
+            db.query(Server)
+            .options(load_only(Server.id, Server.status))
+            .filter(Server.enabled.is_(True))
+            .all()
+        )
+        server_ids = [server.id for server in servers]
         latest_by_server: dict[int, ServerMetric] = {}
-        for s in servers:
-            m = (
+        if server_ids:
+            latest_times = (
+                db.query(
+                    ServerMetric.server_id,
+                    func.max(ServerMetric.collected_at).label("latest_at"),
+                )
+                .filter(
+                    ServerMetric.server_id.in_(server_ids),
+                    ServerMetric.status == "ok",
+                )
+                .group_by(ServerMetric.server_id)
+                .subquery()
+            )
+            latest_rows = (
                 db.query(ServerMetric)
                 .options(load_only(*_ALERT_METRIC_COLS))
-                .filter(ServerMetric.server_id == s.id, ServerMetric.status == "ok")
-                .order_by(ServerMetric.collected_at.desc())
-                .first()
+                .join(
+                    latest_times,
+                    and_(
+                        ServerMetric.server_id == latest_times.c.server_id,
+                        ServerMetric.collected_at == latest_times.c.latest_at,
+                    ),
+                )
+                .filter(ServerMetric.status == "ok")
+                .order_by(ServerMetric.server_id, ServerMetric.id)
+                .all()
             )
-            if m is not None:
-                latest_by_server[s.id] = m
+            latest_by_server = {row.server_id: row for row in latest_rows}
 
         interval = _load_interval()
         maintenance_ids = {s.id for s in servers if (s.status or "active") == "maintenance"}
@@ -867,7 +892,6 @@ def _run_cycle() -> None:
 def _last_collect_time(model) -> Optional[datetime]:
     """Max collected_at across servers. MySQL DATETIME comes back naive (UTC
     wall clock), so normalize both sides to naive-UTC before comparing."""
-    from sqlalchemy import func
     db = SessionLocal()
     try:
         row = db.query(func.max(model.collected_at)).scalar()
