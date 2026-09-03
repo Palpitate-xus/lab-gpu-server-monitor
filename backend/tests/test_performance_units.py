@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app import health as health_module
 from backend.app import scheduler as scheduler_module
+from backend.app.api.cockpit import _cluster_history
 from backend.app.api.metrics import _latest_payload, server_latest
 from backend.app.api.enterprise import cluster_utilization_report
 from backend.app.api.status_page import _build_public_payload
@@ -395,6 +396,97 @@ def test_gpu_baseline_refresh_uses_one_lookup_per_server(monkeypatch):
 
         assert len(selects) == 2
         assert db.query(GpuBaseline).count() == 3
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_cluster_history_online_aggregation_preserves_bucket_math():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        first = Server(name="history-a", host="127.0.0.1")
+        second = Server(name="history-b", host="127.0.0.2")
+        db.add_all([first, second])
+        db.flush()
+        minute = datetime.now(timezone.utc).replace(
+            tzinfo=None, second=0, microsecond=0
+        ) - timedelta(minutes=2)
+        db.add_all([
+            ServerMetric(
+                server_id=first.id,
+                collected_at=minute + timedelta(seconds=1),
+                status="ok",
+                cpu_percent=10,
+                mem_used_mb=50,
+                mem_total_mb=100,
+                gpus=[{
+                    "utilization": 20,
+                    "mem_used_mb": 20,
+                    "mem_total_mb": 100,
+                    "temperature": 60,
+                    "power_draw": 100,
+                }],
+                net_rx_bytes=100,
+                net_tx_bytes=50,
+                disk_io=[{"read_bps": 10, "write_bps": 20}],
+            ),
+            ServerMetric(
+                server_id=first.id,
+                collected_at=minute + timedelta(seconds=20),
+                status="ok",
+                cpu_percent=30,
+                mem_used_mb=70,
+                mem_total_mb=100,
+                gpus=[{
+                    "utilization": 40,
+                    "mem_used_mb": 40,
+                    "mem_total_mb": 100,
+                    "temperature": 70,
+                    "power_draw": 120,
+                }],
+                net_rx_bytes=200,
+                net_tx_bytes=100,
+                disk_io=[{"read_bps": 30, "write_bps": 40}],
+            ),
+            ServerMetric(
+                server_id=second.id,
+                collected_at=minute + timedelta(seconds=30),
+                status="ok",
+                cpu_percent=50,
+                mem_used_mb=90,
+                mem_total_mb=100,
+                gpus=[{
+                    "utilization": 60,
+                    "mem_used_mb": 60,
+                    "mem_total_mb": 100,
+                    "temperature": 80,
+                    "power_draw": 200,
+                }],
+                net_rx_bytes=300,
+                net_tx_bytes=150,
+                disk_io=[{"read_bps": 50, "write_bps": 60}],
+            ),
+        ])
+        db.commit()
+
+        history = _cluster_history(db, 1)
+
+        assert len(history) == 1
+        assert history[0] == {
+            "time": minute.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+            "cpu_percent": 30.0,
+            "mem_percent": 70.0,
+            "gpu_util": 40.0,
+            "gpu_mem_percent": 40.0,
+            "gpu_temp": 80.0,
+            "gpu_power": 310.0,
+            "net_bps": 600.0,
+            "net_bps_tx": 300.0,
+            "disk_bps": 90.0,
+            "disk_bps_write": 120.0,
+        }
     finally:
         db.close()
         engine.dispose()

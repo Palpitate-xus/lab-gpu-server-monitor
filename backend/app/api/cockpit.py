@@ -15,21 +15,8 @@ from ..security import get_current_user
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
 
-def _avg(vals: list[float]) -> float:
-    vals = [v for v in vals if v is not None]
-    return round(sum(vals) / len(vals), 1) if vals else 0.0
-
-
-def _max(vals: list[float]) -> float:
-    vals = [v for v in vals if v is not None]
-    return round(max(vals), 1) if vals else 0.0
-
-
-def _sum(vals: list[float]) -> float:
-    """Sum per-server rates (cluster total), but average duplicate samples of
-    the same server inside the bucket so multi-poll runs don't double count."""
-    vals = [v for v in vals if v is not None]
-    return round(sum(vals), 1) if vals else 0.0
+def _mean(total: float, count: int) -> float:
+    return round(total / count, 1) if count else 0.0
 
 
 @router.get("/cluster-history")
@@ -69,34 +56,47 @@ def _cluster_history(db: Session, hours: int):
         key = m.collected_at.strftime("%Y-%m-%d %H:%M")
         b = buckets.setdefault(
             key,
-            {"cpu": [], "mem": [], "gpu_util": [], "gpu_mem": [], "gpu_temp": [], "gpu_power": [],
-             "net_rx": [], "net_tx": [], "disk_read": [], "disk_write": [], "servers": set(),
-             "minute": m.collected_at.replace(second=0, microsecond=0)},
+            {
+                "cpu_total": 0.0, "cpu_count": 0,
+                "mem_total": 0.0, "mem_count": 0,
+                "gpu_util_total": 0.0, "gpu_util_count": 0,
+                "gpu_mem_total": 0.0, "gpu_mem_count": 0,
+                "gpu_temp_max": 0.0,
+                "net_rx_total": 0.0, "net_tx_total": 0.0,
+                "disk_read_total": 0.0, "disk_write_total": 0.0,
+                "gpu_power_by_srv": {},
+                "minute": m.collected_at.replace(second=0, microsecond=0),
+            },
         )
-        b["servers"].add(m.server_id)
-        b["cpu"].append(m.cpu_percent or 0)
+        b["cpu_total"] += m.cpu_percent or 0
+        b["cpu_count"] += 1
         if m.mem_total_mb:
-            b["mem"].append(m.mem_used_mb / m.mem_total_mb * 100)
+            b["mem_total"] += m.mem_used_mb / m.mem_total_mb * 100
+            b["mem_count"] += 1
         gpus = m.gpus or []
-        if gpus:
-            b["gpu_util"].extend(g.get("utilization", 0) or 0 for g in gpus)
-            mem_pcts = [
-                g["mem_used_mb"] / g["mem_total_mb"] * 100
-                for g in gpus
-                if g.get("mem_total_mb")
-            ]
-            b["gpu_mem"].extend(mem_pcts)
-            b["gpu_temp"].extend(g.get("temperature", 0) or 0 for g in gpus)
-            b["gpu_power"].extend(g.get("power_draw", 0) or 0 for g in gpus)
+        for gpu in gpus:
+            b["gpu_util_total"] += gpu.get("utilization", 0) or 0
+            b["gpu_util_count"] += 1
+            if gpu.get("mem_total_mb"):
+                b["gpu_mem_total"] += (
+                    gpu["mem_used_mb"] / gpu["mem_total_mb"] * 100
+                )
+                b["gpu_mem_count"] += 1
+            b["gpu_temp_max"] = max(
+                b["gpu_temp_max"], gpu.get("temperature", 0) or 0
+            )
         # gauge metrics must be averaged per server inside a bucket, else a
         # server sampled twice in one minute gets double-counted in the sum
-        b.setdefault("gpu_power_by_srv", {}).setdefault(m.server_id, []).append(
-            sum(g.get("power_draw", 0) or 0 for g in gpus)
+        power = b["gpu_power_by_srv"].setdefault(
+            m.server_id, {"total": 0.0, "count": 0}
         )
-        b["net_rx"].append(m.net_rx_bytes or 0)
-        b["net_tx"].append(m.net_tx_bytes or 0)
-        b["disk_read"].extend(d.get("read_bps", 0) or 0 for d in (m.disk_io or []))
-        b["disk_write"].extend(d.get("write_bps", 0) or 0 for d in (m.disk_io or []))
+        power["total"] += sum(g.get("power_draw", 0) or 0 for g in gpus)
+        power["count"] += 1
+        b["net_rx_total"] += m.net_rx_bytes or 0
+        b["net_tx_total"] += m.net_tx_bytes or 0
+        for disk in m.disk_io or []:
+            b["disk_read_total"] += disk.get("read_bps", 0) or 0
+            b["disk_write_total"] += disk.get("write_bps", 0) or 0
 
     series = []
     for key in sorted(buckets.keys()):
@@ -107,19 +107,20 @@ def _cluster_history(db: Session, hours: int):
         series.append(
             {
                 "time": minute.isoformat().replace("+00:00", "Z"),
-                "cpu_percent": _avg(b["cpu"]),
-                "mem_percent": _avg(b["mem"]),
-                "gpu_util": _avg(b["gpu_util"]),
-                "gpu_mem_percent": _avg(b["gpu_mem"]),
-                "gpu_temp": _max(b["gpu_temp"]),
+                "cpu_percent": _mean(b["cpu_total"], b["cpu_count"]),
+                "mem_percent": _mean(b["mem_total"], b["mem_count"]),
+                "gpu_util": _mean(b["gpu_util_total"], b["gpu_util_count"]),
+                "gpu_mem_percent": _mean(b["gpu_mem_total"], b["gpu_mem_count"]),
+                "gpu_temp": round(b["gpu_temp_max"], 1),
                 # cluster TOTAL power: mean per server (de-dup within bucket), then sum
                 "gpu_power": round(sum(
-                    sum(v) / len(v) for v in b.get("gpu_power_by_srv", {}).values()
+                    value["total"] / value["count"]
+                    for value in b["gpu_power_by_srv"].values()
                 ), 1),
-                "net_bps": round(_sum(b["net_rx"]), 1),
-                "net_bps_tx": round(_sum(b["net_tx"]), 1),
-                "disk_bps": round(_sum(b["disk_read"]), 1),
-                "disk_bps_write": round(_sum(b["disk_write"]), 1),
+                "net_bps": round(b["net_rx_total"], 1),
+                "net_bps_tx": round(b["net_tx_total"], 1),
+                "disk_bps": round(b["disk_read_total"], 1),
+                "disk_bps_write": round(b["disk_write_total"], 1),
             }
         )
     return series
