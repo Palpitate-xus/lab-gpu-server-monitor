@@ -368,11 +368,7 @@ def cluster_utilization_report(
 def cluster_gpu_analysis(db: Session = Depends(get_db),
                          user: User = Depends(get_current_user)):
     """Cluster-wide GPU idle-held detection (空占) + failure-risk ranking."""
-    from .. import cache as app_cache
-
-    payload = app_cache.cached(
-        "cluster:gpu-analysis", 300.0, lambda: _gpu_analysis(db)
-    )
+    payload = _cached_gpu_analysis(db)
     from ..privacy import minimize_processes
 
     return {
@@ -381,6 +377,35 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
             {**gpu, "processes": minimize_processes(gpu.get("processes"))}
             for gpu in payload.get("gpus", [])
         ],
+    }
+
+
+def _cached_gpu_analysis(db: Session):
+    from .. import cache as app_cache
+
+    return app_cache.cached(
+        "cluster:gpu-analysis", 300.0, lambda: _gpu_analysis(db)
+    )
+
+
+@router.get("/cluster/nav-summary")
+def cluster_nav_summary(db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Small polling payload for the navigation badges."""
+    from sqlalchemy import func
+
+    open_alerts = (
+        db.query(func.count(AlertEvent.id))
+        .filter(AlertEvent.recovered_at.is_(None))
+        .scalar()
+        or 0
+    )
+    analysis = _cached_gpu_analysis(db)
+    return {
+        # The previous navigation request loaded at most 100 event rows, so
+        # preserve the badge's exact capped value without transferring them.
+        "open_alerts": min(int(open_alerts), 100),
+        "idle_held_count": int(analysis.get("idle_held_count") or 0),
     }
 
 
