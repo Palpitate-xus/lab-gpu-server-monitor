@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
 
+from backend.app import health as health_module
 from backend.app import scheduler as scheduler_module
 from backend.app.api.metrics import _latest_payload, server_latest
 from backend.app.api.enterprise import cluster_utilization_report
@@ -15,6 +16,7 @@ from backend.app.database import Base
 from backend.app.models import (
     Server,
     AlertRule,
+    GpuBaseline,
     KernelEventRow,
     ServerMetric,
     ServerMetricHourly,
@@ -358,6 +360,41 @@ def test_kernel_event_dedup_uses_one_lookup_per_batch(monkeypatch):
 
         assert len(selects) == 2
         assert db.query(KernelEventRow).count() == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_gpu_baseline_refresh_uses_one_lookup_per_server(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    db = session_factory()
+    try:
+        selects = []
+
+        def record_select(_conn, _cursor, statement, _params, _context, _many):
+            normalized = statement.lower()
+            if normalized.lstrip().startswith("select") and "from gpu_baseline" in normalized:
+                selects.append(statement)
+
+        gpus = [
+            {
+                "uuid": f"GPU-{index}",
+                "name": "NVIDIA Test",
+                "serial": str(index),
+                "pci_bus_id": f"0000:0{index}:00.0",
+            }
+            for index in range(3)
+        ]
+        event.listen(engine, "before_cursor_execute", record_select)
+        monkeypatch.setattr(health_module, "SessionLocal", session_factory)
+        health_module.update_gpu_baseline(9, gpus)
+        health_module.update_gpu_baseline(9, gpus)
+        event.remove(engine, "before_cursor_execute", record_select)
+
+        assert len(selects) == 2
+        assert db.query(GpuBaseline).count() == 3
     finally:
         db.close()
         engine.dispose()

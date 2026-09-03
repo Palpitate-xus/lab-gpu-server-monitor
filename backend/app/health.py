@@ -581,23 +581,31 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
 
 def update_gpu_baseline(server_id: int, gpus: list[dict]) -> None:
     """Record GPU UUIDs on every successful collect; new GPUs auto-registered."""
+    valid_gpus = [gpu for gpu in gpus if gpu.get("uuid")]
+    if not valid_gpus:
+        return
     db = SessionLocal()
     try:
-        for g in gpus:
-            uuid = g.get("uuid")
-            if not uuid:
-                continue
-            row = (
-                db.query(GpuBaseline)
-                .filter(GpuBaseline.server_id == server_id, GpuBaseline.gpu_uuid == uuid)
-                .first()
+        existing = {
+            row.gpu_uuid: row
+            for row in db.query(GpuBaseline)
+            .filter(
+                GpuBaseline.server_id == server_id,
+                GpuBaseline.gpu_uuid.in_([gpu["uuid"] for gpu in valid_gpus]),
             )
+            .all()
+        }
+        for g in valid_gpus:
+            uuid = g.get("uuid")
+            row = existing.get(uuid)
             if row is None:
-                db.add(GpuBaseline(
+                row = GpuBaseline(
                     server_id=server_id, gpu_uuid=uuid,
                     name=g.get("name", ""), serial=g.get("serial", ""),
                     pci_bus_id=g.get("pci_bus_id", ""),
-                ))
+                )
+                db.add(row)
+                existing[uuid] = row
             else:
                 row.last_seen = datetime.now(timezone.utc)
                 row.missing_since = None
