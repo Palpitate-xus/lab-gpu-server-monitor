@@ -962,29 +962,52 @@ def _hourly_aggregate() -> None:
     hour_start = hour_end - timedelta(hours=1)
     db = SessionLocal()
     try:
-        servers = db.query(Server.id).filter(Server.enabled.is_(True)).all()
-        for (sid,) in servers:
-            existing = (
-                db.query(ServerMetricHourly)
-                .filter(ServerMetricHourly.server_id == sid,
-                        ServerMetricHourly.hour == hour_start)
-                .first()
+        server_ids = [
+            server_id
+            for (server_id,) in db.query(Server.id).filter(Server.enabled.is_(True)).all()
+        ]
+        if not server_ids:
+            return
+        existing_by_server = {
+            row.server_id: row
+            for row in db.query(ServerMetricHourly)
+            .filter(
+                ServerMetricHourly.server_id.in_(server_ids),
+                ServerMetricHourly.hour == hour_start,
             )
-            rows = (
-                db.query(ServerMetric)
-                .options(load_only(
-                    ServerMetric.status, ServerMetric.cpu_percent,
-                    ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
-                    ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
-                ))
-                .filter(ServerMetric.server_id == sid,
-                        ServerMetric.collected_at >= hour_start,
-                        ServerMetric.collected_at < hour_end)
-                .all()
+            .all()
+        }
+        rows_by_server: dict[int, list[ServerMetric]] = {
+            server_id: [] for server_id in server_ids
+        }
+        rows = (
+            db.query(ServerMetric)
+            .options(load_only(
+                ServerMetric.server_id, ServerMetric.status, ServerMetric.cpu_percent,
+                ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
+                ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
+            ))
+            .filter(
+                ServerMetric.server_id.in_(server_ids),
+                ServerMetric.collected_at >= hour_start,
+                ServerMetric.collected_at < hour_end,
             )
-            ok = [r for r in rows if r.status == "ok"]
+            .execution_options(stream_results=True)
+            .yield_per(500)
+        )
+        for row in rows:
+            rows_by_server[row.server_id].append(row)
+
+        interval = _load_interval()
+        aggregates = []
+        for sid in server_ids:
+            server_rows = rows_by_server[sid]
+            ok = [row for row in server_rows if row.status == "ok"]
             agg = ServerMetricHourly(
-                server_id=sid, hour=hour_start, samples=len(rows), ok_samples=len(ok),
+                server_id=sid,
+                hour=hour_start,
+                samples=len(server_rows),
+                ok_samples=len(ok),
             )
             if ok:
                 cpus = [r.cpu_percent or 0 for r in ok]
@@ -1013,13 +1036,14 @@ def _hourly_aggregate() -> None:
                 agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
                 agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
                 # approximate minutes of idle-but-held GPU samples
-                interval = _load_interval()
                 agg.idle_held_minutes = int(idle_samples * interval / 60)
-            if existing is not None:
-                db.delete(existing)
-                db.flush()
-            db.add(agg)
-            db.commit()
+            aggregates.append(agg)
+
+        for existing in existing_by_server.values():
+            db.delete(existing)
+        db.flush()
+        db.add_all(aggregates)
+        db.commit()
     except Exception:
         logger.exception("hourly aggregate failed")
         db.rollback()

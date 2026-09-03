@@ -17,6 +17,7 @@ from backend.app.models import (
     ServerMetric,
     ServerMetricHourly,
     ServerProcessSnapshot,
+    Setting,
 )
 
 
@@ -242,6 +243,85 @@ def test_alert_evaluation_loads_latest_metrics_in_one_query(monkeypatch):
         event.remove(engine, "before_cursor_execute", record_metric_select)
 
         assert len(metric_selects) == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_hourly_rollup_batches_server_metric_reads(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    db = session_factory()
+    try:
+        first = Server(name="rollup-a", host="127.0.0.1")
+        second = Server(name="rollup-b", host="127.0.0.2")
+        db.add_all([first, second])
+        db.flush()
+        hour_end = datetime.now(timezone.utc).replace(
+            tzinfo=None, minute=0, second=0, microsecond=0
+        )
+        hour_start = hour_end - timedelta(hours=1)
+        gpu = {
+            "uuid": "GPU-1",
+            "utilization": 0,
+            "mem_used_mb": 40,
+            "mem_total_mb": 100,
+            "power_draw": 50,
+        }
+        db.add_all([
+            ServerMetric(
+                server_id=first.id,
+                collected_at=hour_start + timedelta(minutes=10),
+                status="ok",
+                cpu_percent=10,
+                mem_used_mb=50,
+                mem_total_mb=100,
+                gpus=[gpu],
+            ),
+            ServerMetric(
+                server_id=first.id,
+                collected_at=hour_start + timedelta(minutes=40),
+                status="ok",
+                cpu_percent=30,
+                mem_used_mb=70,
+                mem_total_mb=100,
+                gpus=[gpu],
+            ),
+            ServerMetric(
+                server_id=second.id,
+                collected_at=hour_start + timedelta(minutes=20),
+                status="error",
+            ),
+            ServerMetricHourly(
+                server_id=first.id,
+                hour=hour_start,
+                samples=999,
+            ),
+            Setting(key="poll_interval", value="30"),
+        ])
+        db.commit()
+
+        metric_selects = []
+
+        def record_metric_select(_conn, _cursor, statement, _params, _context, _many):
+            normalized = statement.lower()
+            if normalized.lstrip().startswith("select") and "from server_metrics " in normalized:
+                metric_selects.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_metric_select)
+        monkeypatch.setattr(scheduler_module, "SessionLocal", session_factory)
+        scheduler_module._hourly_aggregate()
+        event.remove(engine, "before_cursor_execute", record_metric_select)
+
+        db.expire_all()
+        rows = db.query(ServerMetricHourly).order_by(ServerMetricHourly.server_id).all()
+        assert len(metric_selects) == 1
+        assert len(rows) == 2
+        assert (rows[0].samples, rows[0].ok_samples, rows[0].cpu_avg) == (2, 2, 20.0)
+        assert rows[0].mem_avg_pct == 60.0
+        assert rows[0].idle_held_minutes == 1
+        assert (rows[1].samples, rows[1].ok_samples) == (1, 0)
     finally:
         db.close()
         engine.dispose()
