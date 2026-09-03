@@ -17,6 +17,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy.orm import load_only
+
 from .config import get_settings
 from .database import SessionLocal
 from .models import (
@@ -93,6 +95,22 @@ METRIC_LABELS = {
     "swap_percent": "Swap 使用率",
 }
 
+_ALERT_METRIC_COLS = (
+    ServerMetric.server_id,
+    ServerMetric.collected_at,
+    ServerMetric.hostname,
+    ServerMetric.status,
+    ServerMetric.cpu_percent,
+    ServerMetric.mem_total_mb,
+    ServerMetric.mem_used_mb,
+    ServerMetric.swap_total_mb,
+    ServerMetric.swap_used_mb,
+    ServerMetric.disks,
+    ServerMetric.load1,
+    ServerMetric.cpu_count,
+    ServerMetric.gpus,
+)
+
 
 def _extract_metric(m: ServerMetric, metric: str) -> Optional[float]:
     """Extract a comparable scalar from a metric row; None = not available."""
@@ -158,6 +176,7 @@ def _eval_alerts() -> None:
         for s in servers:
             m = (
                 db.query(ServerMetric)
+                .options(load_only(*_ALERT_METRIC_COLS))
                 .filter(ServerMetric.server_id == s.id, ServerMetric.status == "ok")
                 .order_by(ServerMetric.collected_at.desc())
                 .first()
@@ -202,6 +221,7 @@ def _eval_alerts() -> None:
                         since = m.collected_at - timedelta(minutes=rule.duration_minutes)
                         rows = (
                             db.query(ServerMetric)
+                            .options(load_only(*_ALERT_METRIC_COLS))
                             .filter(
                                 ServerMetric.server_id == sid,
                                 ServerMetric.collected_at >= since,
@@ -304,8 +324,6 @@ def _save_idle_state(db, state: dict[str, str]) -> None:
 
 def _backfill_idle_start(db, server_id: int, uuid: str, before: datetime):
     """Walk history backwards to find where the current idle run began."""
-    from sqlalchemy.orm import load_only
-
     start = None
     cursor = before
     while True:
@@ -899,7 +917,6 @@ def _expire_maintenance() -> None:
 
 def _hourly_aggregate() -> None:
     """Roll the previous completed hour into server_metrics_hourly (idempotent)."""
-    from sqlalchemy.orm import load_only
     from .models import ServerMetricHourly
 
     now = datetime.now(timezone.utc)
@@ -1064,7 +1081,6 @@ def _warm_hot_keys() -> None:
     jobs = (
         ("metrics:dashboard", 15.0, _own_session(lambda s: mt._dashboard(s))),
         ("metrics:latest:slim", 10.0, _own_session(lambda s: mt._latest_payload(s, True))),
-        ("metrics:latest:full", 10.0, _own_session(lambda s: mt._latest_payload(s, False))),
         ("cockpit:cluster-gpus", 15.0, _own_session(lambda s: ck._cluster_gpus(s))),
         ("cockpit:power-now", 15.0, _own_session(lambda s: ck._cluster_power_now(s))),
         ("cluster:health-summary", 15.0, _own_session(lambda s: ent._cluster_health_summary(s))),

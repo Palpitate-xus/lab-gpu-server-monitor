@@ -341,6 +341,10 @@ def _cluster_gpus(db: Session):
     # CPU servers never belong in the GPU matrix
     servers = (
         db.query(Server)
+        .options(load_only(
+            Server.id, Server.name, Server.enabled, Server.status,
+            Server.tags, Server.server_type,
+        ))
         .filter(Server.server_type != "cpu")
         .order_by(Server.id)
         .all()
@@ -353,6 +357,10 @@ def _cluster_gpus(db: Session):
     latest = {
         m.server_id: m
         for m in db.query(ServerMetric)
+        .options(load_only(
+            ServerMetric.server_id, ServerMetric.status, ServerMetric.error,
+            ServerMetric.hostname, ServerMetric.gpus,
+        ))
         .join(sub, and_(ServerMetric.server_id == sub.c.server_id,
                         ServerMetric.collected_at == sub.c.mx))
         .all()

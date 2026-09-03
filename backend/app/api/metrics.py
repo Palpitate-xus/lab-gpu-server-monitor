@@ -27,9 +27,19 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 _SLIM_DROP = {"processes", "cores", "users", "inodes"}
 _SLIM_KEYS = [c.key for c in ServerMetric.__table__.columns if c.key not in _SLIM_DROP]
 _SLIM_COLS = [getattr(ServerMetric, k) for k in _SLIM_KEYS]
+_DASHBOARD_COLS = (
+    ServerMetric.server_id,
+    ServerMetric.status,
+    ServerMetric.cpu_percent,
+    ServerMetric.mem_total_mb,
+    ServerMetric.mem_used_mb,
+    ServerMetric.disk_total_gb,
+    ServerMetric.disk_used_gb,
+    ServerMetric.gpus,
+)
 
 
-def _latest_by_server(db: Session, slim: bool = False):
+def _latest_by_server(db: Session, slim: bool = False, only=None):
     """One query for the newest metric row of every server (no N+1)."""
     sub = (
         db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
@@ -39,6 +49,8 @@ def _latest_by_server(db: Session, slim: bool = False):
     q = db.query(ServerMetric)
     if slim:
         q = q.options(load_only(*_SLIM_COLS))
+    elif only:
+        q = q.options(load_only(*only))
     rows = (
         q.join(
             sub,
@@ -68,7 +80,7 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
 
 
 def _dashboard(db: Session) -> dict:
-    servers = db.query(Server).all()
+    servers = db.query(Server).options(load_only(Server.id, Server.enabled)).all()
     stats = DashboardStats()
     stats.servers_total = len(servers)
     stats.servers_disabled = sum(1 for s in servers if not s.enabled)
@@ -80,7 +92,7 @@ def _dashboard(db: Session) -> dict:
     gpu_utils: list[float] = []
     online = 0
     error = 0
-    latest = _latest_by_server(db)
+    latest = _latest_by_server(db, only=_DASHBOARD_COLS)
     for s in servers:
         m = latest.get(s.id)
         if m is None or m.status != "ok":
@@ -125,7 +137,7 @@ def latest_metrics(
 
 
 def _latest_payload(db: Session, slim: bool) -> list[dict]:
-    servers = db.query(Server).order_by(Server.id).all()
+    servers = db.query(Server).options(load_only(Server.id)).order_by(Server.id).all()
     latest = _latest_by_server(db, slim=slim)
     out = []
     for s in servers:

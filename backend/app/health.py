@@ -356,6 +356,7 @@ def _detect_ssh_fault(db, server: Server, m: ServerMetric) -> None:
         # require two consecutive failures to avoid alerting on blips
         prev = (
             db.query(ServerMetric)
+            .options(load_only(ServerMetric.status))
             .filter(ServerMetric.server_id == server.id,
                     ServerMetric.collected_at < m.collected_at)
             .order_by(ServerMetric.collected_at.desc())
@@ -405,6 +406,10 @@ def _detect_storage_bottleneck(db, server: Server, m: ServerMetric) -> None:
     since = m.collected_at - timedelta(minutes=20)
     rows = (
         db.query(ServerMetric)
+        .options(load_only(
+            ServerMetric.gpus, ServerMetric.cpu_iowait,
+            ServerMetric.disk_io, ServerMetric.collected_at,
+        ))
         .filter(ServerMetric.server_id == server.id,
                 ServerMetric.collected_at >= since,
                 ServerMetric.status == "ok")
@@ -519,6 +524,11 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
             return  # planned work: detectors stay silent
         m = (
             db.query(ServerMetric)
+            .options(load_only(
+                ServerMetric.collected_at, ServerMetric.hostname,
+                ServerMetric.status, ServerMetric.error_code,
+                ServerMetric.error, ServerMetric.gpus,
+            ))
             .filter(ServerMetric.server_id == server_id)
             .order_by(ServerMetric.collected_at.desc())
             .first()
@@ -590,6 +600,16 @@ def health_tree(server_id: int) -> dict:
             return {}
         latest = (
             db.query(ServerMetric)
+            .options(load_only(
+                ServerMetric.collected_at, ServerMetric.hostname,
+                ServerMetric.status, ServerMetric.error_code,
+                ServerMetric.error, ServerMetric.ssh_latency,
+                ServerMetric.duration, ServerMetric.cpu_percent,
+                ServerMetric.cpu_iowait, ServerMetric.mem_used_mb,
+                ServerMetric.mem_total_mb, ServerMetric.disks,
+                ServerMetric.inodes, ServerMetric.net_ifaces,
+                ServerMetric.gpus,
+            ))
             .filter(ServerMetric.server_id == server_id)
             .order_by(ServerMetric.collected_at.desc())
             .first()

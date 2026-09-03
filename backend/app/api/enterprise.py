@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..security import (
     check_step_up_limit,
@@ -388,7 +388,12 @@ def _gpu_analysis(db: Session):
     from datetime import timezone as tz
     import json as _json
 
-    servers = db.query(Server).filter(Server.enabled.is_(True), Server.server_type != "cpu").all()
+    servers = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.name))
+        .filter(Server.enabled.is_(True), Server.server_type != "cpu")
+        .all()
+    )
     if not servers:
         return {"total_gpus": 0, "idle_held_count": 0, "high_risk_count": 0, "gpus": []}
     sids = [s.id for s in servers]
@@ -403,7 +408,6 @@ def _gpu_analysis(db: Session):
         idle_state = {}
 
     from sqlalchemy import and_, func as sa_func
-    from sqlalchemy.orm import load_only
     sub = (
         db.query(ServerMetric.server_id, sa_func.max(ServerMetric.collected_at).label("mx"))
         .filter(ServerMetric.server_id.in_(sids))
@@ -503,9 +507,12 @@ def cluster_health_summary(db: Session = Depends(get_db),
 
 def _cluster_health_summary(db: Session):
     from sqlalchemy import and_, func
-    from sqlalchemy.orm import load_only
-
-    servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+    servers = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.name, Server.status, Server.tags))
+        .filter(Server.enabled.is_(True))
+        .all()
+    )
     sub = (
         db.query(ServerMetric.server_id, func.max(ServerMetric.collected_at).label("mx"))
         .group_by(ServerMetric.server_id)
