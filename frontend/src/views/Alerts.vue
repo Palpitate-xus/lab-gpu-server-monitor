@@ -14,7 +14,7 @@
       :title="`刷新失败：${pollError}（30 秒后自动重试）`" />
 
     <el-row :gutter="14" class="alerts-grid">
-      <el-col :span="10" :xs="{ span: 24 }">
+      <el-col :span="24">
         <el-card class="page-card">
           <template #header>告警规则 ({{ rules.length }})</template>
           <el-table class="desktop-only" :data="rules" size="small" v-loading="loadingRules" max-height="300">
@@ -70,7 +70,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="14" :xs="{ span: 24 }">
+      <el-col :span="24">
         <el-card class="page-card">
           <template #header>告警事件</template>
           <el-table class="desktop-only" :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
