@@ -55,27 +55,24 @@
         </div>
       </template>
       <el-table class="desktop-only" :data="filtered" size="small" v-loading="loading" :row-class-name="rowClass" max-height="560">
-        <el-table-column label="服务器" width="130" show-overflow-tooltip>
+        <el-table-column label="服务器 / GPU" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>
+            <div class="analysis-server-meta">GPU {{ row.gpu_index }} · {{ row.name }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="GPU" width="60">
-          <template #default="{ row }"><b>{{ row.gpu_index }}</b></template>
-        </el-table-column>
-        <el-table-column prop="name" label="型号" width="160" show-overflow-tooltip />
-        <el-table-column label="利用率" width="100">
+        <el-table-column label="利用率" width="90">
           <template #default="{ row }">
             <span :style="{ color: row.util > 5 ? '' : 'var(--cyellow)' }">{{ row.util }}%</span>
           </template>
         </el-table-column>
-        <el-table-column label="显存占用" width="130">
+        <el-table-column label="显存占用" width="125">
           <template #default="{ row }">
             <el-progress :percentage="pct(row.mem_pct)" :stroke-width="8" :color="utilColor(row.mem_pct)" :show-text="false" style="width:80px" />
             <span class="mono" style="font-size:11px;margin-left:6px">{{ row.mem_used_gb }}G</span>
           </template>
         </el-table-column>
-        <el-table-column label="空占状态" width="150">
+        <el-table-column label="空占状态" width="145">
           <template #default="{ row }">
             <el-tag v-if="row.idle_held" type="danger" effect="dark" size="small">
               空占 {{ fmtIdleMin(row.idle_minutes) }}
@@ -85,7 +82,7 @@
             <el-tag v-else type="success" size="small">使用中</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="风险评分" width="200">
+        <el-table-column label="风险评分" width="180">
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:8px">
               <el-progress :percentage="pct(row.risk)" :stroke-width="8" :show-text="false" :color="riskColor(row.risk)" style="width:90px" />
@@ -94,7 +91,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="风险因素" min-width="220">
+        <el-table-column label="风险因素" min-width="190">
           <template #default="{ row }">
             <div class="risk-factors">
               <el-tag v-if="row.xid_events" type="danger" size="small" effect="plain">Xid×{{ row.xid_events }}</el-tag>
@@ -105,7 +102,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="持有进程" min-width="200">
+        <el-table-column label="持有进程" min-width="180">
           <template #default="{ row }">
             <div v-if="row.processes?.length" class="proc-list">
               <div v-for="p in row.processes" :key="p.pid" class="proc-line">
@@ -332,6 +329,14 @@ onUnmounted(() => clearInterval(timer))
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+.analysis-server-meta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--csub);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .kpi-solid-yellow { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--cyellow); }
 .kpi-solid-purple { background: none; -webkit-background-clip: unset; background-clip: unset; color: var(--cpurple); }
