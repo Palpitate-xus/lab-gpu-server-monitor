@@ -3,9 +3,22 @@
     <div class="sp-container">
       <!-- header -->
       <header class="sp-header">
-        <div class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></div>
+        <div class="sp-eyebrow"><span class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></span> SERVICE STATUS</div>
         <h1>{{ data?.title || '服务状态' }}</h1>
+        <p>集群可用性与 GPU 资源状态</p>
       </header>
+
+      <div v-if="!loaded" class="sp-card sp-loading" aria-live="polite">
+        <div class="sp-loading-line wide"></div>
+        <div class="sp-loading-line"></div>
+        <div class="sp-loading-line short"></div>
+      </div>
+
+      <div v-else-if="loadError" class="sp-card sp-load-error" role="alert">
+        <span class="sp-banner-icon">!</span>
+        <div><b>暂时无法获取服务状态</b><p>请稍后重试，或联系平台管理员确认监控服务是否可用。</p></div>
+        <button type="button" @click="load">重新加载</button>
+      </div>
 
       <!-- admin preview banner -->
       <div v-if="preview" class="sp-card sp-preview-hint">
@@ -13,7 +26,7 @@
       </div>
 
       <!-- unpublished -->
-      <div v-if="loaded && !data?.published" class="sp-card sp-empty">
+      <div v-if="loaded && !loadError && !data?.published" class="sp-card sp-empty">
         此状态页未发布。管理员可在「系统设置 → 状态页」中开启。
       </div>
 
@@ -104,6 +117,7 @@ const preview = computed(() => route.query.preview === '1')
 
 const data = ref(null)
 const loaded = ref(false)
+const loadError = ref(false)
 let timer = null
 
 const themeClass = computed(() => {
@@ -134,6 +148,7 @@ function axisLabel(history, pos) {
 }
 
 async function load() {
+  loadError.value = false
   try {
     // preview mode hits the admin endpoint (ignores the published flag);
     // the public endpoint stays auth-free
@@ -143,6 +158,7 @@ async function load() {
     data.value = d
   } catch {
     data.value = null
+    loadError.value = true
   } finally {
     loaded.value = true
   }
@@ -160,15 +176,32 @@ onUnmounted(() => clearInterval(timer))
   min-height: 100vh;
   font-family: -apple-system, 'PingFang SC', 'Segoe UI', Roboto, sans-serif;
 }
-.sp-light { background: #f5f7fb; color: #1f2d3d; }
-.sp-dark { background: #0c1425; color: #dce7f5; }
+.sp-light {
+  background: radial-gradient(900px 360px at 50% -120px, rgba(8,145,178,.09), transparent 70%), #f5f7fb;
+  color: #1f2d3d;
+}
+.sp-dark {
+  background: radial-gradient(900px 360px at 50% -120px, rgba(34,211,238,.10), transparent 70%), #0c1425;
+  color: #dce7f5;
+}
 
 .sp-container { max-width: 860px; margin: 0 auto; padding: 48px 20px 40px; }
 
 .sp-header { text-align: center; margin-bottom: 28px; }
-.sp-header h1 { font-size: 26px; margin: 10px 0 6px; }
+.sp-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #0891b2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+.sp-header h1 { font-size: 28px; margin: 12px 0 7px; letter-spacing: -.02em; }
+.sp-header p { margin: 0; opacity: .58; font-size: 13px; }
 .sp-live-dot {
-  width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
   animation: sp-pulse 2s infinite;
 }
 .sp-live-dot.ok { background: #10b981; box-shadow: 0 0 0 4px rgba(16,185,129,.2); }
@@ -187,6 +220,38 @@ onUnmounted(() => clearInterval(timer))
 .sp-dark .sp-card { background: #131f36; border: 1px solid #1e2d47; }
 
 .sp-empty { text-align: center; opacity: .7; padding: 40px; }
+.sp-loading { padding: 24px; }
+.sp-loading-line {
+  width: 62%;
+  height: 12px;
+  margin: 11px 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: currentColor;
+  opacity: .08;
+  animation: sp-loading 1.4s ease-in-out infinite alternate;
+}
+.sp-loading-line.wide { width: 86%; }
+.sp-loading-line.short { width: 38%; }
+@keyframes sp-loading { to { opacity: .15; } }
+.sp-load-error {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-left: 4px solid #ef4444 !important;
+}
+.sp-load-error .sp-banner-icon { flex: 0 0 auto; background: #ef4444; }
+.sp-load-error div { flex: 1; }
+.sp-load-error p { margin: 4px 0 0; opacity: .65; font-size: 12px; line-height: 1.55; }
+.sp-load-error button {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
 
 .sp-preview-hint {
   text-align: center; font-size: 13px; font-weight: 600;
@@ -211,7 +276,7 @@ onUnmounted(() => clearInterval(timer))
 .sp-dot.bad { background: #ef4444; }
 .sp-tag {
   font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid currentColor;
-  opacity: .55; font-weight: 600; letter-spacing: .05em;
+  opacity: .72; font-weight: 600; letter-spacing: .05em;
 }
 .sp-tag.gpu { color: #0891b2; }
 .sp-row-meta { display: flex; align-items: center; gap: 14px; font-size: 13px; }
@@ -236,8 +301,12 @@ onUnmounted(() => clearInterval(timer))
 
 @media (max-width: 560px) {
   .sp-container { padding: 28px 12px 24px; }
+  .sp-header { margin-bottom: 22px; }
+  .sp-header h1 { font-size: 24px; }
   .sp-row-meta { gap: 8px; }
   .sp-latency { display: none; }
+  .sp-load-error { align-items: flex-start; flex-wrap: wrap; }
+  .sp-load-error button { margin-left: 35px; }
 }
 
 .sp-gpus {
@@ -261,7 +330,7 @@ onUnmounted(() => clearInterval(timer))
 .sp-gpu-card.hot  { color: #f59e0b; background: rgba(245,158,11,.08); }
 .sp-gpu-top { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
 .sp-gpu-id { font-size: 11px; font-weight: 700; color: inherit; }
-.sp-gpu-name { font-size: 10px; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70px; letter-spacing: .02em; }
+.sp-gpu-name { font-size: 11px; opacity: .76; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 84px; letter-spacing: .01em; }
 .sp-gpu-ring { position: relative; width: 58px; height: 58px; margin: 2px 0; }
 .sp-gpu-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .sp-ring-bg { fill: none; stroke: currentColor; stroke-opacity: .15; stroke-width: 3; }
@@ -275,6 +344,8 @@ onUnmounted(() => clearInterval(timer))
 .sp-gpu-memrow { width: 100%; display: flex; align-items: center; gap: 5px; }
 .sp-gpu-membar { flex: 1; height: 4px; border-radius: 2px; background: currentColor; opacity: .18; overflow: hidden; }
 .sp-gpu-membar div { height: 100%; border-radius: 2px; background: currentColor; opacity: .9; transition: width .5s; }
-.sp-gpu-memtxt { font-size: 10px; opacity: .65; font-variant-numeric: tabular-nums; white-space: nowrap; }
-@media (max-width: 560px) {  }
+.sp-gpu-memtxt { font-size: 10px; opacity: .78; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .sp-live-dot, .sp-loading-line { animation: none; }
+}
 </style>
