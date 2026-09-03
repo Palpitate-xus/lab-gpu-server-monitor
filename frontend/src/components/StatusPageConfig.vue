@@ -1,9 +1,12 @@
 <template>
-  <el-card class="page-card">
+  <el-card class="page-card status-config-card">
     <template #header>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span>公开状态页（Uptime Kuma 风格）</span>
-        <div style="display:flex;gap:10px;align-items:center">
+      <div class="status-config-head">
+        <div>
+          <span>公开状态页</span>
+          <small>面向访客的精简服务状态视图</small>
+        </div>
+        <div class="status-config-head__actions">
           <el-tag v-if="cfg.published" type="success" size="small">已发布</el-tag>
           <el-tag v-else type="info" size="small">未发布</el-tag>
           <el-link type="primary" href="/status" target="_blank">访问 /status ↗</el-link>
@@ -11,7 +14,7 @@
       </div>
     </template>
 
-    <el-form label-width="110px" style="max-width:720px">
+    <el-form class="status-config-form" label-width="110px">
       <el-form-item label="发布状态">
         <el-switch v-model="cfg.published" active-text="对外可见" inactive-text="仅管理员" />
         <div class="sp-hint">关闭时访问者会看到「未发布」提示，不暴露任何服务器数据</div>
@@ -42,12 +45,12 @@
 
       <el-form-item label="显示延迟">
         <el-switch v-model="cfg.show_latency" />
-        <span class="sp-hint" style="margin-left:10px">SSH 探测延迟（毫秒）</span>
+        <span class="sp-hint sp-inline-hint">SSH 探测延迟（毫秒）</span>
       </el-form-item>
 
       <el-form-item label="显示 GPU">
         <el-switch v-model="cfg.show_gpu" />
-        <span class="sp-hint" style="margin-left:10px">每张 GPU 的实时利用率与显存占用（GPU 服务器）</span>
+        <span class="sp-hint sp-inline-hint">每张 GPU 的实时利用率与显存占用（GPU 服务器）</span>
       </el-form-item>
 
       <el-form-item label="页面主题">
@@ -62,7 +65,7 @@
         <el-input v-model="cfg.footer" maxlength="300" placeholder="如：Powered by lab-gpu-server-monitor" />
       </el-form-item>
 
-      <el-form-item>
+      <el-form-item class="status-config-actions">
         <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
         <el-button :loading="previewing" @click="openPreview">预览状态页</el-button>
       </el-form-item>
@@ -121,4 +124,51 @@ onMounted(load)
 
 <style scoped>
 .sp-hint { font-size: 12px; color: var(--csub); line-height: 1.6; margin-top: 2px; }
+.sp-inline-hint { margin-left: 10px; }
+.status-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.status-config-head > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.status-config-head small {
+  color: var(--csub);
+  font-size: 11px;
+  font-weight: 400;
+}
+.status-config-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-config-form { max-width: 760px; }
+.status-config-actions :deep(.el-form-item__content) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.status-config-actions :deep(.el-button + .el-button) { margin-left: 0; }
+
+@media (max-width: 768px) {
+  .status-config-card :deep(.el-card__body) { padding: 14px 12px; }
+  .status-config-head { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .status-config-head__actions { width: 100%; justify-content: space-between; }
+  .status-config-form :deep(.el-form-item) { display: block; }
+  .status-config-form :deep(.el-form-item__label) {
+    width: auto !important;
+    height: auto;
+    padding: 0 0 6px;
+    line-height: 1.4;
+  }
+  .status-config-form :deep(.el-form-item__content) { margin-left: 0 !important; }
+  .status-config-form :deep(.el-radio-group) { display: flex; flex-wrap: wrap; row-gap: 5px; }
+  .status-config-form :deep(.el-slider) { max-width: 100% !important; }
+  .sp-inline-hint { width: 100%; margin: 5px 0 0; }
+  .status-config-actions :deep(.el-button) { min-width: calc(50% - 4px); flex: 1; }
+}
 </style>

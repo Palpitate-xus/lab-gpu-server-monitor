@@ -1,20 +1,28 @@
 <template>
   <div class="cockpit">
-    <el-row :gutter="14">
-      <el-col :span="12" :xs="{ span: 24 }">
-        <el-card class="page-card">
+    <nav class="settings-jump-nav" aria-label="设置分区快捷导航">
+      <button type="button" @click="scrollToSection('settings-collection')">采集与数据</button>
+      <button type="button" @click="scrollToSection('settings-webhook')">告警通知</button>
+      <button type="button" @click="scrollToSection('settings-thresholds')">检测阈值</button>
+      <button type="button" @click="scrollToSection('settings-status-page')">公开状态页</button>
+      <button type="button" @click="scrollToSection('settings-logs')">操作日志</button>
+    </nav>
+
+    <el-row :gutter="14" class="settings-grid">
+      <el-col id="settings-collection" :span="12" :xs="{ span: 24 }" class="settings-section">
+        <el-card class="page-card settings-card">
           <template #header>采集与数据</template>
-          <el-form label-width="130px" style="max-width:480px">
+          <el-form class="settings-form" label-width="130px">
             <el-form-item label="采集间隔 (秒)">
               <el-input-number v-model="pollInterval" :min="10" :max="3600" />
             </el-form-item>
             <el-form-item label="数据保留 (天)">
               <el-input-number v-model="retentionDays" :min="0" :max="3650" />
-              <div style="font-size:12px;color:var(--csub);width:100%">0 = 永久保存全部历史数据</div>
+              <div class="settings-hint">0 = 永久保存全部历史数据</div>
             </el-form-item>
             <el-form-item label="电价 (¥/kWh)">
               <el-input-number v-model="energyPrice" :min="0" :max="100" :step="0.05" :precision="2" />
-              <div style="font-size:12px;color:var(--csub);width:100%">电量费用估算，0 = 不计算</div>
+              <div class="settings-hint">电量费用估算，0 = 不计算</div>
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="savingSettings" @click="saveSettings">保存</el-button>
@@ -29,23 +37,23 @@
           </el-descriptions>
         </el-card>
       </el-col>
-      <el-col :span="12" :xs="{ span: 24 }">
-        <el-card class="page-card">
+      <el-col id="settings-webhook" :span="12" :xs="{ span: 24 }" class="settings-section">
+        <el-card class="page-card settings-card">
           <template #header>告警通知 (Webhook)</template>
-          <el-form label-width="120px">
+          <el-form class="settings-form webhook-form" label-width="120px">
             <el-form-item label="Webhook URL">
               <el-input v-model="webhookUrl" :placeholder="webhookConfigured ? '已加密保存；留空表示保持不变' : 'https://example.com/hook'" />
-              <div v-if="webhookConfigured" style="font-size:12px;color:var(--csub);width:100%">已配置，出于安全原因不回显 URL/令牌。</div>
+              <div v-if="webhookConfigured" class="settings-hint">已配置，出于安全原因不回显 URL/令牌。</div>
             </el-form-item>
             <el-form-item label="消息模板">
               <el-input v-model="webhookTemplate" type="textarea" :rows="4" class="mono"
                 placeholder='{"text": "[{{level}}] {{server_name}}: {{metric}}={{value}} {{op}} {{threshold}}"}' />
-              <div style="font-size:12px;color:var(--csub);line-height:1.6">
+              <div class="settings-hint settings-template-hint">
                 变量: {{level}} {{server_name}} {{metric}} {{value}} {{op}} {{threshold}} {{rule_name}} {{time}}<br>
                 默认发 JSON，可直接填企业微信/钉钉/飞书机器人兼容模板
               </div>
             </el-form-item>
-            <el-form-item>
+            <el-form-item class="settings-form-actions">
               <el-button :loading="testing" @click="testWebhook">发送测试</el-button>
               <el-button type="primary" :loading="savingWebhook" @click="saveWebhook">保存</el-button>
               <el-button v-if="webhookConfigured" type="danger" plain @click="clearWebhook">清除</el-button>
@@ -54,16 +62,16 @@
         </el-card>
       </el-col>
     </el-row>
-    <el-row :gutter="14">
-      <el-col :span="12" :xs="{ span: 24 }">
-        <el-card v-if="isAdmin" class="page-card">
+    <el-row :gutter="14" class="settings-grid">
+      <el-col id="settings-channels" :span="12" :xs="{ span: 24 }" class="settings-section">
+        <el-card v-if="isAdmin" class="page-card settings-card">
           <template #header>
-            <div style="display:flex;align-items:center;justify-content:space-between">
+            <div class="settings-card-head">
               <span>通知通道 ({{ channels.length }})</span>
               <el-button size="small" type="primary" :icon="Plus" @click="openChannelDialog">新增通道</el-button>
             </div>
           </template>
-          <el-table :data="channels" size="small" v-loading="loadingChannels" max-height="300">
+          <el-table class="desktop-only" :data="channels" size="small" v-loading="loadingChannels" max-height="300">
             <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
             <el-table-column prop="url" label="URL" min-width="160" show-overflow-tooltip />
             <el-table-column label="最低严重度" width="100">
@@ -86,12 +94,32 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="mobile-only" v-loading="loadingChannels">
+            <div v-if="channels.length" class="mobile-card-list">
+              <article v-for="row in channels" :key="row.id" class="mobile-data-card">
+                <div class="mobile-data-card__head">
+                  <div class="mobile-data-card__title">{{ row.name }}</div>
+                  <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '已启用' : '已停用' }}</el-tag>
+                </div>
+                <div class="mobile-data-card__meta">
+                  <span>Webhook URL</span><span class="settings-break-text">{{ row.url }}</span>
+                  <span>最低严重度</span><span>{{ SEVERITY_LABELS[row.min_severity] || row.min_severity }}</span>
+                </div>
+                <div class="mobile-data-card__actions">
+                  <el-popconfirm title="删除该通道？" @confirm="removeChannel(row)">
+                    <template #reference><el-button size="small" type="danger" plain>删除通道</el-button></template>
+                  </el-popconfirm>
+                </div>
+              </article>
+            </div>
+            <el-empty v-else-if="!loadingChannels" description="暂无通知通道" :image-size="72" />
+          </div>
         </el-card>
       </el-col>
-      <el-col :span="12" :xs="{ span: 24 }">
-        <el-card class="page-card">
+      <el-col id="settings-thresholds" :span="12" :xs="{ span: 24 }" class="settings-section">
+        <el-card class="page-card settings-card">
           <template #header>检测阈值</template>
-          <el-form label-width="150px" style="max-width:480px" v-loading="loadingThresholds">
+          <el-form class="settings-form" label-width="150px" v-loading="loadingThresholds">
             <el-form-item label="空占显存阈值 (%)">
               <el-input-number v-model="thresholds.gpu_idle_vram_pct" :min="1" :max="95" />
             </el-form-item>
@@ -115,11 +143,18 @@
       </el-col>
     </el-row>
 
-    <StatusPageConfig />
+    <div id="settings-status-page" class="settings-section">
+      <StatusPageConfig />
+    </div>
 
-    <el-card class="page-card">
-      <template #header>操作日志</template>
-      <el-table :data="logs" size="small" v-loading="loadingLogs" max-height="420">
+    <el-card id="settings-logs" class="page-card settings-section settings-log-card">
+      <template #header>
+        <div class="settings-card-head">
+          <span>操作日志</span>
+          <span class="settings-card-meta">最近 {{ logs.length }} 条</span>
+        </div>
+      </template>
+      <el-table class="desktop-only" :data="logs" size="small" v-loading="loadingLogs" max-height="420">
         <el-table-column label="时间" width="160">
           <template #default="{ row }">{{ fmtTime(row.ts) }}</template>
         </el-table-column>
@@ -127,10 +162,25 @@
         <el-table-column prop="action" label="操作" width="140" />
         <el-table-column prop="detail" label="详情" min-width="240" show-overflow-tooltip />
       </el-table>
+      <div class="mobile-only" v-loading="loadingLogs">
+        <div v-if="logs.length" class="mobile-card-list">
+          <article v-for="(row, index) in logs" :key="`${row.ts}-${index}`" class="mobile-data-card settings-log-item">
+            <div class="mobile-data-card__head">
+              <div class="mobile-data-card__title">{{ row.action }}</div>
+              <span>{{ fmtTime(row.ts) }}</span>
+            </div>
+            <div class="mobile-data-card__meta">
+              <span>用户</span><span>{{ row.username || '—' }}</span>
+              <span>详情</span><span class="settings-break-text">{{ row.detail || '—' }}</span>
+            </div>
+          </article>
+        </div>
+        <el-empty v-else-if="!loadingLogs" description="暂无操作日志" :image-size="72" />
+      </div>
     </el-card>
 
-    <el-dialog v-model="channelDlg" title="新增通知通道" width="480px">
-      <el-form ref="channelFormRef" :model="channelForm" :rules="channelRules" label-width="100px">
+    <el-dialog v-model="channelDlg" class="responsive-dialog" title="新增通知通道" width="480px">
+      <el-form ref="channelFormRef" class="responsive-form" :model="channelForm" :rules="channelRules" label-width="100px">
         <el-form-item label="名称" prop="name">
           <el-input v-model="channelForm.name" placeholder="如 运维群机器人" />
         </el-form-item>
@@ -206,6 +256,10 @@ const thresholds = reactive({
 })
 const loadingThresholds = ref(false)
 const savingThresholds = ref(false)
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 async function load() {
   try {
@@ -358,3 +412,93 @@ async function saveThresholds() {
 
 onMounted(() => { load(); loadLogs(); loadChannels(); loadThresholds() })
 </script>
+
+<style scoped>
+.settings-jump-nav {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+  margin: -2px 0 14px;
+  padding: 7px;
+  overflow-x: auto;
+  border: 1px solid var(--cborder);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cpanel) 94%, transparent);
+  box-shadow: 0 8px 24px -22px rgba(15, 23, 42, .8);
+  backdrop-filter: blur(10px);
+  scrollbar-width: thin;
+}
+.settings-jump-nav button {
+  min-width: max-content;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--csub);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-jump-nav button:hover,
+.settings-jump-nav button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--cprimary) 10%, transparent);
+  color: var(--cprimary);
+}
+.settings-section { scroll-margin-top: 62px; }
+.settings-card { height: calc(100% - 16px); }
+.settings-form { max-width: 560px; }
+.settings-hint {
+  width: 100%;
+  margin-top: 2px;
+  color: var(--csub);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.settings-template-hint { margin-top: 7px; }
+.settings-form-actions :deep(.el-form-item__content) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-form-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-card-meta {
+  color: var(--csub);
+  font-size: 12px;
+}
+.settings-break-text { overflow-wrap: anywhere; }
+.settings-log-item .mobile-data-card__head > span {
+  flex: 0 0 auto;
+  color: var(--csub);
+  font-size: 11px;
+}
+
+@media (max-width: 768px) {
+  .settings-jump-nav { margin-inline: 0; }
+  .settings-grid > .el-col { max-width: 100%; }
+  .settings-card { height: auto; }
+  .settings-card :deep(.el-card__body),
+  .settings-log-card :deep(.el-card__body) { padding: 14px 12px; }
+  .settings-form :deep(.el-form-item) { display: block; }
+  .settings-form :deep(.el-form-item__label) {
+    width: auto !important;
+    height: auto;
+    padding: 0 0 6px;
+    line-height: 1.4;
+  }
+  .settings-form :deep(.el-form-item__content) { margin-left: 0 !important; }
+  .settings-form :deep(.el-input-number) { width: 100%; }
+  .settings-form-actions :deep(.el-button) { min-width: calc(50% - 4px); flex: 1; }
+  .settings-card-head { flex-wrap: wrap; }
+  .settings-log-item .mobile-data-card__head { align-items: flex-start; }
+}
+</style>
