@@ -1,5 +1,102 @@
 # GPU Monitor 上线与网络安全审查
 
+> 整改复核日期：2026-09-03（UTC）
+> 原始审查基线：`0754242`
+> 整改起点：`ecd753d`（仅包含原始审查报告）
+> 整改代码提交：`eda861c0974b`
+> 候选镜像：`gpu-monitor:security-eda861c0974b`（`sha256:1e612ba70f1b32bc67d62ebba436421f5fe5f570e96ba449ae20d48b24f3d645`）
+
+## 整改复核结论
+
+原始审查发现的 **S-01～S-22 共 22 项安全问题，在仓库可控制的代码、配置、构建和文档
+范围内均已整改**。候选版本没有修改 GPU 指标计算、采集口径、报表算法等业务逻辑；只处理
+认证授权、敏感数据边界、输入约束、传输安全、供应链、容器隔离、审计和上线失败策略。
+
+这不等于对“未知漏洞”作绝对保证，也不代表当前运行实例已经安全。2026-09-03 的只读检查
+确认旧容器仍在运行，仍使用旧镜像和旧部署配置；本次没有重启、替换或写入现网。候选版本
+只有完成下方部署门禁后才可上线。
+
+| 复核项 | 当前结果 |
+|---|---|
+| 已识别的 22 项安全问题 | **仓库侧全部完成整改** |
+| GPU 指标与报表业务逻辑 | **未改动**；原报告 B 类非安全口径问题仍保留，未借安全整改改算法 |
+| 自动化测试与静态检查 | **通过**；详细结果见下表 |
+| 最终候选镜像漏洞/secret 扫描 | **通过**；全严重级别已知漏洞 0，secret 0 |
+| 当前运行实例 | **未切换，仍不满足上线要求** |
+| 公网/不可信网络上线 | **暂不批准**；须完成 TLS、防火墙、DB、迁移、轮换、清理与演练门禁 |
+
+## 安全问题整改状态表
+
+状态中的“代码完成、部署待验收”表示应用已具备强制机制，但证书、数据库账号、真实主机和
+现网数据等外部状态不能通过修改仓库代替。
+
+| ID | 整改状态 | 主要落点与复核证据 |
+|---|---|---|
+| S-01 | **代码完成、部署待验收** | SSH TOFU 改为文件锁、原子写入、0700/0600 和持久化失败关闭连接；readiness 检查真实写入。上线前仍须逐台核对现有指纹并修正数据卷属主。 |
+| S-02 | **代码完成、部署待验收** | Compose 默认仅绑定 `127.0.0.1:8300`，提供 TLS-only Nginx 示例、HSTS 和可信代理精确地址校验；真实证书与防火墙尚须部署。 |
+| S-03 | **已修复** | FastAPI/Starlette/python-multipart 等升级并生成 hash lock；后端 `pip-audit` 为 0。 |
+| S-04 | **已修复** | 删除可工作默认账号、密码和密钥；缺失、占位、复用或强度不足时 fail-fast；初始管理员使用显式一次性凭据。 |
+| S-05 | **代码完成、部署待验收** | 远程 MySQL 强制 CA/TLS，迁移与运行账号拆分，提供最小权限模板；现网 MySQL 账号、TLS 和 3306 防火墙须按手册执行。 |
+| S-06 | **已修复** | 会话使用持久化 `auth_id`/token version/JTI，登出、改密、改角色、禁用和删除均可跨重启撤销，阻止同名账号复用旧 Token。 |
+| S-07 | **已修复** | 登录输入长度/格式、请求体大小、Origin/CSRF、容量受限限流和管理员再认证限流均已覆盖测试。 |
+| S-08 | **代码完成、数据清理待执行** | Viewer/MCP 不再获得进程身份和完整 argv，新历史数据不再保存这些字段；提供只删敏感字段的 dry-run/apply 清理脚本。 |
+| S-09 | **代码完成、主机侧待验收** | 默认拒绝 root SSH，远程进程控制默认关闭；管理员要求 MFA，危险操作要求短时密码再认证并防 PID 复用；真实主机仍须迁移低权限账号/sudo allowlist。 |
+| S-10 | **已修复** | API 资源限制、缓存/限流边界、只读 rootfs、非 root、cap-drop、no-new-privileges、CPU/内存/PID 与日志轮转已配置。 |
+| S-11 | **已修复** | 迁移失败阻止启动，迁移改为独立 maintenance profile；liveness/readiness 分离并检查 DB、schema、scheduler 与关键目录。 |
+| S-12 | **已修复** | Viewer DTO 移除 BMC 用户、管理地址及资产/IPMI敏感字段；完整视图仅管理员可用。 |
+| S-13 | **已修复** | MCP 使用结构化 URL/IP 校验，远程只允许 HTTPS，严格隐私模式默认开启，并覆盖恶意 hostname 测试。 |
+| S-14 | **已修复** | Webhook 连接固定到已校验公网 IP，同时保留原 hostname 的 TLS SNI/证书验证，禁止重定向并限制响应。 |
+| S-15 | **代码完成、恢复演练待执行** | 归档使用 AES-GCM、0600、去凭据元数据和完整计数后删除；恢复限制大小/数量、默认禁用服务器并要求显式确认。 |
+| S-16 | **已修复** | 严格 `.dockerignore`；Node/基础镜像 digest、Python wheel hash、ipmitool commit+源码 SHA-256；CI 生成含源码组件的 CycloneDX SBOM。 |
+| S-17 | **已修复** | CSV 统一 RFC 4180 转义并防公式注入，包含引号、逗号、换行和危险前缀测试。 |
+| S-18 | **已修复** | SSH 禁用弱算法，JWT 改用 PyJWT 并移除无用 ecdsa；依赖审计为 0。 |
+| S-19 | **代码完成、密钥轮换待执行** | JWT、凭据和归档密钥拆分；凭据 keyring 支持渐进轮换，提供全量 dry-run/apply 脚本且包含 MFA/Webhook。 |
+| S-20 | **代码完成、外部审计存储待接入** | 新增后端/MCP/前端测试、Ruff、Bandit、pip/pnpm audit、Gitleaks、Trivy、SBOM、Dependabot 和 `SECURITY.md`；生产审计仍须转发只追加存储。 |
+| S-21 | **已修复** | JWT 不再写 localStorage，改用 Secure/HttpOnly/SameSite cookie，并配套 CSRF 与 Origin 校验。 |
+| S-22 | **已修复** | 关闭 Uvicorn server header，敏感 API 统一 `no-store`，禁用的 docs/redoc/openapi 返回真实 404。 |
+
+## 整改验证记录
+
+| 检查 | 整改候选结果 |
+|---|---|
+| 后端测试 | `39 passed`；仅 1 条已知第三方弃用警告 |
+| MCP 测试 | `12 passed` |
+| 前端测试 / 构建 | `3 passed`；生产构建通过，仅保留非阻断 chunk-size 提示 |
+| Ruff / Bandit | 通过；Bandit 仅保留带说明的 TOTP 标准 SHA-1 `nosec` |
+| Python / Node 依赖审计 | 后端 0、MCP 0、`pnpm audit --prod` 0 |
+| Secret 扫描 | 已验证命中 0 |
+| Compose / workflow / diff | Compose、GitHub Actions YAML、主 Dockerfile `--check`、`git diff --check` 均通过；多阶段 Dockerfile 已修正全局 `ARG` 作用域，本机后续拉取固定 Node digest 时因 Docker Hub 超时中止，仍须由联网 CI 完成全量构建 |
+| 候选镜像运行 | 非 root UID 10001、只读 rootfs、cap-drop、no-new-privileges 和资源限制下 readiness 通过；`/docs` 404，安全响应头生效 |
+| 候选镜像扫描 | Trivy `0.74.0`：Wolfi 30 个系统包与 Python 共 2 个目标，UNKNOWN/LOW/MEDIUM/HIGH/CRITICAL 均为 0，secret 0 |
+| 候选镜像 SBOM | CycloneDX 共 68 个组件；已显式补入源码构建的 `ipmitool` 组件 |
+| `ipmitool` 供应链 | 固定 `1.8.19` + commit `be11d948f89b10be094e28d8a0a5e8fb532c7b60` + 源码 SHA-256；二进制 SHA-256 为 `5f384a57d9f028bed17749285f8a794b74a3ad4c341588fb58af281cd69988b6`；精确 commit 的 OSV 查询无已知漏洞 |
+| 历史敏感数据清理 | 全量 dry-run 在现网数据规模下超时后已终止，**没有写入**；须在维护窗口重新评估并执行 |
+
+较早的 Debian slim 候选镜像因扫描发现 16 个当时无上游修复版本的 High/Critical OS
+漏洞而被否决；最终候选改为固定 digest 的 Wolfi 基础镜像。源码编译的 `ipmitool` 不会被
+Trivy 自动识别，因此 CI 会把其 commit 与二进制 SHA-256 显式加入 SBOM，并独立核验上游
+公告。
+
+## 上线前仍必须完成的外部操作
+
+| Gate | 必须完成 | 验收证据 |
+|---|---|---|
+| G-01 网络入口 | 安装真实 TLS 证书与 Nginx 配置；防火墙只开放受信 TLS 入口，禁止外部访问 8300/3306 | 外部端口扫描、TLS 配置报告、HSTS/代理地址验证 |
+| G-02 数据库 | 备份；启用 MySQL TLS；创建受限迁移账号与 DML 运行账号；执行 012/013 迁移 | `Ssl_cipher` 非空、grant 清单、`schema_migrations`、迁移日志 |
+| G-03 密钥与身份 | 生成三类独立密钥，迁移/轮换遗留密文；移除一次性管理员凭据；所有管理员绑定 MFA | 轮换 dry-run/apply 记录、恢复验证、管理员/MFA 清单 |
+| G-04 历史与备份 | 维护窗口执行历史敏感字段 scrub；验证加密归档和隔离恢复 | 清理前后计数、归档权限、恢复演练记录 |
+| G-05 SSH/BMC | 修正卷权限，逐台核对 SSH 指纹；迁移 root/高权账号为专用最小权限账号 | 指纹清单、账号/sudo/BMC 权限清单、采集验收 |
+| G-06 运维闭环 | 审计日志接入外部只追加存储；部署按提交 SHA + registry digest；预生产观察并准备回滚 | SBOM/扫描件、镜像 digest、审计告警、24～72 小时观察及回滚记录 |
+
+在 G-01～G-06 完成前，不应以“代码已整改”为由直接替换生产。现有旧实例本身仍是风险项，
+应在维护窗口按 `SECURITY_HARDENING.md` 和 `DEPLOYMENT.md` 完成切换。
+
+---
+
+## 原始基线审查（2026-09-02，保留审计轨迹）
+
+以下“一”到“九”为整改前基线记录，状态和结论不代表整改候选版本的当前状态。
+
 > 审查日期：2026-09-02（UTC）
 > 代码基线：`0754242`（`feat(mcp): add read-only GPU monitoring server`）
 > 审查对象：FastAPI 后端、Vue 前端、SSH/IPMI 采集、MySQL、归档恢复、MCP Server、Docker Compose 与当前运行实例
