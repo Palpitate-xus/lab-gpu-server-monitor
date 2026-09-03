@@ -171,7 +171,7 @@ async function load(silent = false) {
   try {
     const [a, b, c] = await Promise.allSettled([
       api.get('/metrics/dashboard'),
-      api.get('/metrics/latest'),
+      api.get('/metrics/latest?slim=1'),
       api.get('/servers')
     ])
     if (a.status === 'fulfilled') stats.value = a.value.data
