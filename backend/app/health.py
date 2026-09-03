@@ -301,13 +301,7 @@ def _detect_kernel_events(db, server: Server, since: datetime) -> None:
     # point events auto-close via _ttl_recover_point_events
 
 
-def _detect_nvme(db, server: Server) -> None:
-    latest = (
-        db.query(SlowHealth)
-        .filter(SlowHealth.server_id == server.id)
-        .order_by(SlowHealth.collected_at.desc())
-        .first()
-    )
+def _detect_nvme(db, server: Server, latest: SlowHealth | None) -> None:
     if latest is None or not latest.nvme_smart:
         return
     for d in latest.nvme_smart:
@@ -331,13 +325,7 @@ def _detect_nvme(db, server: Server) -> None:
             _recover(db, "NVME_HEALTH", server.id, key=dev)
 
 
-def _detect_raid(db, server: Server) -> None:
-    latest = (
-        db.query(SlowHealth)
-        .filter(SlowHealth.server_id == server.id)
-        .order_by(SlowHealth.collected_at.desc())
-        .first()
-    )
+def _detect_raid(db, server: Server, latest: SlowHealth | None) -> None:
     if latest is None or not (latest.mdraid or {}).get("arrays"):
         return
     for arr in latest.mdraid.get("arrays", []):
@@ -377,13 +365,7 @@ def _detect_ssh_fault(db, server: Server, m: ServerMetric) -> None:
         db.commit()
 
 
-def _detect_services(db, server: Server) -> None:
-    latest = (
-        db.query(SlowHealth)
-        .filter(SlowHealth.server_id == server.id)
-        .order_by(SlowHealth.collected_at.desc())
-        .first()
-    )
+def _detect_services(db, server: Server, latest: SlowHealth | None) -> None:
     if latest is None:
         return
     failed = latest.systemd_failed or []
@@ -575,9 +557,21 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
             _detect_storage_bottleneck(db, server, m)
         since = datetime.now(timezone.utc) - timedelta(minutes=10)
         _detect_kernel_events(db, server, since)
-        _detect_nvme(db, server)
-        _detect_raid(db, server)
-        _detect_services(db, server)
+        latest_slow = (
+            db.query(SlowHealth)
+            .options(load_only(
+                SlowHealth.collected_at,
+                SlowHealth.nvme_smart,
+                SlowHealth.mdraid,
+                SlowHealth.systemd_failed,
+            ))
+            .filter(SlowHealth.server_id == server_id)
+            .order_by(SlowHealth.collected_at.desc())
+            .first()
+        )
+        _detect_nvme(db, server, latest_slow)
+        _detect_raid(db, server, latest_slow)
+        _detect_services(db, server, latest_slow)
     except Exception:
         logger.exception("detectors failed for server %s", server_id)
         db.rollback()
