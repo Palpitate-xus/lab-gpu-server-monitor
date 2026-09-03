@@ -1,9 +1,9 @@
 <template>
   <div class="cockpit">
-    <div class="toolbar">
+    <div class="toolbar alerts-toolbar">
       <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
       <el-button :icon="Refresh" @click="loadAll()">刷新</el-button>
-      <span style="flex:1"></span>
+      <span class="alerts-toolbar__spacer"></span>
       <el-radio-group v-model="eventFilter" size="small" @change="onFilterChange">
         <el-radio-button :value="false">全部事件</el-radio-button>
         <el-radio-button :value="true">未恢复</el-radio-button>
@@ -13,11 +13,11 @@
     <el-alert v-if="pollError" type="error" show-icon :closable="false" style="margin-bottom:12px"
       :title="`刷新失败：${pollError}（30 秒后自动重试）`" />
 
-    <el-row :gutter="14">
-      <el-col :span="10">
+    <el-row :gutter="14" class="alerts-grid">
+      <el-col :span="10" :xs="{ span: 24 }">
         <el-card class="page-card">
           <template #header>告警规则 ({{ rules.length }})</template>
-          <el-table :data="rules" size="small" v-loading="loadingRules" max-height="300">
+          <el-table class="desktop-only" :data="rules" size="small" v-loading="loadingRules" max-height="300">
             <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
             <el-table-column label="条件" min-width="150">
               <template #default="{ row }">
@@ -42,12 +42,38 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <div class="mobile-only" v-loading="loadingRules">
+            <div v-if="rules.length" class="mobile-card-list">
+              <article v-for="row in rules" :key="row.id" class="mobile-data-card">
+                <div class="mobile-data-card__head">
+                  <div class="mobile-data-card__title">{{ row.name }}</div>
+                  <el-switch v-model="row.enabled" size="small" :disabled="!isAdmin" @change="toggleRule(row)" />
+                </div>
+                <div class="mobile-data-card__meta">
+                  <span>触发条件</span>
+                  <span>{{ metricLabel(row.metric) }} {{ row.op }} {{ row.threshold }}{{ unit(row.metric) }}</span>
+                  <span>持续时间</span>
+                  <span>{{ row.duration_minutes ? `${row.duration_minutes} 分钟` : '立即触发' }}</span>
+                  <span>作用范围</span>
+                  <span>{{ row.server_id ? serverName(row.server_id) : '全部服务器' }}</span>
+                </div>
+                <div v-if="isAdmin" class="mobile-data-card__actions">
+                  <el-button size="small" @click="openEdit(row)">编辑规则</el-button>
+                  <el-popconfirm title="删除该规则？" @confirm="removeRule(row)">
+                    <template #reference><el-button size="small" type="danger" plain>删除</el-button></template>
+                  </el-popconfirm>
+                </div>
+              </article>
+            </div>
+            <el-empty v-else-if="!loadingRules" description="暂无告警规则" :image-size="72" />
+          </div>
         </el-card>
       </el-col>
-      <el-col :span="14">
+      <el-col :span="14" :xs="{ span: 24 }">
         <el-card class="page-card">
           <template #header>告警事件</template>
-          <el-table :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
+          <el-table class="desktop-only" :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
                 <el-tag v-if="row.recovered_at" type="success" size="small">已恢复</el-tag>
@@ -83,21 +109,62 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <div class="mobile-only" v-loading="loadingEvents">
+            <div v-if="events.length" class="mobile-card-list">
+              <article
+                v-for="row in events"
+                :key="row.id"
+                class="mobile-data-card alert-event-card"
+                :class="{ 'alert-event-card--open': !row.recovered_at }"
+              >
+                <div class="mobile-data-card__head">
+                  <div class="mobile-data-card__title">{{ row.server_name || '未知服务器' }}</div>
+                  <el-tag v-if="row.recovered_at" type="success" size="small">已恢复</el-tag>
+                  <el-tag v-else-if="row.acked_at" type="warning" size="small">已确认</el-tag>
+                  <el-tag v-else type="danger" size="small">未恢复</el-tag>
+                </div>
+                <p class="alert-event-card__message">{{ row.message }}</p>
+                <div class="mobile-data-card__meta">
+                  <span>来源</span>
+                  <span>{{ row.rule_id ? '自定义规则' : '内置检测' }}</span>
+                  <span>触发时间</span>
+                  <span>{{ fmtTime(row.triggered_at) }}</span>
+                  <span>恢复时间</span>
+                  <span>{{ row.recovered_at ? fmtTime(row.recovered_at) : '—' }}</span>
+                  <template v-if="row.acked_at">
+                    <span>确认人</span>
+                    <span>{{ row.acked_by || '—' }}</span>
+                  </template>
+                  <template v-if="row.assignee">
+                    <span>认领人</span>
+                    <span>{{ row.assignee }}</span>
+                  </template>
+                </div>
+                <div v-if="!row.recovered_at" class="mobile-data-card__actions">
+                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" @click="ack(row)">确认</el-button>
+                  <el-button size="small" :disabled="!!row.assignee" @click="assign(row)">认领</el-button>
+                  <el-button v-if="isAdmin" size="small" type="danger" plain @click="resolveEvent(row)">关闭事件</el-button>
+                </div>
+              </article>
+            </div>
+            <el-empty v-else-if="!loadingEvents" description="当前筛选下暂无告警事件" :image-size="72" />
+          </div>
           <el-pagination
+            class="alerts-pagination"
             background
             layout="prev, pager, next, jumper"
             :current-page="page"
             :page-size="PAGE_SIZE"
             :page-count="hasMore ? page + 1 : page"
-            style="margin-top:10px;justify-content:flex-end"
             @current-change="onPageChange"
           />
         </el-card>
       </el-col>
     </el-row>
 
-    <el-dialog v-model="dlg" :title="editId ? '编辑规则' : '新建规则'" width="480px">
-      <el-form ref="formRef" :model="form" :rules="rules2" label-width="100px">
+    <el-dialog v-model="dlg" class="responsive-dialog" :title="editId ? '编辑规则' : '新建规则'" width="480px">
+      <el-form ref="formRef" class="responsive-form" :model="form" :rules="rules2" label-width="100px">
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="如 GPU 温度过高" />
         </el-form-item>
@@ -107,16 +174,20 @@
           </el-select>
         </el-form-item>
         <el-form-item label="条件">
-          <el-select v-model="form.op" style="width:90px">
+          <div class="rule-condition-fields">
+          <el-select v-model="form.op" class="rule-condition-op">
             <el-option value=">" label=">" /><el-option value=">=" label=">=" />
             <el-option value="<" label="<" /><el-option value="<=" label="<=" />
           </el-select>
-          <el-input-number v-model="form.threshold" :min="0" :max="100000" style="width:150px;margin-left:8px" />
-          <span style="margin-left:6px;color:var(--csub)">{{ unit(form.metric) }}</span>
+          <el-input-number v-model="form.threshold" :min="0" :max="100000" class="rule-condition-value" />
+          <span class="rule-condition-unit">{{ unit(form.metric) }}</span>
+          </div>
         </el-form-item>
         <el-form-item label="持续时间">
-          <el-input-number v-model="form.duration_minutes" :min="0" :max="1440" />
-          <span style="margin-left:8px;color:var(--csub);font-size:12px">分钟（0 = 立即触发）</span>
+          <div class="rule-duration-fields">
+            <el-input-number v-model="form.duration_minutes" :min="0" :max="1440" />
+            <span>分钟（0 = 立即触发）</span>
+          </div>
         </el-form-item>
         <el-form-item label="作用范围">
           <el-select v-model="form.server_id" clearable placeholder="全部服务器" style="width:100%">
@@ -325,5 +396,59 @@ defineExpose({ eventFilter, loadAll })
 <style>
 .el-table .alert-row {
   background: color-mix(in srgb, var(--cred) 10%, transparent) !important;
+}
+
+.alerts-toolbar__spacer { flex: 1; }
+.alerts-pagination {
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+.alert-event-card--open {
+  border-left: 3px solid var(--cred);
+}
+.alert-event-card__message {
+  margin: 0 0 12px;
+  padding: 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--cred) 7%, var(--cpanel));
+  color: var(--ctext);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.rule-condition-fields,
+.rule-duration-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.rule-condition-op { width: 90px; }
+.rule-condition-value { width: 150px; }
+.rule-condition-unit,
+.rule-duration-fields span {
+  color: var(--csub);
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .alerts-toolbar > .el-button { flex: 1; }
+  .alerts-toolbar__spacer { display: none; }
+  .alerts-toolbar .el-radio-group { width: 100%; }
+  .alerts-toolbar .el-radio-button { flex: 1; }
+  .alerts-toolbar .el-radio-button__inner { width: 100%; }
+  .alerts-grid > .el-col { max-width: 100%; }
+  .alerts-grid .el-card__body { padding: 12px; }
+  .alerts-pagination {
+    justify-content: center;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .mobile-data-card__actions .el-button + .el-button { margin-left: 0; }
+  .rule-condition-fields { align-items: stretch; }
+  .rule-condition-op { width: 82px; }
+  .rule-condition-value { min-width: 0; flex: 1; }
+  .rule-condition-unit { align-self: center; }
+  .rule-duration-fields { align-items: flex-start; flex-direction: column; }
 }
 </style>
