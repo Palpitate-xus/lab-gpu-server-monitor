@@ -3,29 +3,29 @@
     <el-alert v-if="loadError" type="error" :closable="false" show-icon style="margin-bottom:12px"
               :title="`数据加载失败：${loadError}，正在重试`" />
 
-    <div class="toolbar">
+    <div class="toolbar dashboard-toolbar">
       <el-button v-if="isAdminSession()" type="primary" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
       <el-button :icon="DataLine" @click="load()">刷新数据</el-button>
       <span style="color:var(--csub);font-size:13px" v-if="lastUpdate">上次采集: {{ fmtTime(lastUpdate) }}</span>
     </div>
 
-    <el-row :gutter="14">
-      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
+    <el-row :gutter="14" class="dashboard-kpis">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card dashboard-stat-card">
         <div class="stat-value">{{ stats.servers_online }}/{{ stats.servers_total }}</div>
         <div class="stat-label">在线服务器</div>
         <div class="stat-sub">异常 {{ stats.servers_error }} · 禁用 {{ stats.servers_disabled }}</div>
       </el-card></el-col>
-      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card dashboard-stat-card">
         <div class="stat-value">{{ stats.gpus_total }}</div>
         <div class="stat-label">GPU 总数</div>
         <div class="stat-sub">平均利用率 {{ stats.avg_gpu_util }}%</div>
       </el-card></el-col>
-      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
-        <div class="stat-value">{{ fmtSizeMB(stats.gpu_mem_used_mb) }} / {{ fmtSizeMB(stats.gpu_mem_total_mb) }}</div>
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card dashboard-stat-card">
+        <div class="stat-value dashboard-memory-value"><span>{{ fmtSizeMB(stats.gpu_mem_used_mb) }}</span><i>/</i><span>{{ fmtSizeMB(stats.gpu_mem_total_mb) }}</span></div>
         <div class="stat-label">GPU 显存</div>
         <div class="stat-sub">{{ gpuMemPct }}% 已用</div>
       </el-card></el-col>
-      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
+      <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card dashboard-stat-card">
         <div class="stat-value">{{ stats.avg_cpu_percent }}%</div>
         <div class="stat-label">平均 CPU 使用率</div>
         <div class="stat-sub">内存 {{ fmtSizeMB(stats.mem_used_mb) }} / {{ fmtSizeMB(stats.mem_total_mb) }}</div>
@@ -34,7 +34,7 @@
 
     <el-card class="page-card" style="margin-top:14px">
       <template #header>服务器状态</template>
-      <el-table :data="rows" v-loading="loading" @row-click="goDetail" style="cursor:pointer">
+      <el-table class="desktop-only" :data="rows" v-loading="loading" @row-click="goDetail" style="cursor:pointer">
         <el-table-column label="状态" width="70">
           <template #default="{ row }">
             <span v-if="!row.server_enabled" class="tag-dot dot-off" title="已禁用"></span>
@@ -80,6 +80,30 @@
           <template #default="{ row }">{{ fmtTime(row.collected_at) }}</template>
         </el-table-column>
       </el-table>
+      <div class="mobile-only dashboard-mobile-list" v-loading="loading">
+        <div v-if="rows.length" class="mobile-card-list">
+          <article v-for="row in rows" :key="row.server_id" class="mobile-data-card dashboard-server-card" role="button" tabindex="0" @click="goDetail(row)" @keyup.enter="goDetail(row)">
+            <div class="mobile-data-card__head">
+              <div class="dashboard-server-name">
+                <span class="tag-dot" :class="!row.server_enabled ? 'dot-off' : row.status === 'ok' ? 'dot-ok' : 'dot-err'"></span>
+                <b>{{ row.server_name }}</b>
+                <span>{{ row.hostname || '—' }}</span>
+              </div>
+              <el-tag size="small" :type="!row.server_enabled ? 'info' : row.status === 'ok' ? 'success' : 'danger'">
+                {{ !row.server_enabled ? '已禁用' : row.status === 'ok' ? '正常' : '异常' }}
+              </el-tag>
+            </div>
+            <div class="dashboard-resource-grid">
+              <div><span>CPU</span><b>{{ pct(row.cpu_percent) }}%</b><el-progress :percentage="pct(row.cpu_percent)" :show-text="false" :stroke-width="6" :color="cpuColor(row.cpu_percent)" /></div>
+              <div><span>内存</span><b>{{ memPct(row) }}%</b><el-progress :percentage="memPct(row)" :show-text="false" :stroke-width="6" :color="cpuColor(memPct(row))" /></div>
+              <div><span>GPU</span><b>{{ row.is_cpu_server ? 'CPU 服务器' : row.gpu_count ? pct(row.avgGpuUtil) + '%' : '无' }}</b><el-progress v-if="!row.is_cpu_server && row.gpu_count" :percentage="pct(row.avgGpuUtil)" :show-text="false" :stroke-width="6" :color="cpuColor(row.avgGpuUtil)" /></div>
+              <div><span>磁盘</span><b>{{ (row.disk_used_gb ?? 0).toFixed(0) }} / {{ (row.disk_total_gb ?? 0).toFixed(0) }} GB</b></div>
+            </div>
+            <div v-if="row.gpu_count" class="dashboard-gpu-memory">显存 {{ fmtSizeMB(row.gpuMemUsed) }} / {{ fmtSizeMB(row.gpuMemTotal) }}</div>
+          </article>
+        </div>
+        <el-empty v-else description="暂无服务器数据" :image-size="56" />
+      </div>
     </el-card>
   </div>
 </template>
@@ -153,7 +177,8 @@ async function load(silent = false) {
     if (a.status === 'fulfilled') stats.value = a.value.data
     if (b.status === 'fulfilled') metrics.value = b.value.data
     if (c.status === 'fulfilled') servers.value = c.value.data
-    loadError.value = ''
+    const failed = [a, b, c].filter(result => result.status === 'rejected').length
+    loadError.value = failed ? `${failed} 项数据暂时不可用，页面保留已加载内容` : ''
   } catch (e) {
     loadError.value = e.friendlyMessage || '加载失败'
   } finally {
@@ -186,3 +211,29 @@ onUnmounted(() => {
   if (refreshTimer) clearTimeout(refreshTimer)
 })
 </script>
+
+<style scoped>
+.dashboard-stat-card { min-height: 116px; }
+.dashboard-memory-value { display: flex; align-items: baseline; justify-content: center; gap: 7px; }
+.dashboard-memory-value i { color: var(--csub); font-size: .7em; font-style: normal; }
+.dashboard-mobile-list { min-height: 120px; }
+.dashboard-server-card { cursor: pointer; }
+.dashboard-server-name { min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 5px; }
+.dashboard-server-name .tag-dot { grid-row: 1 / 3; }
+.dashboard-server-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-server-name span:last-child { color: var(--csub); font: 11px ui-monospace, monospace; }
+.dashboard-resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.dashboard-resource-grid > div { min-width: 0; padding: 9px; border-radius: 8px; background: var(--cpanel2); }
+.dashboard-resource-grid span { display: block; margin-bottom: 4px; color: var(--csub); font-size: 11px; }
+.dashboard-resource-grid b { display: block; min-height: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.dashboard-resource-grid :deep(.el-progress) { margin-top: 6px; }
+.dashboard-gpu-memory { margin-top: 10px; color: var(--csub); font: 11px ui-monospace, monospace; }
+@media (max-width: 768px) {
+  .dashboard-toolbar > span { flex-basis: 100%; order: 3; }
+  .dashboard-kpis { row-gap: 10px; }
+  .dashboard-stat-card { min-height: 105px; }
+  .dashboard-memory-value { flex-direction: column; align-items: center; gap: 0; font-size: 17px; line-height: 1.15; }
+  .dashboard-memory-value i { display: none; }
+  .dashboard-kpis :deep(.el-card__body) { padding: 16px 10px; }
+}
+</style>
