@@ -489,7 +489,12 @@ def _archive_expired_metrics(cutoff: datetime) -> int | None:
 
             # Server metadata restores only missing FK targets, disabled and
             # without addresses or credentials.
-            for s in db.query(Server).order_by(Server.id.asc()):
+            servers = (
+                db.query(Server)
+                .options(load_only(Server.id, Server.name, Server.server_type, Server.tags))
+                .order_by(Server.id.asc())
+            )
+            for s in servers:
                 servers_tmp.write(
                     (
                         json.dumps(
@@ -853,7 +858,20 @@ def _inventory_one(server: Server) -> None:
 def _load_servers() -> list[Server]:
     db = SessionLocal()
     try:
-        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+        servers = (
+            db.query(Server)
+            .options(load_only(
+                Server.id,
+                Server.host,
+                Server.port,
+                Server.username,
+                Server.password,
+                Server.private_key,
+                Server.passphrase,
+            ))
+            .filter(Server.enabled.is_(True))
+            .all()
+        )
         for s in servers:
             db.expunge(s)
         return servers
@@ -940,6 +958,13 @@ def _expire_maintenance() -> None:
         now = datetime.now(timezone.utc)
         rows = (
             db.query(Server)
+            .options(load_only(
+                Server.id,
+                Server.name,
+                Server.status,
+                Server.status_reason,
+                Server.status_until,
+            ))
             .filter(Server.status == "maintenance",
                     Server.status_until.isnot(None),
                     Server.status_until <= now)
@@ -1201,7 +1226,18 @@ def _ipmi_cycle() -> None:
         return
     db = SessionLocal()
     try:
-        servers = db.query(Server).filter(Server.enabled.is_(True)).all()
+        servers = (
+            db.query(Server)
+            .options(load_only(
+                Server.id,
+                Server.name,
+                Server.bmc_host,
+                Server.bmc_user,
+                Server.bmc_password,
+            ))
+            .filter(Server.enabled.is_(True))
+            .all()
+        )
         targets = [
             (s.id, s.name, s.bmc_host, s.bmc_user, decrypt_text(s.bmc_password or ""))
             for s in servers if s.bmc_host

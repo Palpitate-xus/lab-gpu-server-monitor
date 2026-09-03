@@ -75,7 +75,12 @@ def _save_config(db: Session, cfg: dict) -> None:
 @router.get("/status-page/config")
 def get_config(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     cfg = _load_config(db)
-    servers = db.query(Server).order_by(Server.id).all()
+    servers = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.name, Server.enabled, Server.server_type))
+        .order_by(Server.id)
+        .all()
+    )
     return {
         "config": cfg,
         "available_servers": [

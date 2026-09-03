@@ -524,7 +524,12 @@ def run_detectors(server_id: int, latest_metric_id: Optional[int] = None) -> Non
     """Run all built-in detectors for one server after a fast collection."""
     db = SessionLocal()
     try:
-        server = db.get(Server, server_id)
+        server = (
+            db.query(Server)
+            .options(load_only(Server.id, Server.name, Server.status))
+            .filter(Server.id == server_id)
+            .first()
+        )
         if server is None:
             return
         if (server.status or "active") == "maintenance":
@@ -627,7 +632,12 @@ def health_tree(server_id: int, gpu_risks: Optional[list[dict]] = None) -> dict:
     """Aggregate per-host health model for the frontend tree view."""
     db = SessionLocal()
     try:
-        server = db.get(Server, server_id)
+        server = (
+            db.query(Server)
+            .options(load_only(Server.id, Server.name, Server.server_type))
+            .filter(Server.id == server_id)
+            .first()
+        )
         if server is None:
             return {}
         latest = (

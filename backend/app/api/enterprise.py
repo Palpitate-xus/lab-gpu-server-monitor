@@ -59,7 +59,12 @@ def server_health(server_id: int, db: Session = Depends(get_db),
 @router.get("/servers/{server_id}/risk")
 def server_gpu_risk(server_id: int, db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):
-    server = db.get(Server, server_id)
+    server = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.name))
+        .filter(Server.id == server_id)
+        .first()
+    )
     if server is None:
         raise HTTPException(404, "server not found")
     return {"server": server.name, "gpus": gpu_risk_score(server_id)}
@@ -69,7 +74,12 @@ def server_gpu_risk(server_id: int, db: Session = Depends(get_db),
 def server_overview(server_id: int, db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):
     """Health tree and GPU risk calculated from one shared risk scan."""
-    server = db.get(Server, server_id)
+    server = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.server_type))
+        .filter(Server.id == server_id)
+        .first()
+    )
     if server is None:
         raise HTTPException(404, "server not found")
     risks = gpu_risk_score(server_id) if server.server_type != "cpu" else []
@@ -126,7 +136,10 @@ def all_kernel_events(
     if event_type:
         q = q.filter(KernelEventRow.event_type == event_type)
     rows = q.order_by(KernelEventRow.collected_at.desc()).limit(1000).all()
-    servers = {s.id: s.name for s in db.query(Server).all()}
+    servers = {
+        s.id: s.name
+        for s in db.query(Server).options(load_only(Server.id, Server.name)).all()
+    }
     return [
         {
             "id": r.id,
@@ -203,7 +216,12 @@ def reset_hostkey(
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    server = db.get(Server, server_id)
+    server = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.host, Server.port))
+        .filter(Server.id == server_id)
+        .first()
+    )
     if server is None:
         raise HTTPException(404, "server not found")
     ip, bucket = check_step_up_limit(request, user, "hostkey-reset")
