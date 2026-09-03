@@ -20,9 +20,6 @@ importers:
       element-plus:
         specifier: ^2.9.1
         version: 2.14.5(vue@3.5.41)
-      pinia:
-        specifier: ^2.3.0
-        version: 2.3.1(vue@3.5.41)
       vue:
         specifier: ^3.5.13
         version: 3.5.41
@@ -633,15 +630,6 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  pinia@2.3.1:
-    resolution: {integrity: sha512-khUlZSwt9xXCaTbbxFYBKDc/bWAGWJjOgvxETwkTN7KRm66EeT1ZdZj6i2ceh9sP2Pzqsbc704r2yngBrxBVug==}
-    peerDependencies:
-      typescript: '>=4.4.4'
-      vue: ^2.7.0 || ^3.5.11
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   postcss@8.5.26:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
@@ -711,17 +699,6 @@ packages:
 
   vue-demi@0.13.11:
     resolution: {integrity: sha512-IR8HoEEGM65YY3ZJYAjMlKygDQn25D5ajNFNoKh9RSDMQtlzCxtfQjdQgv9jjK+m3377SsJXY8ysq8kLCZL25A==}
-    engines: {node: '>=12'}
-    hasBin: true
-    peerDependencies:
-      '@vue/composition-api': ^1.0.0-rc.1
-      vue: ^3.0.0-0 || ^2.6.0
-    peerDependenciesMeta:
-      '@vue/composition-api':
-        optional: true
-
-  vue-demi@0.14.10:
-    resolution: {integrity: sha512-nMZBOwuzabUO0nLgIcc6rycZEebF6eeUfaiQx9+WSk8e29IbLvPU9feI6tqW4kTo3hvoYAJkMh8n8D0fuISphg==}
     engines: {node: '>=12'}
     hasBin: true
     peerDependencies:
@@ -1240,14 +1217,6 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  pinia@2.3.1(vue@3.5.41):
-    dependencies:
-      '@vue/devtools-api': 6.6.4
-      vue: 3.5.41
-      vue-demi: 0.14.10(vue@3.5.41)
-    transitivePeerDependencies:
-      - '@vue/composition-api'
-
   postcss@8.5.26:
     dependencies:
       nanoid: 3.3.18
@@ -1311,10 +1280,6 @@ snapshots:
   vue-component-type-helpers@3.3.11: {}
 
   vue-demi@0.13.11(vue@3.5.41):
-    dependencies:
-      vue: 3.5.41
-
-  vue-demi@0.14.10(vue@3.5.41):
     dependencies:
       vue: 3.5.41
 

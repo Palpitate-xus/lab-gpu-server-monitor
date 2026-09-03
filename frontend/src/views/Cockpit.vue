@@ -272,7 +272,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Close, Refresh, CircleCheckFilled } from '@element-plus/icons-vue'
+import {
+  CircleCheckFilled,
+  CircleCloseFilled,
+  Close,
+  Refresh,
+  WarningFilled,
+} from '@element-plus/icons-vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'

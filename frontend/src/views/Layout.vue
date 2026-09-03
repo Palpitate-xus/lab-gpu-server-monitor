@@ -86,7 +86,21 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { Close } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  Bell,
+  Close,
+  Cpu,
+  DataBoard,
+  Grid,
+  Menu,
+  Monitor,
+  Odometer,
+  QuestionFilled,
+  Setting,
+  TrendCharts,
+  UserFilled,
+} from '@element-plus/icons-vue'
 import api from '../api'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { clearSession, getSession, isAdminSession } from '../composables'
