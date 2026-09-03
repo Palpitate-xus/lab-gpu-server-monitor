@@ -11,6 +11,8 @@ html, body, #app {
 
 /* el container fills theme background too */
 .layout { height: 100%; background: var(--cbg, #f2f5fa); }
+/* Layout imports the cockpit palette, but must not inherit page-level padding. */
+.layout.cockpit { padding: 0; }
 .layout .el-header {
   background: var(--cpanel, #fff);
   border-bottom: 1px solid var(--cborder, #dde5f0);
@@ -23,7 +25,7 @@ html, body, #app {
   background: var(--cpanel2, #f7f9fc);
   border-right: 1px solid var(--cborder, #dde5f0);
 }
-.layout .el-main { padding: 16px; overflow-y: auto; }
+.layout .el-main { min-width: 0; padding: 16px; overflow-y: auto; }
 
 .metric-grid {
   display: grid;
@@ -50,6 +52,49 @@ html, body, #app {
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .gpu-card { margin-bottom: 12px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+
+.mobile-only { display: none !important; }
+.table-scroll-hint {
+  display: none;
+  margin: -2px 0 8px;
+  color: var(--csub, #64748b);
+  font-size: 12px;
+}
+.mobile-card-list {
+  display: grid;
+  gap: 10px;
+}
+.mobile-data-card {
+  padding: 14px;
+  border: 1px solid var(--cborder, #dde5f0);
+  border-radius: 10px;
+  background: var(--cpanel, #fff);
+  box-shadow: 0 5px 18px -14px rgba(15, 23, 42, .55);
+}
+.mobile-data-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.mobile-data-card__title { min-width: 0; font-weight: 650; }
+.mobile-data-card__meta {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) 1fr;
+  gap: 7px 12px;
+  color: var(--ctext, #1f2d3d);
+  font-size: 13px;
+}
+.mobile-data-card__meta > span:nth-child(odd) { color: var(--csub, #64748b); }
+.mobile-data-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cborder, #dde5f0);
+}
 
 .process-table-pid { color: var(--csub, #64748b); }
 
@@ -83,5 +128,26 @@ html, body, #app {
 @media (max-width: 768px) {
   .layout .el-aside { display: none; }
   .layout .el-main { padding: 10px; }
+  .layout .el-main > .cockpit { padding: 8px 0 20px; }
   .toolbar { gap: 8px; }
+  .desktop-only { display: none !important; }
+  .mobile-only { display: block !important; }
+  .table-scroll-hint { display: block; }
+  .responsive-dialog .el-dialog__body { padding: 16px; }
+  .responsive-dialog .responsive-form .el-form-item { display: block; }
+  .responsive-dialog .responsive-form .el-form-item__label {
+    width: auto !important;
+    height: auto;
+    padding: 0 0 6px;
+    line-height: 1.4;
+  }
+  .responsive-dialog .responsive-form .el-form-item__content { margin-left: 0 !important; }
+}
+
+@media (max-width: 640px) {
+  .responsive-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    margin-top: 5vh !important;
+  }
 }
