@@ -1,5 +1,5 @@
 <template>
-  <div class="gm-page">
+  <div class="gm-page" v-loading="loading && !matrix.length">
     <el-alert v-if="error" type="error" :closable="false" show-icon style="margin-bottom:14px"
       :title="`数据加载失败：${error}`" />
 
@@ -16,16 +16,16 @@
       </div>
       <div class="gm-toolbar-right">
         <el-input v-model="search" placeholder="搜索 GPU 型号 / 服务器" clearable size="small"
-          style="width:190px" :prefix-icon="Search" />
-        <el-select v-model="serverFilter" size="small" style="width:150px" placeholder="全部服务器" clearable>
+          class="gm-filter gm-filter-search" aria-label="搜索 GPU 型号或服务器" :prefix-icon="Search" />
+        <el-select v-model="serverFilter" size="small" class="gm-filter gm-filter-server" placeholder="全部服务器" clearable aria-label="按服务器筛选">
           <el-option v-for="s in servers" :key="s.server_id" :value="s.server_id" :label="s.server_name" />
         </el-select>
-        <el-select v-model="stateFilter" size="small" style="width:110px">
+        <el-select v-model="stateFilter" size="small" class="gm-filter gm-filter-state" aria-label="按忙闲状态筛选">
           <el-option value="all" label="全部状态" />
           <el-option value="busy" label="繁忙" />
           <el-option value="idle" label="空闲" />
         </el-select>
-        <el-button-group size="small">
+        <el-button-group size="small" class="gm-sort-group" aria-label="GPU 排序方式">
           <el-button v-for="opt in sortOptions" :key="opt.value"
             :type="sortBy === opt.value ? 'primary' : 'default'" @click="pickSort(opt.value)">
             {{ opt.label }}<span v-if="sortBy === opt.value" class="gm-dir">{{ asc ? ' ↑' : ' ↓' }}</span>
@@ -38,7 +38,11 @@
     <!-- grid -->
     <div v-if="sorted.length" class="gm-grid">
       <div v-for="(g, i) in sorted" :key="g.key" class="gm-card cockpit-panel"
-        :class="cellClass(g)" @click="$router.push(`/servers/${g.server_id}`)">
+        :class="cellClass(g)" role="link" tabindex="0"
+        :aria-label="`查看 ${g.server_name} 的 GPU ${g.index} 详情`"
+        @click="$router.push(`/servers/${g.server_id}`)"
+        @keydown.enter.prevent="$router.push(`/servers/${g.server_id}`)"
+        @keydown.space.prevent="$router.push(`/servers/${g.server_id}`)">
         <div class="gm-rank">#{{ i + 1 }}</div>
         <div class="gm-head">
           <div class="gm-id">
@@ -107,7 +111,7 @@ function pickSort(v) {
   else { sortBy.value = v; asc.value = false }
 }
 
-const { lastUpdated, error } = usePoll(async () => {
+const { loading, lastUpdated, error } = usePoll(async () => {
   const { data } = await api.get('/metrics/cluster-gpus')
   matrix.value = data || []
 }, 30000)
@@ -182,6 +186,9 @@ function ringStyle(u) {
 .gm-title { font-size: 15px; }
 .gm-dir { font-weight: 700; }
 .gm-updated { font-size: 12px; color: var(--csub); }
+.gm-filter-search { width: 190px; }
+.gm-filter-server { width: 150px; }
+.gm-filter-state { width: 110px; }
 
 .gm-grid {
   display: grid;
@@ -196,6 +203,11 @@ function ringStyle(u) {
   display: flex; flex-direction: column; gap: 10px;
 }
 .gm-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(8, 145, 178, .12); }
+.gm-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--cprimary) 40%, transparent);
+  outline-offset: 2px;
+  transform: translateY(-2px);
+}
 .gm-idle  { border-left: 3px solid #34d399; }
 .gm-busy  { border-left: 3px solid #22d3ee; }
 .gm-full  { border-left: 3px solid #f87171; }
@@ -206,7 +218,8 @@ function ringStyle(u) {
   font-size: 12px; color: var(--csub); font-variant-numeric: tabular-nums;
 }
 
-.gm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.gm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding-right: 28px; }
+.gm-id { min-width: 0; }
 .gm-id b { font-size: 14px; }
 .gm-idx { margin-left: 6px; font-size: 11px; color: var(--csub); }
 .gm-model {
@@ -246,8 +259,28 @@ function ringStyle(u) {
 
 .mono { font-variant-numeric: tabular-nums; }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .gm-toolbar { flex-direction: column; align-items: stretch; }
-  .gm-toolbar-right { justify-content: flex-start; }
+  .gm-toolbar-left { row-gap: 7px; }
+  .gm-title { width: 100%; font-size: 16px; }
+  .gm-toolbar-right {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+  .gm-filter { width: 100%; min-width: 0; }
+  .gm-filter-search { grid-column: 1 / -1; }
+  .gm-sort-group {
+    display: flex;
+    grid-column: 1 / -1;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .gm-sort-group :deep(.el-button) { min-width: max-content; flex: 1; padding-inline: 10px; }
+  .gm-updated { grid-column: 1 / -1; text-align: right; }
+  .gm-grid { grid-template-columns: minmax(0, 1fr); }
+  .gm-card { padding: 14px; }
 }
 </style>
