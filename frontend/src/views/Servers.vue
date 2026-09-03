@@ -1,6 +1,6 @@
 <template>
   <div class="cockpit">
-    <div class="toolbar">
+    <div class="toolbar server-toolbar">
       <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">添加服务器</el-button>
       <el-button :icon="Refresh" @click="load">刷新</el-button>
       <el-input v-model="keyword" placeholder="搜索名称 / IP" clearable style="width: 220px" :prefix-icon="Search" />
@@ -15,8 +15,8 @@
       </el-select>
     </div>
 
-    <el-card>
-      <el-table :data="filtered" v-loading="loading" max-height="640">
+    <el-card class="server-list-card">
+      <el-table class="desktop-only" :data="filtered" v-loading="loading" max-height="640">
         <el-table-column prop="name" label="名称" min-width="140">
           <template #default="{ row }">
             <el-link type="primary" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</el-link>
@@ -70,10 +70,43 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-only" v-loading="loading">
+        <div v-if="filtered.length" class="mobile-card-list">
+          <article v-for="row in filtered" :key="row.id" class="mobile-data-card server-mobile-card">
+            <div class="mobile-data-card__head">
+              <div class="mobile-data-card__title">
+                <el-link type="primary" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</el-link>
+                <div class="server-address mono">{{ isAdmin ? `${row.host}:${row.port}` : '地址仅管理员可见' }}</div>
+              </div>
+              <div class="server-card-status">
+                <el-tag :type="(row.server_type || 'gpu') === 'gpu' ? 'success' : 'info'" size="small">{{ (row.server_type || 'gpu') === 'gpu' ? 'GPU' : 'CPU' }}</el-tag>
+                <el-tag :type="statusTagType(row.status)" size="small" effect="dark">{{ statusCn[row.status] || '运行中' }}</el-tag>
+              </div>
+            </div>
+            <div v-if="row.tags?.length" class="server-card-tags">
+              <el-tag v-for="t in row.tags" :key="t" size="small" effect="plain">{{ t }}</el-tag>
+            </div>
+            <div class="mobile-data-card__meta">
+              <span>认证</span><span>{{ isAdmin ? (row.auth_type === 'key' ? 'SSH 密钥' : '用户名 / 密码') : '受保护' }}</span>
+              <span>启用采集</span><el-switch v-model="row.enabled" :disabled="!isAdmin" @change="toggleEnabled(row)" />
+              <template v-if="row.status_reason"><span>状态说明</span><span>{{ row.status_reason }}</span></template>
+              <template v-if="row.note"><span>备注</span><span>{{ row.note }}</span></template>
+            </div>
+            <div v-if="isAdmin" class="mobile-data-card__actions">
+              <el-button size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button size="small" type="warning" :loading="testingId === row.id" @click="testExisting(row)">测试连接</el-button>
+              <el-popconfirm title="确定删除该服务器？" @confirm="remove(row)">
+                <template #reference><el-button size="small" type="danger" plain>删除</el-button></template>
+              </el-popconfirm>
+            </div>
+          </article>
+        </div>
+        <el-empty v-else description="没有符合筛选条件的服务器" :image-size="60" />
+      </div>
     </el-card>
 
-    <el-dialog v-model="dlg" :title="editId ? '编辑服务器' : '添加服务器'" width="580px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+    <el-dialog v-model="dlg" :title="editId ? '编辑服务器' : '添加服务器'" width="580px" class="responsive-dialog server-dialog">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="responsive-form">
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="如 gpu-node-01" />
         </el-form-item>
@@ -353,3 +386,15 @@ async function testExisting(row) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.server-card-status { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.server-address { margin-top: 5px; color: var(--csub); font-size: 11px; font-weight: 400; }
+.server-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 12px; }
+.server-mobile-card :deep(.el-switch) { justify-self: start; }
+@media (max-width: 768px) {
+  .server-toolbar .el-input,
+  .server-toolbar .el-select { width: 100% !important; }
+  .server-list-card :deep(.el-card__body) { padding: 12px; }
+}
+</style>
