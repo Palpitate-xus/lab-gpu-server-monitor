@@ -34,6 +34,20 @@ server {
     ssl_session_tickets off;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_types
+        application/javascript
+        application/json
+        application/xml
+        image/svg+xml
+        text/css
+        text/javascript
+        text/plain;
+
     client_max_body_size 1m;
     large_client_header_buffers 4 16k;
     max_ranges 5;

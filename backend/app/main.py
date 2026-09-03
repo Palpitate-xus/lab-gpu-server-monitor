@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from starlette.middleware.gzip import GZipMiddleware
 
 from .config import PUBLIC_SECRET_PLACEHOLDERS, get_settings
 from .schemas import SettingsUpdate
@@ -439,6 +440,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# Compress large JSON and static assets for direct deployments. A reverse
+# proxy honors the upstream Content-Encoding header and will not recompress.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 
 if settings.CORS_ORIGINS:
