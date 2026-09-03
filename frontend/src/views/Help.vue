@@ -125,7 +125,7 @@
                 <div class="step-marker">3</div>
                 <div class="step-body">
                   <h3>添加到 MCP 宿主</h3>
-                  <p>把以下启动信息加入宿主的 MCP 配置，并替换 viewer 密码。</p>
+                  <p>把以下启动信息加入宿主的 MCP 配置，并替换项目路径、viewer 密码与独立 HMAC 密钥。</p>
                   <div class="code-block">
                     <div class="code-toolbar">
                       <span>JSON</span>
@@ -172,13 +172,20 @@
               </div>
             </template>
 
-            <el-table :data="tools" class="tool-table" stripe>
+            <el-table :data="tools" class="tool-table desktop-only" stripe>
               <el-table-column prop="name" label="工具" min-width="280">
                 <template #default="{ row }"><code class="tool-name">{{ row.name }}</code></template>
               </el-table-column>
               <el-table-column prop="purpose" label="用途" min-width="210" />
               <el-table-column prop="returns" label="主要返回" min-width="260" />
             </el-table>
+            <div class="mobile-only tool-card-list">
+              <article v-for="tool in tools" :key="tool.name" class="tool-card">
+                <code class="tool-name">{{ tool.name }}</code>
+                <p>{{ tool.purpose }}</p>
+                <div><span>主要返回</span>{{ tool.returns }}</div>
+              </article>
+            </div>
           </el-card>
         </section>
 
@@ -300,7 +307,7 @@ import { isAdminSession } from '../composables'
 const router = useRouter()
 const isAdmin = computed(() => isAdminSession())
 const monitorUrl = window.location.origin
-const projectRoot = '/home/xusheng/workspace/gpu_monitor'
+const projectRoot = '/path/to/gpu_monitor'
 
 const toc = [
   { id: 'overview', index: '01', label: '工作方式' },
@@ -390,7 +397,8 @@ const hostConfig = computed(() => JSON.stringify({
   },
 }, null, 2))
 
-const testCommand = `${projectRoot}/.venv-mcp/bin/python -m pytest -q ${projectRoot}/mcp_server/tests`
+const testCommand = `cd ${projectRoot}
+.venv-mcp/bin/python -m pytest -q mcp_server/tests`
 
 function scrollTo(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -421,17 +429,17 @@ async function copyText(text, label) {
 .help-page {
   --help-accent: var(--cprimary);
   --help-accent-soft: color-mix(in srgb, var(--cprimary) 12%, transparent);
-  max-width: 1400px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
 .help-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 30px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
   align-items: center;
-  padding: 34px 38px;
+  padding: 28px 32px;
   margin-bottom: 18px;
   overflow: hidden;
   border: 1px solid var(--cborder);
@@ -472,7 +480,7 @@ async function copyText(text, label) {
 .hero-copy h1 {
   margin: 0 0 12px;
   color: var(--ctext);
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: clamp(27px, 3vw, 37px);
   line-height: 1.18;
   letter-spacing: -0.025em;
 }
@@ -489,7 +497,7 @@ async function copyText(text, label) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .endpoint-card {
@@ -526,7 +534,7 @@ async function copyText(text, label) {
 
 .help-layout {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: 196px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -598,12 +606,12 @@ async function copyText(text, label) {
 }
 
 .doc-card :deep(.el-card__header) {
-  padding: 18px 22px;
+  padding: 16px 20px;
   border-color: var(--cborder);
 }
 
 .doc-card :deep(.el-card__body) {
-  padding: 22px;
+  padding: 20px;
 }
 
 .section-heading {
@@ -863,6 +871,36 @@ async function copyText(text, label) {
   font-weight: 700;
 }
 
+.tool-card-list { min-width: 0; }
+.tool-card {
+  padding: 13px;
+  border: 1px solid var(--cborder);
+  border-radius: 9px;
+  background: var(--cpanel2);
+}
+.tool-card + .tool-card { margin-top: 9px; }
+.tool-card .tool-name {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.tool-card p {
+  margin: 7px 0 10px;
+  color: var(--ctext);
+  font-size: 13px;
+}
+.tool-card div {
+  color: var(--csub);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.tool-card div span {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
 .config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1005,37 +1043,49 @@ async function copyText(text, label) {
   }
 
   .help-toc {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    min-width: 0;
   }
 
   .help-toc :deep(.el-card__body) {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    padding: 7px;
+    scrollbar-width: thin;
   }
 
   .toc-title {
-    grid-column: 1 / -1;
+    display: none;
+  }
+
+  .help-toc button {
+    width: auto;
+    min-width: max-content;
+    padding: 8px 10px;
   }
 }
 
 @media (max-width: 620px) {
   .help-hero {
-    padding: 24px 20px;
+    gap: 18px;
+    padding: 21px 17px;
     border-radius: 10px;
   }
 
   .hero-copy h1 {
-    font-size: 27px;
+    font-size: 25px;
+    line-height: 1.25;
   }
+
+  .hero-copy p { font-size: 13px; line-height: 1.7; }
+  .endpoint-card { padding: 15px; }
 
   .doc-card :deep(.el-card__header),
   .doc-card :deep(.el-card__body) {
     padding: 16px;
-  }
-
-  .help-toc :deep(.el-card__body) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .flow {
@@ -1065,5 +1115,8 @@ async function copyText(text, label) {
     flex-direction: column;
     gap: 5px;
   }
+
+  .code-block pre { padding: 12px; }
+  .code-block code { font-size: 11px; }
 }
 </style>
