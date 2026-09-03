@@ -437,30 +437,31 @@ def _detect_storage_bottleneck(db, server: Server, m: ServerMetric) -> None:
 
 # ---------------------------------------------------------------- risk score
 
-def gpu_risk_score(server_id: int) -> list[dict]:
-    """0-100 per-GPU risk from the last 24h: ECC, Xid, thermal throttle, temp, power cap."""
+def gpu_risk_scores(server_ids: list[int]) -> dict[int, list[dict]]:
+    """Calculate exact 24h GPU risks for many servers in two streamed queries."""
+    ordered_ids = list(dict.fromkeys(server_ids))
+    result: dict[int, list[dict]] = {server_id: [] for server_id in ordered_ids}
+    if not ordered_ids:
+        return result
+
     db = SessionLocal()
     try:
         since = datetime.now(timezone.utc) - timedelta(hours=24)
         metrics = (
-            db.query(ServerMetric)
-            .options(load_only(ServerMetric.gpus, ServerMetric.collected_at, ServerMetric.status))
-            .filter(ServerMetric.server_id == server_id,
+            db.query(ServerMetric.server_id, ServerMetric.gpus)
+            .filter(ServerMetric.server_id.in_(ordered_ids),
                     ServerMetric.collected_at >= since,
                     ServerMetric.status == "ok")
-            .order_by(ServerMetric.collected_at.asc())
-            .all()
+            .order_by(ServerMetric.server_id.asc(), ServerMetric.collected_at.asc())
+            .execution_options(stream_results=True)
+            .yield_per(500)
         )
-        xids = (
-            db.query(KernelEventRow)
-            .filter(KernelEventRow.server_id == server_id,
-                    KernelEventRow.event_type == "GPU_XID",
-                    KernelEventRow.collected_at >= since)
-            .all()
-        )
-        uuids: dict[str, dict] = {}
-        for m in metrics:
-            for g in (m.gpus or []):
+        by_server: dict[int, dict[str, dict]] = {
+            server_id: {} for server_id in ordered_ids
+        }
+        for server_id, gpus in metrics:
+            uuids = by_server[server_id]
+            for g in (gpus or []):
                 u = g.get("uuid")
                 if not u:
                     continue
@@ -477,38 +478,67 @@ def gpu_risk_score(server_id: int) -> list[dict]:
                     d["thermal_throttle_samples"] += 1
                 if "SW_POWER_CAP" in reasons:
                     d["power_cap_samples"] += 1
-                d["ecc_uncorrected_max"] = max(d["ecc_uncorrected_max"], g.get("ecc_uncorrected_volatile", 0) or 0)
-                d["ecc_corrected_max"] = max(d["ecc_corrected_max"], g.get("ecc_corrected_volatile", 0) or 0)
-                if g.get("pcie_width_max") and g.get("pcie_width_current") and g["pcie_width_current"] < g["pcie_width_max"]:
+                d["ecc_uncorrected_max"] = max(
+                    d["ecc_uncorrected_max"], g.get("ecc_uncorrected_volatile", 0) or 0
+                )
+                d["ecc_corrected_max"] = max(
+                    d["ecc_corrected_max"], g.get("ecc_corrected_volatile", 0) or 0
+                )
+                if (
+                    g.get("pcie_width_max")
+                    and g.get("pcie_width_current")
+                    and g["pcie_width_current"] < g["pcie_width_max"]
+                ):
                     d["pcie_degraded_samples"] += 1
-        for x in xids:
-            u = x.gpu_uuid
-            if u in uuids:
-                uuids[u]["xid_events"] += 1
-        out = []
-        for d in uuids.values():
-            score = 0
-            score += min(40, d["xid_events"] * 20)
-            score += min(25, d["ecc_uncorrected_max"] * 5)
-            score += min(15, 10 if d["ecc_corrected_max"] > 100 else (5 if d["ecc_corrected_max"] > 0 else 0))
-            if d["thermal_throttle_samples"] > 0:
-                score += min(15, 5 + d["thermal_throttle_samples"])
-            if d["max_temp"] >= 85:
-                score += 5
-            if d["pcie_degraded_samples"] > max(1, d["samples"] // 10):
-                score += 5
-            d["risk"] = min(100, score)
-            if d["risk"] >= 60:
-                d["risk_label"] = "高危"
-            elif d["risk"] >= 30:
-                d["risk_label"] = "关注"
-            else:
-                d["risk_label"] = "健康"
-            out.append(d)
-        out.sort(key=lambda x: -x["risk"])
-        return out
+
+        xids = (
+            db.query(KernelEventRow.server_id, KernelEventRow.gpu_uuid)
+            .filter(KernelEventRow.server_id.in_(ordered_ids),
+                    KernelEventRow.event_type == "GPU_XID",
+                    KernelEventRow.collected_at >= since)
+            .execution_options(stream_results=True)
+            .yield_per(500)
+        )
+        for server_id, gpu_uuid in xids:
+            if gpu_uuid in by_server[server_id]:
+                by_server[server_id][gpu_uuid]["xid_events"] += 1
+
+        for server_id, uuids in by_server.items():
+            out = []
+            for d in uuids.values():
+                score = 0
+                score += min(40, d["xid_events"] * 20)
+                score += min(25, d["ecc_uncorrected_max"] * 5)
+                score += min(
+                    15,
+                    10
+                    if d["ecc_corrected_max"] > 100
+                    else (5 if d["ecc_corrected_max"] > 0 else 0),
+                )
+                if d["thermal_throttle_samples"] > 0:
+                    score += min(15, 5 + d["thermal_throttle_samples"])
+                if d["max_temp"] >= 85:
+                    score += 5
+                if d["pcie_degraded_samples"] > max(1, d["samples"] // 10):
+                    score += 5
+                d["risk"] = min(100, score)
+                if d["risk"] >= 60:
+                    d["risk_label"] = "高危"
+                elif d["risk"] >= 30:
+                    d["risk_label"] = "关注"
+                else:
+                    d["risk_label"] = "健康"
+                out.append(d)
+            out.sort(key=lambda x: -x["risk"])
+            result[server_id] = out
+        return result
     finally:
         db.close()
+
+
+def gpu_risk_score(server_id: int) -> list[dict]:
+    """0-100 per-GPU risk from the last 24h: ECC, Xid, thermal throttle, temp, power cap."""
+    return gpu_risk_scores([server_id])[server_id]
 
 
 # ---------------------------------------------------------------- entry point

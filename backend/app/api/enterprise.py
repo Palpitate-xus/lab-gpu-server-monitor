@@ -462,15 +462,12 @@ def _gpu_analysis(db: Session):
         .all()
     }
 
-    from concurrent.futures import ThreadPoolExecutor
+    from ..health import gpu_risk_scores
 
-    def _risks_for(server_id: int):
-        from ..health import gpu_risk_score
-
-        return server_id, {r["uuid"]: r for r in gpu_risk_score(server_id)}
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        risks_by_srv = dict(ex.map(_risks_for, [s.id for s in servers if s.id in latest_by_srv]))
+    risks_by_srv = {
+        server_id: {risk["uuid"]: risk for risk in risks}
+        for server_id, risks in gpu_risk_scores(list(latest_by_srv)).items()
+    }
 
     out = []
     for s in servers:
