@@ -3,9 +3,9 @@
     <el-alert v-if="invalidId" title="无效的服务器 ID" type="warning" show-icon :closable="false" style="margin-bottom:14px">
       <template #default>请返回 <el-link type="primary" @click="$router.push('/servers')">服务器列表</el-link> 重新进入。</template>
     </el-alert>
-    <div class="toolbar">
+    <div class="toolbar detail-toolbar">
       <el-page-header @back="$router.push('/servers')" :content="server?.name || '...'" />
-      <div style="display:flex;gap:10px;align-items:center">
+      <div class="detail-toolbar-actions">
         <el-tag v-if="metric?.status === 'ok'" type="success">正常</el-tag>
         <el-tag v-else-if="metric" type="danger">采集异常</el-tag>
         <el-tag v-if="server?.status && server.status !== 'active'" type="warning" effect="dark">
@@ -26,11 +26,19 @@
       </div>
     </div>
 
+    <nav v-if="metric" class="detail-jump-nav" aria-label="服务器详情分区导航">
+      <button type="button" @click="scrollToSection('detail-health')">健康</button>
+      <button type="button" @click="scrollToSection('detail-resources')">资源</button>
+      <button v-if="isGpuServer" type="button" @click="scrollToSection('detail-gpus')">GPU</button>
+      <button type="button" @click="scrollToSection('detail-trends')">趋势</button>
+      <button type="button" @click="scrollToSection('detail-enterprise')">硬件与事件</button>
+    </nav>
+
     <template v-if="metric">
       <el-alert v-if="metric.status !== 'ok'" :title="`采集失败: ${metric.error}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
 
       <!-- ===== health model tree ===== -->
-      <el-card v-if="health && health.categories" class="page-card" style="margin-top:14px">
+      <el-card id="detail-health" v-if="health && health.categories" class="page-card detail-section" style="margin-top:14px">
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>健康模型</span>
@@ -56,23 +64,23 @@
       </el-card>
 
       <!-- ===== btop-style overview stats ===== -->
-      <el-row :gutter="14">
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
+      <el-row id="detail-resources" :gutter="14" class="detail-kpis detail-section">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
           <div class="stat-value" :style="{color: utilColor(metric.cpu_percent)}">{{ metric.cpu_percent }}%</div>
           <div class="stat-label">CPU ({{ metric.cpu_count }} 核 {{ fmtFreq(metric.cpu_freq_avg) }})</div>
           <div class="stat-sub">{{ metric.cpu_model || '—' }}</div>
         </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
-          <div class="stat-value">{{ fmtSizeMB(metric.mem_used_mb) }} / {{ fmtSizeMB(metric.mem_total_mb) }}</div>
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+          <div class="stat-value detail-capacity-value">{{ fmtSizeMB(metric.mem_used_mb) }} <i>/</i> {{ fmtSizeMB(metric.mem_total_mb) }}</div>
           <div class="stat-label">内存 ({{ memPct }}%)</div>
           <div class="stat-sub">可用 {{ fmtSizeMB(metric.mem_available_mb) }} · 缓存 {{ fmtSizeMB(metric.mem_cached_mb) }} · Swap {{ fmtSizeMB(metric.swap_used_mb) }}/{{ fmtSizeMB(metric.swap_total_mb) }}</div>
         </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
-          <div class="stat-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} / {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+          <div class="stat-value detail-capacity-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} <i>/</i> {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
           <div class="stat-label">磁盘 ({{ diskPct }}%)</div>
           <div class="stat-sub">{{ (metric.disks||[]).length }} 个挂载点</div>
         </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card">
+        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
           <div class="stat-value">{{ fmtUptime(metric.uptime_seconds) }}</div>
           <div class="stat-label">运行时长</div>
           <div class="stat-sub">{{ metric.os }} · {{ metric.kernel }}</div>
@@ -82,7 +90,7 @@
       <!-- ===== per-core grid (btop style) ===== -->
       <el-card class="page-card" style="margin-top:14px">
         <template #header>
-          <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="detail-card-head">
             <span>CPU 核心 ({{ cores.length }})</span>
             <div style="display:flex;gap:16px;font-size:12px;color:var(--csub);align-items:center">
               <span>负载 {{ (metric.load1 ?? 0).toFixed(2) }} / {{ (metric.load5 ?? 0).toFixed(2) }} / {{ (metric.load15 ?? 0).toFixed(2) }}</span>
@@ -105,20 +113,20 @@
       </el-card>
 
       <!-- ===== GPU cards (GPU servers only) ===== -->
-      <el-card v-if="isGpuServer" class="page-card">
+      <el-card id="detail-gpus" v-if="isGpuServer" class="page-card detail-section">
         <template #header>
-          <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="detail-card-head">
             <span>GPU ({{ gpus.length }})</span>
             <span style="color:var(--csub);font-size:13px">驱动 {{ metric.gpu_driver || '—' }}</span>
           </div>
         </template>
         <el-empty v-if="!gpus.length" description="未检测到 GPU（nvidia-smi 不可用）" :image-size="60" />
         <el-row :gutter="14" v-else>
-          <el-col :span="12" v-for="g in gpus" :key="g.uuid + g.index">
+          <el-col :span="12" :xs="{ span: 24 }" v-for="g in gpus" :key="g.uuid + g.index">
             <el-card class="gpu-card" shadow="hover">
-              <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:center">
+              <div class="gpu-card-head">
                 <b>GPU {{ g.index }} · {{ g.name }}</b>
-                <div style="display:flex;gap:6px;align-items:center">
+                <div class="gpu-card-tags">
                   <el-tag v-if="gpuRisk(g.uuid)?.risk >= 30" size="small" :type="gpuRisk(g.uuid).risk >= 60 ? 'danger' : 'warning'" effect="dark">风险 {{ gpuRisk(g.uuid).risk }}</el-tag>
                   <el-tag v-if="g.throttle_reasons?.length" size="small" type="warning" effect="plain">降频: {{ throttleShort(g.throttle_reasons) }}</el-tag>
                   <el-tag v-if="g.pstate" size="small" type="info">{{ g.pstate }}</el-tag>
@@ -166,7 +174,7 @@
 
       <!-- ===== network & disk IO rates ===== -->
       <el-row :gutter="14">
-        <el-col :span="12">
+        <el-col :span="12" :xs="{ span: 24 }">
           <el-card class="page-card">
             <template #header><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
             <el-table :data="metric.net_ifaces || []" size="small" max-height="260">
@@ -181,7 +189,7 @@
             <el-empty v-if="!(metric.net_ifaces||[]).length" description="暂无活动接口" :image-size="40" />
           </el-card>
         </el-col>
-        <el-col :span="12">
+        <el-col :span="12" :xs="{ span: 24 }">
           <el-card class="page-card">
             <template #header><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
             <el-table :data="metric.disk_io || []" size="small" max-height="260">
@@ -206,7 +214,7 @@
 
       <!-- ===== disks + logged users ===== -->
       <el-row :gutter="14">
-        <el-col :span="16">
+        <el-col :span="16" :xs="{ span: 24 }">
           <el-card class="page-card">
             <template #header>磁盘分区</template>
             <el-table :data="metric.disks || []" size="small" max-height="300">
@@ -223,7 +231,7 @@
             </el-table>
           </el-card>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="8" :xs="{ span: 24 }">
           <el-card class="page-card">
             <template #header>登录用户</template>
             <el-table :data="metric.users || []" size="small" max-height="260">
@@ -239,9 +247,9 @@
       <!-- ===== live process table (btop parity: sort/kill/renice) ===== -->
       <el-card v-if="isAdmin" class="page-card">
         <template #header>
-          <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="detail-card-head process-card-head">
             <span>进程 (实时 SSH · {{ procs.length }})</span>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div class="process-card-actions">
               <el-radio-group v-model="procSort" size="small" @change="loadProcs">
                 <el-radio-button value="cpu">CPU</el-radio-button>
                 <el-radio-button value="mem">内存</el-radio-button>
@@ -284,9 +292,9 @@
       </el-card>
 
       <!-- ===== history charts (cockpit style, multi-panel) ===== -->
-      <el-card class="page-card">
+      <el-card id="detail-trends" class="page-card detail-section">
         <template #header>
-          <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="detail-card-head trend-card-head">
             <span>资源消耗趋势</span>
             <el-radio-group v-model="hours" size="small" @change="loadHistory">
               <el-radio-button :value="1">1小时</el-radio-button>
@@ -298,23 +306,23 @@
           </div>
         </template>
         <el-row :gutter="14">
-          <el-col v-if="isGpuServer" :span="12">
+          <el-col v-if="isGpuServer" :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
             <v-chart v-if="history.length" :option="gpuChartOption" class="chart-box" autoresize />
             <el-empty v-else description="暂无历史数据" :image-size="50" />
           </el-col>
-          <el-col :span="isGpuServer ? 12 : 24">
+          <el-col :span="isGpuServer ? 12 : 24" :xs="{ span: 24 }">
             <div class="chart-sub-title">CPU / 内存 / Swap / 每核负载</div>
             <v-chart v-if="history.length" :option="sysChartOption" class="chart-box" autoresize />
             <el-empty v-else description="暂无历史数据" :image-size="50" />
           </el-col>
         </el-row>
         <el-row :gutter="14" style="margin-top:8px">
-          <el-col :span="12">
+          <el-col :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">网络吞吐 (接收 / 发送)<RateUnitPicker kind="net" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="netChartOption" class="chart-box-sm" autoresize />
           </el-col>
-          <el-col :span="12">
+          <el-col :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (读 / 写)<RateUnitPicker kind="disk" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="diskChartOption" class="chart-box-sm" autoresize />
           </el-col>
@@ -322,7 +330,7 @@
       </el-card>
 
       <!-- ===== enterprise: events / nvme / services / inventory ===== -->
-      <el-card class="page-card">
+      <el-card id="detail-enterprise" class="page-card detail-section enterprise-card">
         <el-tabs v-model="entTab">
           <el-tab-pane label="内核事件" name="events">
             <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
@@ -409,7 +417,7 @@
 
           <el-tab-pane label="服务 / MIG" name="services">
             <el-row :gutter="14">
-              <el-col :span="12">
+              <el-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">关键服务状态</div>
                 <el-table :data="serviceRows" size="small" max-height="240">
                   <el-table-column prop="name" label="服务" width="180" />
@@ -427,7 +435,7 @@
                   </el-table>
                 </template>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">MIG（多实例 GPU）</div>
                 <el-table :data="slowHealth.mig || []" size="small" max-height="240">
                   <el-table-column prop="gpu_index" label="GPU" width="70" />
@@ -465,7 +473,7 @@
             <pre v-if="inventory.gpu_topology" class="topo-pre">{{ inventory.gpu_topology }}</pre>
             <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
             <el-row :gutter="14">
-              <el-col :span="12">
+              <el-col :span="12" :xs="{ span: 24 }">
                 <el-table :data="(inventory.disks||[]).slice(0, 12)" size="small" max-height="300">
                   <el-table-column prop="name" label="磁盘" width="90" />
                   <el-table-column prop="size" label="容量" width="90" />
@@ -473,7 +481,7 @@
                   <el-table-column prop="model" label="型号" min-width="140" show-overflow-tooltip />
                 </el-table>
               </el-col>
-              <el-col :span="12">
+              <el-col :span="12" :xs="{ span: 24 }">
                 <el-table :data="physicalNics" size="small" max-height="240">
                   <el-table-column prop="name" label="网卡" width="110" />
                   <el-table-column prop="mac" label="MAC" min-width="140">
@@ -494,10 +502,10 @@
               <el-alert v-if="!ipmi.snapshot.ok" type="error" :closable="false" show-icon
                 :title="`BMC 连接失败：${ipmi.snapshot.error}`" style="margin-bottom:12px" />
               <el-row :gutter="12" style="margin-bottom:12px">
-                <el-col :span="6"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></el-col>
-                <el-col :span="6"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></el-col>
-                <el-col :span="6"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></el-col>
-                <el-col :span="6"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></el-col>
+                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></el-col>
+                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></el-col>
+                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></el-col>
+                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></el-col>
               </el-row>
               <el-row :gutter="12">
                 <el-col :span="12" :xs="24">
@@ -579,19 +587,19 @@
           <el-tab-pane label="采集健康" name="collect">
             <template v-if="collectHealth">
               <el-row :gutter="14">
-                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value" :style="{ color: collectHealth.success_rate >= 95 ? 'var(--cgreen)' : 'var(--cred)' }">{{ collectHealth.success_rate }}%</div>
                   <div class="stat-label">24h 采集成功率</div>
                 </div></el-col>
-                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.ok }}/{{ collectHealth.total }}</div>
                   <div class="stat-label">成功/总次数</div>
                 </div></el-col>
-                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_ssh_latency }}s</div>
                   <div class="stat-label">平均 SSH 延迟</div>
                 </div></el-col>
-                <el-col :span="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_duration }}s</div>
                   <div class="stat-label">平均采集耗时</div>
                 </div></el-col>
@@ -667,6 +675,13 @@ let mainTimer = null
 let killTimer = null
 
 const statusCn = { active: '运行中', maintenance: '维护中', drained: '已排空', rma: '返修中' }
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  })
+}
 
 // ---- enterprise panels ----
 const entTab = ref('events')
@@ -1003,9 +1018,50 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 <style scoped>
 .health-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
 }
+.detail-toolbar { justify-content: space-between; }
+.detail-toolbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.detail-jump-nav {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 4px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 1px solid var(--cborder);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--cpanel) 92%, transparent);
+  box-shadow: 0 8px 24px -20px rgba(15, 23, 42, .8);
+  backdrop-filter: blur(12px);
+}
+.detail-jump-nav button {
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--csub);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.detail-jump-nav button:hover { background: var(--ctable-hover); color: var(--cprimary); }
+.detail-section { scroll-margin-top: 52px; }
+.detail-kpis { row-gap: 14px; }
+.detail-kpi-card { min-height: 128px; }
+.detail-capacity-value { white-space: normal; font-size: clamp(18px, 1.8vw, 25px); }
+.detail-capacity-value i { margin: 0 3px; color: var(--csub); font-size: .72em; font-style: normal; }
+.detail-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.process-card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.gpu-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.gpu-card-head > b { min-width: 0; overflow-wrap: anywhere; }
+.gpu-card-tags { display: flex; flex: 0 0 auto; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .health-cat {
   border: 1px solid var(--cborder);
   border-radius: 8px;
@@ -1035,7 +1091,12 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   border-top: 1px dashed var(--cborder);
   padding-top: 6px;
   font-size: 12px;
+  display: grid;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
 }
+.health-sub .health-detail { margin-top: 0; overflow-wrap: anywhere; }
 .health-sub.st-ok { color: var(--ctext); }
 .health-sub.st-warning { color: var(--cyellow); }
 .health-sub.st-critical { color: var(--cred); }
@@ -1092,4 +1153,33 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 }
 .ipmi-kpi b { font-size: 17px; }
 .ipmi-kpi span { font-size: 11px; color: var(--csub, #64748b); }
+@media (max-width: 768px) {
+  .detail-toolbar { align-items: flex-start; }
+  .detail-toolbar :deep(.el-page-header) { flex-basis: 100%; }
+  .detail-toolbar-actions { width: 100%; }
+  .detail-jump-nav { width: 100%; }
+  .detail-jump-nav button { flex: 1 0 auto; }
+  .health-grid { grid-template-columns: 1fr; }
+  .detail-kpi-card { min-height: 112px; }
+  .detail-capacity-value { font-size: 16px; line-height: 1.35; }
+  .detail-card-head { align-items: flex-start; flex-direction: column; }
+  .process-card-actions { width: 100%; justify-content: flex-start; }
+  .process-card-actions :deep(.el-input) { flex: 1 1 130px; width: auto !important; }
+  .trend-card-head :deep(.el-radio-group) { max-width: 100%; overflow-x: auto; }
+  .gpu-card-head { flex-direction: column; }
+  .gpu-card-tags { justify-content: flex-start; }
+  .gpu-card :deep(.el-card__body) { padding: 14px; }
+  .gpu-card :deep(.el-progress) { max-width: 95px; }
+  .chart-box { height: 250px; }
+  .chart-box-sm { height: 220px; }
+  .enterprise-card :deep(.el-tabs__nav-wrap) { padding: 0 24px; }
+  .enterprise-card :deep(.el-tabs__item) { padding: 0 12px; }
+  .topo-pre { max-height: 260px; }
+}
+@media (max-width: 420px) {
+  .detail-kpi-card :deep(.el-card__body) { padding: 15px 10px; }
+  .detail-kpi-card .stat-sub { white-space: normal; overflow-wrap: anywhere; }
+  .core-grid { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+  .core-block { height: 52px; }
+}
 </style>
