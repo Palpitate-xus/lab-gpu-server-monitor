@@ -334,18 +334,33 @@ def cluster_utilization_report(
     from ..models import ServerMetricHourly
 
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    q = db.query(Server).filter(Server.enabled.is_(True), Server.server_type != "cpu")
-    servers = q.all()
-    out = []
-    for s in servers:
-        if tag and tag not in (s.tags or []):
-            continue
+    servers = (
+        db.query(Server)
+        .options(load_only(Server.id, Server.name, Server.tags))
+        .filter(Server.enabled.is_(True), Server.server_type != "cpu")
+        .all()
+    )
+    if tag:
+        servers = [server for server in servers if tag in (server.tags or [])]
+    rows_by_server: dict[int, list[ServerMetricHourly]] = {
+        server.id: [] for server in servers
+    }
+    if rows_by_server:
         rows = (
             db.query(ServerMetricHourly)
-            .filter(ServerMetricHourly.server_id == s.id,
-                    ServerMetricHourly.hour >= since)
-            .all()
+            .filter(
+                ServerMetricHourly.server_id.in_(list(rows_by_server)),
+                ServerMetricHourly.hour >= since,
+            )
+            .execution_options(stream_results=True)
+            .yield_per(500)
         )
+        for row in rows:
+            rows_by_server[row.server_id].append(row)
+
+    out = []
+    for s in servers:
+        rows = rows_by_server[s.id]
         if not rows:
             continue
         samples = sum(r.samples for r in rows)
