@@ -11,7 +11,7 @@ from time import monotonic
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import func as sa_func
+from sqlalchemy import and_, func as sa_func
 from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
@@ -137,68 +137,114 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
     ids = cfg.get("server_ids") or []
     if ids:
         q = q.filter(Server.id.in_(ids))
-    servers = q.order_by(Server.id).all()
+    servers = (
+        q.options(load_only(Server.id, Server.name, Server.server_type))
+        .order_by(Server.id)
+        .all()
+    )
 
-    result = []
-    for s in servers:
-        rows = (
+    server_ids = [server.id for server in servers]
+    totals_by_server: dict[int, dict] = {}
+    latest_by_server = {}
+    day_counts: dict[tuple[int, str], dict[str, int]] = {}
+    if server_ids:
+        totals_rows = (
             db.query(
+                ServerMetric.server_id,
                 ServerMetric.status,
                 sa_func.count(ServerMetric.id),
                 sa_func.avg(ServerMetric.ssh_latency),
-                sa_func.min(ServerMetric.collected_at),
-                sa_func.max(ServerMetric.collected_at),
             )
             .filter(
-                ServerMetric.server_id == s.id,
+                ServerMetric.server_id.in_(server_ids),
                 ServerMetric.collected_at >= buckets[0][0],
             )
-            .group_by(ServerMetric.status)
+            .group_by(ServerMetric.server_id, ServerMetric.status)
             .all()
         )
-        total = sum(r[1] for r in rows)
-        ok = sum(r[1] for r in rows if r[0] == "ok")
-        avg_latency = next((r[2] for r in rows if r[0] == "ok" and r[2]), 0)
+        for server_id, status, count, avg_latency in totals_rows:
+            summary = totals_by_server.setdefault(
+                server_id, {"total": 0, "ok": 0, "avg_latency": 0}
+            )
+            summary["total"] += count
+            if status == "ok":
+                summary["ok"] += count
+                summary["avg_latency"] = avg_latency or 0
 
-        latest = (
-            db.query(ServerMetric)
-            .options(load_only(ServerMetric.status, ServerMetric.gpus, ServerMetric.collected_at))
-            .filter(ServerMetric.server_id == s.id)
-            .order_by(ServerMetric.collected_at.desc())
-            .first()
+        latest_times = (
+            db.query(
+                ServerMetric.server_id,
+                sa_func.max(ServerMetric.collected_at).label("latest_at"),
+            )
+            .filter(ServerMetric.server_id.in_(server_ids))
+            .group_by(ServerMetric.server_id)
+            .subquery()
         )
+        latest_rows = (
+            db.query(ServerMetric)
+            .options(load_only(
+                ServerMetric.id,
+                ServerMetric.server_id,
+                ServerMetric.status,
+                ServerMetric.gpus,
+                ServerMetric.collected_at,
+            ))
+            .join(
+                latest_times,
+                and_(
+                    ServerMetric.server_id == latest_times.c.server_id,
+                    ServerMetric.collected_at == latest_times.c.latest_at,
+                ),
+            )
+            .order_by(ServerMetric.server_id, ServerMetric.id)
+            .all()
+        )
+        # A timestamp tie is rare; choosing the last inserted row makes the
+        # result deterministic while retaining one latest row per server.
+        latest_by_server = {row.server_id: row for row in latest_rows}
 
-        # per-day uptime buckets, aggregated in the DB (never row-by-row:
-        # the window spans the whole published history)
         day_rows = (
             db.query(
+                ServerMetric.server_id,
                 sa_func.date(ServerMetric.collected_at).label("d"),
                 ServerMetric.status,
                 sa_func.count(ServerMetric.id),
             )
             .filter(
-                ServerMetric.server_id == s.id,
+                ServerMetric.server_id.in_(server_ids),
                 ServerMetric.collected_at >= buckets[0][0],
             )
-            .group_by("d", ServerMetric.status)
+            .group_by(ServerMetric.server_id, "d", ServerMetric.status)
             .all()
         )
-        by_day: dict[str, list[str]] = {}
-        for d, st, n in day_rows:
-            key = d if isinstance(d, str) else d.strftime("%Y-%m-%d")
-            by_day.setdefault(key, []).extend([st] * n)
+        for server_id, day, status, count in day_rows:
+            key = day if isinstance(day, str) else day.strftime("%Y-%m-%d")
+            counts = day_counts.setdefault(
+                (server_id, key), {"total": 0, "ok": 0}
+            )
+            counts["total"] += count
+            if status == "ok":
+                counts["ok"] += count
+
+    result = []
+    for s in servers:
+        summary = totals_by_server.get(s.id, {})
+        total = summary.get("total", 0)
+        ok = summary.get("ok", 0)
+        avg_latency = summary.get("avg_latency", 0)
+        latest = latest_by_server.get(s.id)
+
         history = []
         for start, _end in buckets:
             key = start.strftime("%Y-%m-%d")
-            samples = by_day.get(key, [])
-            if not samples:
+            counts = day_counts.get((s.id, key))
+            if not counts:
                 history.append({"date": key, "uptime": None, "n": 0})
                 continue
-            up = sum(1 for x in samples if x == "ok")
             history.append({
                 "date": key,
-                "uptime": round(up / len(samples) * 100, 1),
-                "n": len(samples),
+                "uptime": round(counts["ok"] / counts["total"] * 100, 1),
+                "n": counts["total"],
             })
 
         gpus = []

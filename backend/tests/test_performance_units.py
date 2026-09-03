@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.api.metrics import _latest_payload, server_latest
+from backend.app.api.status_page import _build_public_payload
 from backend.app.database import Base
 from backend.app.models import Server, ServerMetric, ServerProcessSnapshot
 
@@ -56,6 +57,63 @@ def test_latest_metric_hydrates_latest_only_process_snapshot():
         db.commit()
         # A concurrent/newer snapshot must never be attached to an older row.
         assert server_latest(server.id, db, object())["processes"] == []
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_public_status_uses_fixed_bulk_query_count():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    try:
+        gpu_server = Server(name="gpu-node", host="127.0.0.1", server_type="gpu")
+        cpu_server = Server(name="cpu-node", host="127.0.0.2", server_type="cpu")
+        db.add_all([gpu_server, cpu_server])
+        db.flush()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.add_all([
+            ServerMetric(
+                server_id=gpu_server.id,
+                collected_at=now - timedelta(days=1),
+                status="ok",
+                ssh_latency=0.1,
+            ),
+            ServerMetric(
+                server_id=gpu_server.id,
+                collected_at=now,
+                status="error",
+                ssh_latency=0.2,
+            ),
+            ServerMetric(
+                server_id=cpu_server.id,
+                collected_at=now,
+                status="ok",
+                ssh_latency=0.3,
+            ),
+        ])
+        db.commit()
+
+        selects = []
+
+        def record_select(_conn, _cursor, statement, _params, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_select)
+        payload = _build_public_payload(db, {"show_history_days": 2})
+        event.remove(engine, "before_cursor_execute", record_select)
+
+        assert len(selects) == 4
+        assert payload["overall"] == {
+            "all_operational": False,
+            "servers_total": 2,
+            "servers_online": 1,
+        }
+        first = payload["servers"][0]
+        assert first["online"] is False
+        assert first["uptime_30d"] == 50.0
+        assert sum(day["n"] for day in first["history"]) == 2
     finally:
         db.close()
         engine.dispose()
