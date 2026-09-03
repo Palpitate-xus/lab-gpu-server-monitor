@@ -389,6 +389,24 @@ html.dark {
 }
 .cockpit .el-button--primary:active { transform: translateY(0); }
 
+/* Plain primary actions are secondary actions: keep their text contrast and
+   outline instead of inheriting the filled-button gradient above. */
+.cockpit .el-button--primary.is-plain {
+  border: 1px solid color-mix(in srgb, var(--cprimary) 45%, var(--cborder));
+  background: color-mix(in srgb, var(--cprimary) 7%, var(--cpanel));
+  color: var(--cprimary);
+  box-shadow: none;
+  filter: none;
+}
+.cockpit .el-button--primary.is-plain:hover,
+.cockpit .el-button--primary.is-plain:focus-visible {
+  border-color: var(--cprimary);
+  background: color-mix(in srgb, var(--cprimary) 13%, var(--cpanel));
+  color: var(--cprimary);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--cprimary) 18%, transparent);
+  filter: none;
+}
+
 /* ---- 2. panels: hairline top-glow + hover lift ---- */
 .cockpit-panel {
   transition: border-color .3s, box-shadow .3s, transform .3s;
