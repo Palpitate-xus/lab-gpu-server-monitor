@@ -591,7 +591,7 @@ def update_gpu_baseline(server_id: int, gpus: list[dict]) -> None:
         db.close()
 
 
-def health_tree(server_id: int) -> dict:
+def health_tree(server_id: int, gpu_risks: Optional[list[dict]] = None) -> dict:
     """Aggregate per-host health model for the frontend tree view."""
     db = SessionLocal()
     try:
@@ -657,7 +657,11 @@ def health_tree(server_id: int) -> dict:
                 ", ".join(f"{i['iface']} err" for i in err_ifaces[:3]) or "正常")
 
         # GPUs from risk score (GPU servers only)
-        risks = gpu_risk_score(server_id) if server.server_type != "cpu" else []
+        risks = (
+            gpu_risks
+            if gpu_risks is not None
+            else (gpu_risk_score(server_id) if server.server_type != "cpu" else [])
+        )
         gpu_cats = []
         for r in risks:
             status = "critical" if r["risk"] >= 60 else ("warning" if r["risk"] >= 30 else "ok")

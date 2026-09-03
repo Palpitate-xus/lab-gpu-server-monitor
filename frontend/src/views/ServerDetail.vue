@@ -729,11 +729,16 @@ const noteInput = ref('')
 const noteKind = ref('note')
 const collectHealth = ref(null)
 
-async function loadHealth() {
-  try { health.value = (await api.get(`/servers/${serverId.value}/health`)).data } catch (e) { loadFail(e); health.value = null }
-}
-async function loadRisk() {
-  try { riskGpus.value = (await api.get(`/servers/${serverId.value}/risk`)).data.gpus || [] } catch (e) { loadFail(e); riskGpus.value = [] }
+async function loadOverview() {
+  try {
+    const { data } = await api.get(`/servers/${serverId.value}/overview`)
+    health.value = data.health
+    riskGpus.value = data.gpus || []
+  } catch (e) {
+    loadFail(e)
+    health.value = null
+    riskGpus.value = []
+  }
 }
 async function loadEvents() {
   try {
@@ -758,7 +763,7 @@ async function loadCollectHealth() {
   try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data } catch { collectHealth.value = null }
 }
 function loadEnterprise() {
-  loadHealth(); loadRisk(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth(); loadIpmi()
+  loadOverview(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth(); loadIpmi()
 }
 
 async function setStatus(status) {
@@ -1022,7 +1027,7 @@ async function renice(row) {
 function startTimers() {
   stopTimers()
   liveTimer = setInterval(loadProcs, 15000)
-  entTimer = setInterval(() => { loadHealth(); loadEvents() }, 60000)
+  entTimer = setInterval(() => { loadOverview(); loadEvents() }, 60000)
   mainTimer = setInterval(load, 30000)
 }
 function stopTimers() {

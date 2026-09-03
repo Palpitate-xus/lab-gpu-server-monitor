@@ -65,6 +65,20 @@ def server_gpu_risk(server_id: int, db: Session = Depends(get_db),
     return {"server": server.name, "gpus": gpu_risk_score(server_id)}
 
 
+@router.get("/servers/{server_id}/overview")
+def server_overview(server_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Health tree and GPU risk calculated from one shared risk scan."""
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(404, "server not found")
+    risks = gpu_risk_score(server_id) if server.server_type != "cpu" else []
+    return {
+        "health": health_tree(server_id, gpu_risks=risks),
+        "gpus": risks,
+    }
+
+
 @router.get("/servers/{server_id}/kernel-events")
 def server_kernel_events(
     server_id: int,
