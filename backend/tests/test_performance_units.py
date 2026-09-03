@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.api.metrics import _latest_payload, server_latest
 from backend.app.api.enterprise import cluster_utilization_report
 from backend.app.api.status_page import _build_public_payload
+from backend.app.cache import InMemoryBackend
 from backend.app.database import Base
 from backend.app.models import (
     Server,
@@ -178,3 +179,18 @@ def test_utilization_report_fetches_all_servers_in_one_data_query():
     finally:
         db.close()
         engine.dispose()
+
+
+def test_memory_cache_periodically_releases_expired_variants(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr("backend.app.cache.time.monotonic", lambda: now[0])
+    cache = InMemoryBackend()
+
+    cache.set("old-variant", {"large": "payload"}, ttl=1)
+    assert "old-variant" in cache._data
+
+    now[0] = 161.0
+    cache.set("current-variant", {"small": "payload"}, ttl=30)
+
+    assert "old-variant" not in cache._data
+    assert cache.get("current-variant") == {"small": "payload"}

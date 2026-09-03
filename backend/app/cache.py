@@ -23,6 +23,7 @@ class InMemoryBackend:
     def __init__(self) -> None:
         self._data: dict[str, tuple[float, object]] = {}
         self._lock = threading.Lock()
+        self._next_sweep = 0.0
 
     def get(self, key: str):
         with self._lock:
@@ -37,12 +38,13 @@ class InMemoryBackend:
 
     def set(self, key: str, value, ttl: float) -> None:
         with self._lock:
-            self._data[key] = (time.monotonic() + ttl, value)
-            if len(self._data) > MAX_MEMORY_CACHE_ENTRIES:
-                now = time.monotonic()
+            now = time.monotonic()
+            self._data[key] = (now + ttl, value)
+            if now >= self._next_sweep or len(self._data) > MAX_MEMORY_CACHE_ENTRIES:
                 stale = [k for k, (e, _) in self._data.items() if e < now]
                 for k in stale:
                     self._data.pop(k, None)
+                self._next_sweep = now + 60.0
                 # A large set of still-live parameter combinations must not
                 # grow this process-local cache without bound. Dict insertion
                 # order gives us a small FIFO fallback after stale eviction.
@@ -52,6 +54,7 @@ class InMemoryBackend:
     def clear(self) -> None:
         with self._lock:
             self._data.clear()
+            self._next_sweep = 0.0
 
 
 class RedisBackend:
