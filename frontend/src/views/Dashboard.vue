@@ -35,48 +35,48 @@
     <el-card class="page-card" style="margin-top:14px">
       <template #header>服务器状态</template>
       <el-table class="desktop-only" :data="rows" v-loading="loading" @row-click="goDetail" style="cursor:pointer">
-        <el-table-column label="状态" width="70">
+        <el-table-column label="状态" width="50">
           <template #default="{ row }">
             <span v-if="!row.server_enabled" class="tag-dot dot-off" title="已禁用"></span>
             <span v-else-if="row.status === 'ok'" class="tag-dot dot-ok" title="正常"></span>
             <span v-else class="tag-dot dot-err" :title="row.error"></span>
           </template>
         </el-table-column>
-        <el-table-column prop="server_name" label="名称" min-width="130">
+        <el-table-column prop="server_name" label="名称" min-width="120">
           <template #default="{ row }">
             <el-link type="primary" @click.stop="goDetail(row)">{{ row.server_name }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column prop="hostname" label="主机名" min-width="120" show-overflow-tooltip />
-        <el-table-column label="CPU" width="150">
+        <el-table-column prop="hostname" label="主机名" min-width="110" show-overflow-tooltip />
+        <el-table-column label="CPU" width="130">
           <template #default="{ row }">
             <el-progress :percentage="pct(row.cpu_percent)" :color="cpuColor(row.cpu_percent)" :stroke-width="10" />
           </template>
         </el-table-column>
-        <el-table-column label="内存" width="150">
+        <el-table-column label="内存" width="130">
           <template #default="{ row }">
             <el-progress :percentage="memPct(row)" :color="cpuColor(memPct(row))" :stroke-width="10" />
           </template>
         </el-table-column>
-        <el-table-column label="GPU" width="150">
+        <el-table-column label="GPU" width="130">
           <template #default="{ row }">
             <el-progress v-if="!row.is_cpu_server && row.gpu_count" :percentage="pct(row.avgGpuUtil)" :color="cpuColor(row.avgGpuUtil)" :stroke-width="10" />
             <span v-else-if="row.is_cpu_server" style="color:var(--csub)">CPU 服务器</span>
             <span v-else style="color:var(--csub)">无</span>
           </template>
         </el-table-column>
-        <el-table-column label="GPU 显存" width="170">
+        <el-table-column label="GPU 显存" width="150">
           <template #default="{ row }">
             <span v-if="row.gpu_count" class="mono">{{ fmtSizeMB(row.gpuMemUsed) }} / {{ fmtSizeMB(row.gpuMemTotal) }}</span>
             <span v-else style="color:var(--csub)">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="磁盘" width="130">
+        <el-table-column label="磁盘" width="120">
           <template #default="{ row }">
             <span class="mono">{{ (row.disk_used_gb ?? 0).toFixed(0) }} / {{ (row.disk_total_gb ?? 0).toFixed(0) }} GB</span>
           </template>
         </el-table-column>
-        <el-table-column label="采集时间" width="160">
+        <el-table-column label="采集时间" width="150">
           <template #default="{ row }">{{ fmtTime(row.collected_at) }}</template>
         </el-table-column>
       </el-table>
