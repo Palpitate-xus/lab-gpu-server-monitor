@@ -22,12 +22,10 @@ Detectors:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func
 from sqlalchemy.orm import load_only
 
 from .database import SessionLocal

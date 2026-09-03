@@ -141,17 +141,24 @@ from ..models import WebhookChannel  # noqa: E402
 
 class _ChannelIn(_BM):
     name: str = _F(default="", max_length=128)
-    url: str
-    template: str = ""
+    url: str = _F(min_length=1, max_length=2048)
+    template: str = _F(default="", max_length=65536)
     min_severity: str = "info"
     enabled: bool = True
 
 
+class _WebhookTestIn(_BM):
+    url: str = _F(default="", max_length=2048)
+    template: str = _F(default="", max_length=65536)
+
+
 @router.get("/channels")
 def list_channels(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    from ..notifier import redact_webhook_url
+
     rows = db.query(WebhookChannel).order_by(WebhookChannel.id).all()
     return [
-        {"id": r.id, "name": r.name, "url": r.url, "template": r.template,
+        {"id": r.id, "name": r.name, "url": redact_webhook_url(r.url), "template": r.template,
          "min_severity": r.min_severity, "enabled": r.enabled}
         for r in rows
     ]
@@ -160,14 +167,14 @@ def list_channels(db: Session = Depends(get_db), _: User = Depends(require_admin
 @router.post("/channels")
 def create_channel(body: _ChannelIn, db: Session = Depends(get_db),
                    admin: User = Depends(require_admin)):
-    from ..notifier import _validate_webhook_url
+    from ..notifier import _validate_webhook_url, protect_webhook_url
 
     if body.min_severity not in ("info", "warning", "critical"):
         raise HTTPException(status_code=400, detail="min_severity must be info|warning|critical")
     ok, why = _validate_webhook_url(body.url)
     if not ok:
         raise HTTPException(status_code=400, detail=f"webhook url rejected: {why}")
-    ch = WebhookChannel(name=body.name, url=body.url, template=body.template,
+    ch = WebhookChannel(name=body.name, url=protect_webhook_url(body.url), template=body.template,
                         min_severity=body.min_severity, enabled=body.enabled)
     db.add(ch)
     db.commit()
@@ -190,13 +197,13 @@ def delete_channel(channel_id: int, db: Session = Depends(get_db),
 
 @router.post("/test-webhook")
 def test_webhook(
-    body: dict | None = None,
+    body: _WebhookTestIn | None = None,
     _: User = Depends(require_admin),
 ):
     from .. import notifier
 
-    url = (body or {}).get("url") or ""
-    template = (body or {}).get("template") or ""
+    url = body.url if body else ""
+    template = body.template if body else ""
     ctx = {
         "level": "ALERT",
         "server_name": "test-server",

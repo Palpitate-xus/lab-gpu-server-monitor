@@ -9,7 +9,6 @@ unknown vendors degrade to raw-ish key/value dumps instead of failing.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import time
@@ -24,9 +23,18 @@ def ipmitool_available() -> bool:
 
 
 def _run(host: str, user: str, password: str, args: list[str]):
+    # Cipher suite 17 uses HMAC-SHA256 authentication/integrity with AES-CBC.
+    # Do not silently negotiate the legacy cipher suite 3 defaults used by
+    # older ipmitool releases.
     cmd = ["ipmitool", "-I", "lanplus", "-H", host, "-U", user,
-           "-N", "6", "-R", "1", "-E"] + args
-    env = dict(os.environ, IPMITOOL_PASSWORD=password or "", LC_ALL="C")
+           "-C", "17", "-N", "6", "-R", "1", "-E"] + args
+    # Do not copy JWT/database/SSH secrets from the application environment
+    # into the child process. ipmitool only needs PATH, locale and its password.
+    env = {
+        "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        "IPMITOOL_PASSWORD": password or "",
+        "LC_ALL": "C",
+    }
     p = subprocess.run(cmd, capture_output=True, text=True,
                        timeout=_CMD_TIMEOUT, env=env)
     return p.returncode, p.stdout or "", (p.stderr or "").strip()

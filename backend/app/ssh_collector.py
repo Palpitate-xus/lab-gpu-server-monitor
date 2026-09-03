@@ -8,12 +8,11 @@ Keeps the legacy public API: collect() / test_connection() / live_processes()
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
-
-import paramiko
 
 from .config import get_settings
 from .remote_scripts import FAST_SCRIPT
@@ -154,8 +153,6 @@ def _parse_cpu(s1, s2, freq_text, temp_text, count):
         v = _to_float(line.split()[-1], 0)
         if v > 0:
             freqs.append(v)
-    freq_avg = round(sum(freqs) / len(freqs), 0) if freqs else 0.0
-
     core_temps: dict[int, float] = {}
     package_temp = 0.0
     for line in temp_text.splitlines():
@@ -338,7 +335,7 @@ _PSEUDO_FS = re.compile(
 
 def _parse_df(text: str) -> list[dict]:
     disks, seen = [], set()
-    lines = [l for l in text.splitlines() if l.strip()]
+    lines = [line for line in text.splitlines() if line.strip()]
     for line in lines[1:]:
         parts = line.split(None, 5)
         if len(parts) < 6:
@@ -366,7 +363,7 @@ def _parse_df(text: str) -> list[dict]:
 
 def _parse_dfi(text: str) -> list[dict]:
     out, seen = [], set()
-    lines = [l for l in text.splitlines() if l.strip()]
+    lines = [line for line in text.splitlines() if line.strip()]
     for line in lines[1:]:
         parts = line.split(None, 5)
         if len(parts) < 6:
@@ -552,7 +549,7 @@ def _merge_gpu_apps(apps_text: str, names_text: str, gpus: list[dict], ps_index:
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 2:
             try:
-                names[int(_to_float(parts[0]))] = parts[1]
+                names[int(_to_float(parts[0]))] = _executable_name(parts[1])
             except (TypeError, ValueError):
                 pass
     uuid_index = {g["uuid"]: g for g in gpus}
@@ -585,9 +582,14 @@ def _merge_gpu_apps(apps_text: str, names_text: str, gpus: list[dict], ps_index:
 
 # ---------------------------------------------------------------- ps / who / misc
 
-def _parse_ps(text: str, limit: int = 500) -> list[dict]:
+def _executable_name(command: str) -> str:
+    first = (command or "").strip().split(None, 1)[0]
+    return os.path.basename(first)[:80]
+
+
+def _parse_ps(text: str, limit: int = 500, include_sensitive: bool = False) -> list[dict]:
     procs: list[dict] = []
-    lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
     for line in lines[1:]:
         parts = line.split(None, 9)
         if len(parts) < 10:
@@ -596,18 +598,23 @@ def _parse_ps(text: str, limit: int = 500) -> list[dict]:
             pid, ppid = int(parts[0]), int(parts[1])
         except ValueError:
             continue
-        procs.append({
+        process = {
             "pid": pid,
             "ppid": ppid,
-            "user": parts[2],
             "cpu": _to_float(parts[3]),
             "mem": _to_float(parts[4]),
             "rss_mb": round(_to_float(parts[5]) / 1024, 1),
             "vsz_mb": round(_to_float(parts[6]) / 1024, 1),
             "stat": parts[7],
             "etimes": int(_to_float(parts[8])),
-            "command": parts[9][:120].strip(),
-        })
+            "command": (
+                parts[9][:120].strip()
+                if include_sensitive
+                else _executable_name(parts[9])
+            ),
+            "user": parts[2] if include_sensitive else "",
+        }
+        procs.append(process)
         if len(procs) >= limit:
             break
     return procs
@@ -664,17 +671,23 @@ def collect(host, port, username, password_enc="", private_key_enc="", passphras
 
         code, out, err = run_script(client, FAST_SCRIPT, timeout=settings.SSH_COMMAND_TIMEOUT)
         if not out.strip():
+            logger.warning(
+                "collector returned no output for %r (exit=%s, stderr=%s)",
+                host,
+                code,
+                err.strip()[:300].replace("\r", " ").replace("\n", " "),
+            )
             result.error_code = "COLLECT_FAILED"
-            result.error = f"empty output (exit {code}): {err.strip()[:300]}"
+            result.error = f"remote collector returned no usable output (exit {code})"
             return result
         try:
             result = _parse_fast_output(out, result, host)
-        except Exception as pe:
+        except Exception:
             # parse bugs must not masquerade as SSH/network faults
-            logger.exception("fast output parse failed for %s", host)
+            logger.exception("fast output parse failed for %r", host)
             result.ok = False
             result.error_code = "COLLECT_FAILED"
-            result.error = f"output parse error: {type(pe).__name__}: {pe}"
+            result.error = "remote collector output could not be parsed"
             return result
         result.duration = round(time.time() - t0, 2)
         result.ok = True
@@ -752,7 +765,8 @@ def _parse_fast_output(out: str, result: MetricResult, host: str) -> MetricResul
         result.pid_max = int(_to_float(_first_line(sec.get("PIDMAX", "0"))))
 
         result.processes = _parse_ps(sec.get("PS", ""))
-        result.users = _parse_who(sec.get("WHO", ""))
+        # Login identities/source addresses are not persisted in metric history.
+        result.users = []
         result.kernel_log = sec.get("KLOG", "")
 
         gpus, driver = _parse_gpus(sec.get("GPU", ""))
@@ -767,10 +781,25 @@ def _parse_fast_output(out: str, result: MetricResult, host: str) -> MetricResul
 
 # ================================================================ legacy API
 
-def test_connection(host, port, username, password="", private_key="", passphrase="") -> tuple[bool, str]:
+def test_connection(
+    host,
+    port,
+    username,
+    password="",
+    private_key="",
+    passphrase="",
+    server_key: str = "",
+) -> tuple[bool, str]:
     try:
-        client = connect_host(host, port, username, password, private_key, passphrase,
-                              server_key=f"test_{host}_{port}")
+        client = connect_host(
+            host,
+            port,
+            username,
+            password,
+            private_key,
+            passphrase,
+            server_key=server_key,
+        )
         try:
             code, out, _ = run_remote(client, "echo ok", timeout=10)
             if out.strip() == "ok":
@@ -784,19 +813,48 @@ def test_connection(host, port, username, password="", private_key="", passphras
 
 
 def live_processes(host, port, username, password_enc="", private_key_enc="", passphrase_enc="",
-                   sort: str = "cpu", limit: int = 0) -> tuple[bool, list | str]:
+                   sort: str = "cpu", limit: int = 0, server_key: str = "") -> tuple[bool, list | str]:
     sort_map = {"cpu": "-pcpu", "mem": "-rss", "pid": "pid", "time": "-etimes"}
     s = sort_map.get(sort, "-pcpu")
-    cmd = f"ps -eo pid,ppid,user:24,pcpu,pmem,rss:16,vsz:16,stat,etimes,args:256 --sort={s} 2>/dev/null"
+    cmd = (
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+        f"ps -eo pid,ppid,user:24,pcpu,pmem,rss:16,vsz:16,stat,etimes,args:256 --sort={s} "
+        "2>/dev/null"
+    )
     try:
         client = connect_host(
             host, port, username,
             decrypt_text(password_enc), decrypt_text(private_key_enc), decrypt_text(passphrase_enc),
-            server_key=f"live_{host}_{port}",
+            server_key=server_key,
         )
         try:
             _, out, _ = run_remote(client, cmd, timeout=15)
-            return True, _parse_ps(out, limit=limit or 100000)
+            processes = _parse_ps(out, limit=limit or 5000, include_sensitive=True)
+            # Linux /proc starttime (clock ticks since boot) is stable for a
+            # process lifetime. Return it so a later destructive action can
+            # reject a recycled PID instead of targeting a different process.
+            pids = [str(p["pid"]) for p in processes if p.get("pid")]
+            if pids:
+                identity_cmd = (
+                    "for pid in "
+                    + " ".join(pids)
+                    + "; do stat=$(cat /proc/$pid/stat 2>/dev/null) || continue; "
+                    + "rest=${stat##*) }; set -- $rest; "
+                    + "printf '%s %s\\n' \"$pid\" \"${20}\"; done"
+                )
+                _, identity_out, _ = run_remote(client, identity_cmd, timeout=15)
+                identities: dict[int, int] = {}
+                for line in identity_out.splitlines():
+                    parts = line.split()
+                    if len(parts) != 2:
+                        continue
+                    try:
+                        identities[int(parts[0])] = int(parts[1])
+                    except ValueError:
+                        continue
+                for process in processes:
+                    process["start_ticks"] = identities.get(process["pid"], 0)
+            return True, processes
         finally:
             client.close()
     except Exception as e:
@@ -805,12 +863,12 @@ def live_processes(host, port, username, password_enc="", private_key_enc="", pa
 
 
 def remote_command(host, port, username, password_enc="", private_key_enc="", passphrase_enc="",
-                   command: str = "") -> tuple[bool, str]:
+                   command: str = "", server_key: str = "") -> tuple[bool, str]:
     try:
         client = connect_host(
             host, port, username,
             decrypt_text(password_enc), decrypt_text(private_key_enc), decrypt_text(passphrase_enc),
-            server_key=f"live_{host}_{port}",
+            server_key=server_key,
         )
         try:
             code, out, err = run_remote(client, command, timeout=15)

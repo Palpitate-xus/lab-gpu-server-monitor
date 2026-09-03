@@ -1,204 +1,237 @@
-# 部署指南 / Deployment Guide
+# GPU Monitor 安全部署指南
 
 [中文](DEPLOYMENT.md) | [English](DEPLOYMENT.en.md)
 
----
+本指南面向正式环境。完整整改背景和升级注意事项见
+[安全上线操作手册](SECURITY_HARDENING.md)。
 
-## 架构一览
+## 1. 部署边界
 
 ```text
-┌────────────────────────────── 监控中心（你部署 Docker 的机器） ──────────────────────────────┐
-│  gpu-monitor 容器 (FastAPI + 调度器 + 前端静态文件)  ──→  MySQL (gpu_monitor 库)             │
-└──────────────┬───────────────────────────────────────────────────────────────────────────┘
-               │ SSH 出站连接 (22 或自定义端口)
-     ┌─────────┼─────────┐
-     ▼         ▼         ▼
-  GPU 服务器  GPU 服务器  CPU 服务器     ← 被监控端：无需安装任何 Agent
+用户 ──HTTPS──> Nginx/受控网关 ──127.0.0.1:8300──> GPU Monitor
+                                                   ├──TLS/Unix socket──> MySQL
+                                                   ├──SSH──> 被监控服务器
+                                                   └──IPMI lanplus──> BMC
 ```
 
-被监控服务器**只需要**：开 SSH、有一个可登录账号。所有指标经 SSH 以只读命令采集，
-脚本从 stdin 执行、不落盘（详见 README「采集安全」）。
+- Compose 只把应用发布到 `127.0.0.1`，8300 不应直接暴露到局域网或公网。
+- 非环回 MySQL 必须启用 TLS；3306 不应公开发布。
+- 被监控端无需 Agent，但必须使用专用低权限 `gpumon` 账号；默认拒绝 root SSH。
+- 正式环境必须通过 HTTPS 使用浏览器，`COOKIE_SECURE=yes`。
 
----
+## 2. 前置条件
 
-## 一、准备
+- Docker Engine 与 Docker Compose v2；
+- 一个 HTTPS 域名和可信证书；
+- 监控中心可出站访问目标 SSH/BMC，且 egress 仅开放必要网段；
+- SQLite，或启用 TLS 的 MySQL 8.x；
+- 被监控 GPU 服务器上的 `nvidia-smi` 可用。
 
-### 1. 监控中心机
-
-| 需求 | 说明 |
-|---|---|
-| Docker + Docker Compose | v2 (`docker compose`) |
-| 8300 端口（可改） | Web UI 与 API |
-| 出站 SSH 可达各被监控机 | 22 或自定义端口 |
-
-### 2. 数据库（MySQL）
-
-已有 MySQL 8.x 实例就直接用；没有就起一个：
+在被监控机创建最小权限账号，例如：
 
 ```bash
-docker run -d --name docker-mysql-1 \
-  -e MYSQL_ROOT_PASSWORD=<root密码> \
-  -e MYSQL_DATABASE=gpu_monitor \
-  -e MYSQL_USER=gpumon \
-  -e MYSQL_PASSWORD=<gpumon密码> \
-  -p 3306:3306 mysql:8.0.39
+sudo useradd --create-home --shell /bin/bash gpumon
+sudo install -d -m 700 -o gpumon -g gpumon /home/gpumon/.ssh
 ```
 
-表结构由应用迁移自动创建（`migrations/`，幂等，启动时自动执行），**不需要手工建表**。
+优先使用 ED25519 key，并在 `authorized_keys` 使用 `restrict`、
+`no-port-forwarding`、`no-agent-forwarding`、`no-X11-forwarding`、`no-pty`。
+只有确有需要的 `nvme`/`journalctl` 子命令才加入精确 sudo allowlist。
 
-> 不想用 MySQL？在 `.env` 里设 `DATABASE_URL=sqlite:///./data/gpu_monitor.db`，
-> 数据落在挂载卷 `./data` 里，零外部依赖。
-
-### 3. 被监控 GPU 服务器
-
-- 确保 `nvidia-smi` 可用（驱动正常）
-- 建议专用低权账号（示例）：
-
-```bash
-# 在被监控机上创建监控账号
-sudo useradd -m monitor
-sudo passwd monitor            # 或配置 SSH key
-```
-
-可选加固（强烈建议）：`authorized_keys` 里限制 key 的能力：
-
-```
-restrict,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA... monitor@central
-```
-
-全部指标均无需 root；仅 `nvme smart-log` / `ipmitool` / `journalctl` 需要 sudo 时，
-按单条命令放开（示例见 README「最小 sudo」）。
-
----
-
-## 二、部署监控中心
-
-### 1. 克隆仓库
+## 3. 创建本地配置
 
 ```bash
 git clone https://github.com/Palpitate-xus/lab-gpu-server-monitor.git
 cd lab-gpu-server-monitor
+cp .env.example .env
+chmod 600 .env
+mkdir -p data/known_hosts secrets
+sudo chown -R 10001:10001 data secrets
+chmod 700 data data/known_hosts secrets
 ```
 
-### 2. 配置密钥（必做）
+分别运行三次；每次输出只用于一个配置项，禁止复用：
 
 ```bash
-cp .env.example .env 2>/dev/null || true
-# 手动生成密钥写入 .env：
-openssl rand -hex 32   # 输出写入 .env 的 SECRET_KEY=
+openssl rand -hex 32
 ```
 
-`.env`（已被 gitignore，绝不提交）：
+新部署的最小 `.env` 示例：
 
 ```ini
-SECRET_KEY=<openssl rand -hex 32 的输出>
-DATABASE_URL=mysql+pymysql://gpumon:<gpumon密码>@<MySQL主机>:3306/gpu_monitor?charset=utf8mb4
+JWT_SIGNING_KEY=<独立随机值>
+CREDENTIAL_ENCRYPTION_KEYS=<另一独立随机值>
+ARCHIVE_ENCRYPTION_KEY=<第三个独立的64位十六进制值>
+
+DATABASE_URL=sqlite:///./data/gpu_monitor.db
+AUTO_MIGRATE=no
+
+INIT_ADMIN_USERNAME=<首次管理员用户名>
+INIT_ADMIN_PASSWORD=<16至72位随机密码>
+
+COOKIE_SECURE=yes
+COOKIE_SAMESITE=strict
+TRUST_PROXY=no
+TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128
+REQUIRE_ADMIN_MFA=yes
+REMOTE_PROCESS_CONTROL_ENABLED=no
+ALLOW_ROOT_SSH=no
+ARCHIVE_DIR=/app/archives
 ```
 
-- MySQL 跑在同机 Docker：主机填 `172.17.0.1`（Docker 网桥网关）
-- **SECRET_KEY 用来加密 SSH 凭据 + 签发 JWT；丢了/换了，已录入的服务器凭据作废重录**
+先保持 `TRUST_PROXY=no`。确认应用实际看到的 Nginx 直连对端地址后，把该地址以精确
+`/32`（IPv6 用 `/128`）写入 `TRUSTED_PROXY_CIDRS`，再设置 `TRUST_PROXY=yes`。不要为了
+省事信任整个 Docker/办公网段。正式 HTTPS 模式在完成此配置前会拒绝启动，防止登录限流把
+所有用户误当成同一个代理来源。Uvicorn 不自行解析代理头，客户端地址只由应用按此名单解析。
 
-### 3. 构建前端（本仓库默认流程）
+应用拒绝空密钥、公开占位值、密钥复用、弱 MySQL 账号以及未加密的非环回 MySQL。
+不要把 `.env`、`secrets/`、数据库或归档加入 Git。
+
+### MySQL 配置
+
+不要用 `-p 3306:3306` 把 MySQL 发布到全部接口。参考
+`deploy/mysql-hardening.sql.example` 创建两个不同账号：
+
+- `gpumon_migrate`：短期 DDL 账号，只在升级窗口使用；
+- `gpumon_app`：运行账号，只授予 `SELECT/INSERT/UPDATE/DELETE`。
+
+把 CA（以及可选客户端证书/私钥）放入 `./secrets`，归属设为
+`10001:10001`，目录 0700、文件 0400，确保只有容器运行身份可读：
+
+```ini
+DATABASE_URL=mysql+pymysql://gpumon_app:<URL编码密码>@db.internal:3306/gpu_monitor?charset=utf8mb4
+DATABASE_SSL_CA=/run/secrets/gpu-monitor/mysql-ca.pem
+DATABASE_SSL_CERT=/run/secrets/gpu-monitor/mysql-client.pem
+DATABASE_SSL_KEY=/run/secrets/gpu-monitor/mysql-client.key
+```
+
+密码中的 `@:/?#%` 必须进行 URL 编码。MySQL 仅绑定内部接口，并由防火墙限制来源。
+
+### 可选 Redis 缓存
+
+单 worker 部署保持 `REDIS_URL=` 即可。使用远程共享缓存时必须配置带至少 16 位认证密码的
+`rediss://`；系统会强制证书和主机名校验，并拒绝 URL 中覆盖 TLS 校验的参数。私有 CA 可
+通过只读 secrets 挂载后配置 `REDIS_SSL_CA`。只有字面量环回地址或 Unix socket 可以不使用
+TLS。Redis 仅保存有大小上限的 JSON 缓存，不使用 pickle。
+
+## 4. 显式迁移数据库
+
+Web/调度进程不会自动执行 DDL。先用短期迁移连接运行一次维护任务：
 
 ```bash
-cd frontend && pnpm install && pnpm build && cd ..
+# SQLite（容器内路径）
+MIGRATION_DATABASE_URL='sqlite:////app/data/gpu_monitor.db' \
+  docker compose --profile maintenance run --rm gpu-monitor-migrate
+
+# MySQL：不要把迁移密码写入 shell history
+read -rsp 'Migration DATABASE_URL: ' MIGRATION_DATABASE_URL && echo
+export MIGRATION_DATABASE_URL
+docker compose --profile maintenance run --rm gpu-monitor-migrate
+unset MIGRATION_DATABASE_URL
 ```
 
-> 本仓库的默认 Dockerfile 假定宿主机先构建好 `frontend/dist`（作者的机器拉不到
-> Docker Hub 的 node 镜像）。网络通畅时可用一键构建：
->
-> ```bash
-> docker build -f Dockerfile.multistage -t gpu-monitor:latest .
-> ```
->
-> 然后在 `docker-compose.yml` 里把 `build: .` 换成 `image: gpu-monitor:latest`。
+迁移失败会返回非零状态；不要在失败时启动或重启正式容器。
 
-### 4. 启动
+## 5. 构建、启动与 HTTPS
+
+默认 Compose 使用多阶段构建、冻结的 pnpm lock 和带哈希的 Python lock：
 
 ```bash
-docker compose up -d --build
+export GPU_MONITOR_IMAGE="gpu-monitor:$(git rev-parse --short=12 HEAD)"
+docker compose config --quiet
+docker compose build --pull
+docker compose up -d
+docker compose ps
+docker compose logs --since=10m gpu-monitor
 ```
 
-首次启动自动：建表 → 创建管理员（`INIT_ADMIN_USERNAME/PASSWORD`，默认 `admin/admin123`）→
-启动采集调度器。
+Wolfi 基础镜像、Node 基础镜像、Python wheel 和源码编译的 `ipmitool` 均有 digest/hash
+校验。Wolfi APK 的实际解析版本记录在 CI 生成的 CycloneDX SBOM 中；每周自动重建会发现
+仓库漂移和新增 CVE。生产发布必须把扫描通过的提交 SHA 标签解析为 registry digest 后再
+部署，不能仅依赖标签。
 
-### 5. 验证
+安装并修改 `deploy/nginx-gpu-monitor.conf.example` 中的域名和证书路径：
 
 ```bash
-curl http://127.0.0.1:8300/api/health        # {"status":"ok",...}
+sudo nginx -t
+sudo systemctl reload nginx
+curl --fail https://gpu-monitor.example.com/api/health
+curl --fail https://gpu-monitor.example.com/api/ready
 ```
 
-浏览器打开 `http://<监控中心IP>:8300`，默认 `admin / admin123`——**登录后立即改密**。
+`/api/health` 是存活检查；`/api/ready` 同时检查数据库、调度心跳、SSH 指纹目录和归档
+目录的实际写入能力。
+浏览器只访问 HTTPS 域名，不访问 `http://<主机>:8300`。
 
----
+## 6. 首次登录
 
-## 三、添加服务器
+系统没有默认账号或默认密码。空库首次启动使用 `.env` 中的一次性管理员凭据；登录后：
 
-1. 登录 → 「服务器」→「添加服务器」
-2. 填名称 / IP / SSH 端口 / 认证方式（密码或私钥+口令）
-3. **选类型：GPU 服务器 / CPU 服务器**（CPU 服务器不显示 GPU 面板与聚合）
-4. 「测试连接」通过后保存
+1. 立即把 TOTP 密钥加入认证器并完成 MFA 验证；
+2. 修改一次性密码；
+3. 从活动 `.env` 删除 `INIT_ADMIN_USERNAME` 和 `INIT_ADMIN_PASSWORD`，重启后确认仍可登录；
+4. 再创建至少一个管理员和日常 Viewer；
+5. MCP 只能使用专用 Viewer，不能使用管理员账号。
 
-首次连接采用 **TOFU**：指纹自动记录到 `data/known_hosts/`；日后指纹变化会立即
-告警并停止采集（防中间人）。确认是重装系统后，在服务器详情页「重置 Host Key」。
+管理员未完成 MFA 绑定时只能访问绑定流程，所有管理 API 都会返回 403。
+Webhook URL 可能包含机器人令牌，保存后会使用凭据密钥加密，管理 API 只返回“已配置”和
+脱敏地址，不会回显完整 URL。
 
-数据 30-60 秒内出现在驾驶舱。
+## 7. 添加服务器
 
----
+进入「服务器」→「添加服务器」，填写名称、目标、端口、`gpumon` 用户和认证材料。
+首次连接使用 TOFU：指纹会原子写入 `data/known_hosts`；无法持久化时连接直接失败。
+服务器重装后必须在带外渠道核对新的 `SHA256:...` 指纹；重置接口会再次要求管理员密码，
+先从目标读取新密钥并严格比对指纹，再原子替换旧记录，不会退化为自动 TOFU。
 
-## 三点五、公开状态页（可选）
+完整实时进程与资产/IPMI 仅管理员可见。历史指标不会保存登录身份、进程用户名或完整 argv。
+远程 kill/renice 默认关闭；如确需启用，仍会逐次要求 MFA 会话和管理员密码再认证，并核对
+进程启动标识，避免 PID 被复用后操作到另一个进程。
 
-系统设置 → 「公开状态页」卡片：
+## 8. 升级与回滚
 
-1. 打开「对外可见」开关（默认关闭，访问者只见提示不见数据）
-2. 填标题、勾选要展示的服务器、选历史窗口（7-90 天）、是否显示延迟/GPU
-3. 访问 `http://<监控中心IP>:8300/status` —— **免登录**，可分享给实验室成员
-
-> 注意：状态页对所有能访问 8300 端口的人可见。若监控中心暴露在公网，
-> 建议只展示必要机器，并用反向代理加访问控制。
-
-## 四、升级
+升级前记录精确版本并备份：
 
 ```bash
-git pull
-cd frontend && pnpm install && pnpm build && cd ..
-docker compose up -d --build
+git rev-parse HEAD
+docker image inspect "$GPU_MONITOR_IMAGE" --format '{{.Id}}'
+umask 077
+# 再执行数据库、known_hosts、.env（加密保管）和归档备份
 ```
 
-迁移自动执行（幂等），数据不丢。
+随后拉取目标提交、审查 diff、以提交 SHA 构建候选镜像、执行第 4 节迁移，最后才切换容器。
+生产 `.env` 的 `GPU_MONITOR_IMAGE` 必须使用已扫描的提交标签或注册表 digest，不要使用
+浮动的 `latest` 或未审查工作区直接部署。
 
----
+回滚时使用记录的提交和镜像摘要。迁移 012/013 只增加安全字段，旧版本通常可忽略；但旧版本
+仍依赖 `SECRET_KEY`，所以升级稳定前应把旧 `.env` 作为加密备份保留，不能提交到 Git。
 
-## 五、运维要点
+已有部署从单一 `SECRET_KEY` 升级、清理历史进程数据及轮换密钥的完整步骤见
+`SECURITY_HARDENING.md`。
 
-| 事项 | 说明 |
-|---|---|
-| 数据保留 | 设置页可配保留天数；0 = 永久 |
-| 备份 | 备份 MySQL `gpu_monitor` 库（或 SQLite 文件）+ `./data/known_hosts/` |
-| 日志 | `docker logs -f gpu-monitor` |
-| 改端口 | `docker-compose.yml` 的 `ports: - "8300:8000"` 改左侧 |
-| 反向代理 | 可挂 Nginx/Caddy 提供 HTTPS；此时 `.env` 加 `TRUST_PROXY=yes`（限速才认 X-Forwarded-For） |
-| 跨域访问 | 默认同源；需跨域时 `.env` 配 `CORS_ORIGINS=https://xxx` 白名单 |
-| 密钥轮换 | 换 `SECRET_KEY` 后所有 SSH 凭据需重新录入（页面会提示 `CRED_DECRYPT_FAILED`） |
+## 9. MFA 恢复
 
----
+优先由另一名已完成 MFA 的管理员在「用户管理」中重置目标管理员 MFA；该操作会同时吊销
+其全部会话。单管理员丢失认证器时，在可信宿主机使用 break-glass 脚本：
 
-## 六、常见问题
+```bash
+docker compose exec gpu-monitor python scripts/reset_admin_mfa.py --username target_admin
+docker compose exec gpu-monitor python scripts/reset_admin_mfa.py --username target_admin --apply
+```
 
-**Q: 添加服务器后一直 SSH 不可达？**
-检查网络/端口/防火墙；错误码会区分 认证失败 / DNS / 拒绝 / 超时，按提示处理。
+执行后立即重新登录、重新绑定 MFA，并审查 `user.mfa_breakglass_reset` 审计记录。
 
-**Q: GPU 卡片显示"未检测到 GPU"？**
-被监控机 `nvidia-smi` 能跑才有数据；CPU 服务器请在添加时选「CPU 服务器」类型。
+## 10. 上线门禁
 
-**Q: 忘记 admin 密码？**
-`.env` 设 `INIT_ADMIN_USERNAME/PASSWORD` 后删库重建用户，或直接改 MySQL users 表
-（密码 bcrypt）。最简单：备份后 `docker compose down`，清空数据库重来
-（管理员只在空库时创建）。
+```bash
+python -m pytest -q backend/tests
+python -m pytest -q mcp_server/tests
+cd frontend && pnpm test && pnpm audit --prod && pnpm build && cd ..
+export GPU_MONITOR_IMAGE="gpu-monitor:$(git rev-parse --short=12 HEAD)"
+docker compose config --quiet
+```
 
-**Q: 登录提示"尝试次数过多已锁定"？**
-同用户名 5 次 / 同 IP 10 次失败锁 10 分钟；登录按钮会显示倒计时，
-等倒计时结束或重启容器（内存锁）立即清零。
-
-**Q: 想让监控走非 22 端口？**
-添加服务器时「端口」填实际端口（如 23333）即可。
+CI 还会执行 Ruff、Bandit、`pip-audit`、Gitleaks、最终镜像 High/Critical CVE 扫描并生成
+CycloneDX SBOM；源码编译的 `ipmitool` 会以 commit 和二进制 SHA-256 显式写入 SBOM。
+最终镜像、TLS/防火墙、数据库账号、备份恢复和 SSH 指纹演练全部通过后，才能对受信用户
+上线。

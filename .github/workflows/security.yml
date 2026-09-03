@@ -1,0 +1,179 @@
+name: security-and-tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: sqlite:////tmp/gpu-monitor-ci.db
+      DATA_DIR: /tmp/gpu-monitor-ci-data
+      JWT_SIGNING_KEY: ci-only-jwt-key-000000000000000000000000000000000000
+      CREDENTIAL_ENCRYPTION_KEYS: ci-only-credential-key-0000000000000000000000000000
+      COOKIE_SECURE: "no"
+      ALLOW_INSECURE_HTTP: "yes"
+      INIT_ADMIN_USERNAME: ci_admin
+      INIT_ADMIN_PASSWORD: ci-only-password-00000000000000000000000000000
+      AUTO_MIGRATE: "yes"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --require-hashes -r backend/requirements-dev.lock
+      - run: ruff check backend/app backend/scripts backend/tests mcp_server
+      - run: bandit -q -r backend/app backend/scripts mcp_server -c pyproject.toml -ll
+      - run: pip-audit -r backend/requirements.lock
+      - run: pytest -q backend/tests
+      - run: python -m pip install --require-hashes -r mcp_server/requirements.lock
+      - run: pip-audit -r mcp_server/requirements.lock --disable-pip --no-deps
+      - run: pytest -q mcp_server/tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod
+      - run: pnpm test
+      - run: pnpm build
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build immutable candidate
+        run: >-
+          docker build --pull -f Dockerfile.multistage
+          --label org.opencontainers.image.revision="$GITHUB_SHA"
+          -t "gpu-monitor:${GITHUB_SHA}" .
+      - name: Verify runtime identity, files and readiness
+        env:
+          IMAGE: gpu-monitor:${{ github.sha }}
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            test "$(id -u)" = 10001 &&
+            test -r /app/app/main.py &&
+            test ! -w /app/app &&
+            test ! -w /app/app/main.py &&
+            test ! -e /opt/venv/bin/pip &&
+            { test ! -d /usr/share/python-wheels || test -z "$(find /usr/share/python-wheels -type f -name "pip*.whl" -print -quit)"; } &&
+            test "$(readlink -f "$(command -v ipmitool)")" = /usr/bin/ipmitool &&
+            test "$(ipmitool -V)" = "ipmitool version 1.8.19" &&
+            test -z "$(find /app -type f \( -name "*.pyc" -o -name "*.pyo" \) -print -quit)"
+          '
+          docker run -d --name gpu-monitor-smoke \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -e DATABASE_URL=sqlite:////app/data/smoke.db \
+            -e DATA_DIR=/app/data \
+            -e AUTO_MIGRATE=yes \
+            -e JWT_SIGNING_KEY=ci-image-jwt-key-000000000000000000000000000000000 \
+            -e CREDENTIAL_ENCRYPTION_KEYS=ci-image-credential-key-000000000000000000000000000 \
+            -e COOKIE_SECURE=no -e ALLOW_INSECURE_HTTP=yes \
+            -e REQUIRE_ADMIN_MFA=yes \
+            -e INIT_ADMIN_USERNAME=ci_admin \
+            -e INIT_ADMIN_PASSWORD=ci-image-password-000000000000000000000000000 \
+            "$IMAGE"
+          trap 'docker rm -f gpu-monitor-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec gpu-monitor-smoke python -c \
+              "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=2); raise SystemExit(0 if r.status == 200 else 1)"; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker logs gpu-monitor-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+          docker inspect "$IMAGE" > gpu-monitor-image-inspect.json
+          docker image inspect --format '{{.Id}}' "$IMAGE" > gpu-monitor-image-id.txt
+      - name: Scan final image vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: gpu-monitor:${{ github.sha }}
+          scanners: vuln,secret
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: gpu-monitor:${{ github.sha }}
+          format: cyclonedx
+          output: gpu-monitor-sbom.cdx.json
+      - name: Add source-built ipmitool to SBOM
+        env:
+          IMAGE: gpu-monitor:${{ github.sha }}
+        run: |
+          IPMITOOL_REVISION=$(docker image inspect --format '{{index .Config.Labels "io.gpu-monitor.ipmitool.revision"}}' "$IMAGE")
+          IPMITOOL_VERSION=$(docker image inspect --format '{{index .Config.Labels "io.gpu-monitor.ipmitool.version"}}' "$IMAGE")
+          IPMITOOL_BINARY_SHA256=$(docker run --rm --entrypoint sha256sum "$IMAGE" /usr/bin/ipmitool | awk '{print $1}')
+          jq --arg revision "$IPMITOOL_REVISION" \
+             --arg version "$IPMITOOL_VERSION" \
+             --arg digest "$IPMITOOL_BINARY_SHA256" '
+            .components = ((.components // []) + [{
+              "type": "application",
+              "bom-ref": ("pkg:github/ipmitool/ipmitool@" + $revision),
+              "name": "ipmitool",
+              "version": ($version + "+git." + ($revision[0:12])),
+              "hashes": [{"alg": "SHA-256", "content": $digest}],
+              "purl": ("pkg:github/ipmitool/ipmitool@" + $revision),
+              "externalReferences": [{
+                "type": "vcs",
+                "url": ("https://github.com/ipmitool/ipmitool/tree/" + $revision)
+              }]
+            }])
+          ' gpu-monitor-sbom.cdx.json > gpu-monitor-sbom.cdx.json.tmp
+          mv gpu-monitor-sbom.cdx.json.tmp gpu-monitor-sbom.cdx.json
+          jq -e --arg revision "$IPMITOOL_REVISION" \
+            '.components[] | select(.purl == ("pkg:github/ipmitool/ipmitool@" + $revision))' \
+            gpu-monitor-sbom.cdx.json >/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpu-monitor-supply-chain-evidence
+          path: |
+            gpu-monitor-sbom.cdx.json
+            gpu-monitor-image-inspect.json
+            gpu-monitor-image-id.txt
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

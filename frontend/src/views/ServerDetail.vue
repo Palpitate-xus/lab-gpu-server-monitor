@@ -237,7 +237,7 @@
       </el-row>
 
       <!-- ===== live process table (btop parity: sort/kill/renice) ===== -->
-      <el-card class="page-card">
+      <el-card v-if="isAdmin" class="page-card">
         <template #header>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>进程 (实时 SSH · {{ procs.length }})</span>
@@ -272,10 +272,10 @@
           <el-table-column prop="command" label="命令" min-width="240" show-overflow-tooltip class-name="mono" />
           <el-table-column v-if="isAdmin" label="操作" width="130" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" type="warning" @click="renice(row)">renice</el-button>
+              <el-button size="small" type="warning" :disabled="!row.start_ticks" @click="renice(row)">renice</el-button>
               <el-popconfirm :title="`确定 kill 进程 ${row.pid} (${(row.command || '').slice(0,30)})？`" @confirm="kill(row, 'TERM')">
                 <template #reference>
-                  <el-button size="small" type="danger">kill</el-button>
+                  <el-button size="small" type="danger" :disabled="!row.start_ticks">kill</el-button>
                 </template>
               </el-popconfirm>
             </template>
@@ -919,11 +919,11 @@ async function loadHistory() {
 }
 
 async function loadProcs() {
-  if (invalidId.value || document.hidden) return
+  if (invalidId.value || document.hidden || !isAdmin.value) return
   procsLoading.value = true
   try {
     await applyProcs(
-      api.get(`/metrics/server/${serverId.value}/processes?sort=${procSort.value}`).then(r => r.data),
+      api.post(`/metrics/server/${serverId.value}/processes?sort=${procSort.value}`).then(r => r.data),
       (data) => { procs.value = data.processes }
     )
   } catch (e) {
@@ -935,7 +935,14 @@ async function loadProcs() {
 
 async function kill(row, signal) {
   try {
-    const { data } = await api.post(`/metrics/server/${serverId.value}/processes/action`, { action: 'kill', pid: row.pid, signal })
+    const { value: reauth_password } = await ElMessageBox.prompt(
+      `请输入当前管理员密码以确认向进程 ${row.pid} 发送 ${signal}`,
+      '敏感操作再次认证',
+      { inputType: 'password', inputPattern: /.+/, inputErrorMessage: '请输入当前密码' }
+    )
+    const { data } = await api.post(`/metrics/server/${serverId.value}/processes/action`, {
+      action: 'kill', pid: row.pid, start_ticks: row.start_ticks, signal, reauth_password
+    })
     ElMessage.success(`已发送 ${signal} 到 ${row.pid}: ${data.message}`)
     clearTimeout(killTimer)
     killTimer = setTimeout(loadProcs, 800)
@@ -950,7 +957,14 @@ async function renice(row) {
       inputValue: '10', inputPattern: /^-?\d+$/, inputErrorMessage: '请输入 -20 到 19 之间的整数'
     })
     const nice = Math.max(-20, Math.min(19, parseInt(value)))
-    await api.post(`/metrics/server/${serverId.value}/processes/action`, { action: 'renice', pid: row.pid, nice })
+    const { value: reauth_password } = await ElMessageBox.prompt(
+      `请输入当前管理员密码以确认调整进程 ${row.pid}`,
+      '敏感操作再次认证',
+      { inputType: 'password', inputPattern: /.+/, inputErrorMessage: '请输入当前密码' }
+    )
+    await api.post(`/metrics/server/${serverId.value}/processes/action`, {
+      action: 'renice', pid: row.pid, start_ticks: row.start_ticks, nice, reauth_password
+    })
     ElMessage.success(`已 renice ${row.pid} -> ${nice}`)
   } catch (e) {
     if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)

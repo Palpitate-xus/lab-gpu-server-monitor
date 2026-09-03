@@ -1,0 +1,33 @@
+*
+!.dockerignore
+!Dockerfile
+!Dockerfile.multistage
+
+!backend/
+backend/*
+!backend/app/
+!backend/app/**
+!backend/migrations/
+!backend/migrations/**
+!backend/scripts/
+!backend/scripts/**
+!backend/requirements.in
+!backend/requirements.lock
+
+!frontend/
+frontend/*
+!frontend/package.json
+!frontend/pnpm-lock.yaml
+!frontend/pnpm-workspace.yaml
+!frontend/index.html
+!frontend/vite.config.js
+!frontend/src/
+!frontend/src/**
+!frontend/dist/
+!frontend/dist/**
+
+# Final exclusions win over the directory re-inclusions above. Never copy
+# interpreter/build residue (including bytecode for deleted modules).
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/

@@ -1,26 +1,64 @@
 services:
   gpu-monitor:
-    build: .
-    image: gpu-monitor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.multistage
+    image: "${GPU_MONITOR_IMAGE:?GPU_MONITOR_IMAGE must identify the reviewed candidate}"
     container_name: gpu-monitor
     restart: unless-stopped
     ports:
-      - "8300:8000"
+      - "127.0.0.1:${GPU_MONITOR_PORT:-8300}:8000"
     volumes:
-      - ./data:/app/data
-      - /home/xusheng/gpu_logs:/app/archives
+      - ./data:/app/data:rw
+      - ./secrets:/run/secrets/gpu-monitor:ro
+      - /home/xusheng/gpu_logs:/app/archives:rw
     env_file:
       - .env
     environment:
-      # SECRET_KEY now lives in .env (gitignored); never commit real keys here.
-      # SECRET_KEY: "change-me"
-      INIT_ADMIN_USERNAME: "admin"
-      INIT_ADMIN_PASSWORD: "admin123"
       POLL_INTERVAL_SECONDS: "60"
+      AUTO_MIGRATE: "no"
       # Daily tar.gz export of metrics older than retention_days lands here
       # before deletion (host dir: /home/xusheng/gpu_logs).
       ARCHIVE_DIR: "/app/archives"
-      # MySQL backend (local docker-mysql-1 on the docker bridge)
-      # DATABASE_URL now assembled from .env (MYSQL_PASSWORD); never commit credentials.
-      DATABASE_URL: "mysql+pymysql://gpumon:${MYSQL_PASSWORD}@172.17.0.1:3306/gpu_monitor?charset=utf8mb4"
       TZ: "Asia/Shanghai"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: ${GPU_MONITOR_MEMORY_LIMIT:-2g}
+    cpus: ${GPU_MONITOR_CPU_LIMIT:-2.0}
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  gpu-monitor-migrate:
+    profiles: [maintenance]
+    build:
+      context: .
+      dockerfile: Dockerfile.multistage
+    image: "${GPU_MONITOR_IMAGE:?GPU_MONITOR_IMAGE must identify the reviewed candidate}"
+    env_file:
+      - .env
+    environment:
+      # This value must use the short-lived DDL account. It is intentionally
+      # separate from the runtime DATABASE_URL in .env.
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+      AUTO_MIGRATE: "yes"
+    volumes:
+      - ./data:/app/data:rw
+      - ./secrets:/run/secrets/gpu-monitor:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["python", "scripts/migrate_db.py"]

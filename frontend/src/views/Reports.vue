@@ -70,6 +70,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
+import { csvRow } from '../csv'
 
 const hours = ref(24)
 const tag = ref('')
@@ -106,12 +107,12 @@ function exportCsv() {
   const rows = report.value?.servers || []
   if (!rows.length) return ElMessage.info('没有可导出的数据')
   const head = ['服务器', '标签', '覆盖小时', 'GPU平均利用率%', '平均功耗W', '空占卡时', '空占占比%', '采集成功率%']
-  const lines = [head.join(',')]
+  const lines = [csvRow(head)]
   for (const r of rows) {
-    lines.push([
-      r.server_name, `"${(r.tags || []).join('|')}"`, r.hours_covered,
+    lines.push(csvRow([
+      r.server_name, (r.tags || []).join('|'), r.hours_covered,
       r.gpu_util_avg, r.gpu_power_avg_w, r.idle_held_gpu_hours, r.idle_ratio_pct, r.success_rate
-    ].join(','))
+    ]))
   }
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a')

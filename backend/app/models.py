@@ -23,6 +23,10 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def new_token(n: int = 32) -> str:
+    return secrets.token_urlsafe(n)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -33,7 +37,20 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(128), default="")
     role: Mapped[str] = mapped_column(String(16), default="viewer")  # admin | viewer
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # auth_id cannot be reused after deletion; token_version persists session
+    # invalidation across restarts and multiple application replicas.
+    auth_id: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False, default=lambda: new_token(24)
+    )
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    mfa_secret: Mapped[str] = mapped_column(Text, default="")  # encrypted TOTP seed
+    mfa_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    mfa_last_counter: Mapped[int] = mapped_column(BigInteger, nullable=False, default=-1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    @property
+    def mfa_enrolled(self) -> bool:
+        return bool(self.mfa_secret and self.mfa_confirmed)
 
     @property
     def is_admin(self) -> bool:
@@ -48,7 +65,7 @@ class Server(Base):
     host: Mapped[str] = mapped_column(String(255), nullable=False)
     port: Mapped[int] = mapped_column(Integer, default=22)
     auth_type: Mapped[str] = mapped_column(String(16), default="password")  # password | key
-    username: Mapped[str] = mapped_column(String(64), nullable=False, default="root")
+    username: Mapped[str] = mapped_column(String(64), nullable=False, default="gpumon")
     password: Mapped[str] = mapped_column(Text, default="")  # encrypted
     private_key: Mapped[str] = mapped_column(Text, default="")  # encrypted
     passphrase: Mapped[str] = mapped_column(Text, default="")  # encrypted
@@ -257,10 +274,6 @@ class GpuBaseline(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     missing_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ecc_uncorrected_baseline: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
-
-def new_token(n: int = 32) -> str:
-    return secrets.token_urlsafe(n)
 
 
 class ServerNote(Base):

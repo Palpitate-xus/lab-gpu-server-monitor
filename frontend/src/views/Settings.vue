@@ -34,7 +34,8 @@
           <template #header>告警通知 (Webhook)</template>
           <el-form label-width="120px">
             <el-form-item label="Webhook URL">
-              <el-input v-model="webhookUrl" placeholder="https://example.com/hook（留空禁用）" />
+              <el-input v-model="webhookUrl" :placeholder="webhookConfigured ? '已加密保存；留空表示保持不变' : 'https://example.com/hook'" />
+              <div v-if="webhookConfigured" style="font-size:12px;color:var(--csub);width:100%">已配置，出于安全原因不回显 URL/令牌。</div>
             </el-form-item>
             <el-form-item label="消息模板">
               <el-input v-model="webhookTemplate" type="textarea" :rows="4" class="mono"
@@ -47,6 +48,7 @@
             <el-form-item>
               <el-button :loading="testing" @click="testWebhook">发送测试</el-button>
               <el-button type="primary" :loading="savingWebhook" @click="saveWebhook">保存</el-button>
+              <el-button v-if="webhookConfigured" type="danger" plain @click="clearWebhook">清除</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -158,7 +160,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '../api'
 import StatusPageConfig from '../components/StatusPageConfig.vue'
@@ -171,6 +173,7 @@ const pollInterval = ref(60)
 const retentionDays = ref(0)
 const energyPrice = ref(0)
 const webhookUrl = ref('')
+const webhookConfigured = ref(false)
 const webhookTemplate = ref('')
 const savingSettings = ref(false)
 const savingWebhook = ref(false)
@@ -211,6 +214,7 @@ async function load() {
     retentionDays.value = data.retention_days
     energyPrice.value = data.energy_price ?? 0
     webhookUrl.value = data.webhook_url || ''
+    webhookConfigured.value = Boolean(data.webhook_url_configured)
     webhookTemplate.value = data.webhook_template || ''
     status.value = data.scheduler || {}
   } catch (e) {
@@ -246,7 +250,13 @@ async function saveSettings() {
 async function saveWebhook() {
   savingWebhook.value = true
   try {
-    await api.put('/settings', { webhook_url: webhookUrl.value, webhook_template: webhookTemplate.value })
+    const payload = { webhook_template: webhookTemplate.value }
+    if (webhookUrl.value.trim()) payload.webhook_url = webhookUrl.value.trim()
+    await api.put('/settings', payload)
+    if (payload.webhook_url) {
+      webhookConfigured.value = true
+      webhookUrl.value = ''
+    }
     ElMessage.success('已保存')
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '保存失败')
@@ -256,15 +266,27 @@ async function saveWebhook() {
 }
 
 async function testWebhook() {
-  if (!webhookUrl.value) return ElMessage.warning('请先填写 Webhook URL')
+  if (!webhookUrl.value.trim() && !webhookConfigured.value) return ElMessage.warning('请先填写 Webhook URL')
   testing.value = true
   try {
-    await api.post('/alerts/test-webhook', { url: webhookUrl.value, template: webhookTemplate.value })
+    await api.post('/alerts/test-webhook', { url: webhookUrl.value.trim(), template: webhookTemplate.value })
     ElMessage.success('测试消息已发送，请查收')
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '发送失败')
   } finally {
     testing.value = false
+  }
+}
+
+async function clearWebhook() {
+  try {
+    await ElMessageBox.confirm('确认清除已保存的 Webhook URL？', '清除 Webhook', { type: 'warning' })
+    await api.put('/settings', { webhook_url: '' })
+    webhookUrl.value = ''
+    webhookConfigured.value = false
+    ElMessage.success('Webhook 已清除')
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
   }
 }
 

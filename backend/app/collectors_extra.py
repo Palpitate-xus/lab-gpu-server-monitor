@@ -12,11 +12,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .config import get_settings
 from .remote_scripts import INVENTORY_SCRIPT, KERNEL_SCRIPT, SLOW_SCRIPT
-from .ssh_collector import _first_line, _split_sections, _to_float
+from .ssh_collector import _first_line, _split_sections
 from .ssh_transport import classify_ssh_error, connect_host, decrypt_text, run_script
 
 settings = get_settings()
@@ -250,7 +249,16 @@ def collect_slow(host, port, username, password_enc="", private_key_enc="", pass
         )
         code, out, err = run_script(client, SLOW_SCRIPT, timeout=90)
         if not out.strip():
-            r.error_code, r.error = "COLLECT_FAILED", f"empty output (exit {code}): {err[:200]}"
+            logger.warning(
+                "slow collector returned no output for %r (exit=%s, stderr=%s)",
+                host,
+                code,
+                err[:200].replace("\r", " ").replace("\n", " "),
+            )
+            r.error_code, r.error = (
+                "COLLECT_FAILED",
+                f"remote collector returned no usable output (exit {code})",
+            )
             return r
         sec = _split_sections(out)
         r.nvme_smart = _parse_nvme_smart(sec.get("NVMEDEVS", ""), sec.get("NVMESMART", ""))
@@ -418,7 +426,16 @@ def collect_inventory(host, port, username, password_enc="", private_key_enc="",
         )
         code, out, err = run_script(client, INVENTORY_SCRIPT, timeout=120)
         if not out.strip():
-            r.error_code, r.error = "COLLECT_FAILED", f"empty output (exit {code}): {err[:200]}"
+            logger.warning(
+                "inventory collector returned no output for %r (exit=%s, stderr=%s)",
+                host,
+                code,
+                err[:200].replace("\r", " ").replace("\n", " "),
+            )
+            r.error_code, r.error = (
+                "COLLECT_FAILED",
+                f"remote collector returned no usable output (exit {code})",
+            )
             return r
         sec = _split_sections(out)
         r.machine_id = _first_line(sec.get("MACHINEID", ""))
@@ -436,7 +453,11 @@ def collect_inventory(host, port, username, password_enc="", private_key_enc="",
         r.pci_numa = _parse_pci_numa(sec.get("PCINUMA", ""))
         r.disks = _parse_lsblk(sec.get("LSBLK", ""))
         r.nics = _parse_nics(sec.get("NICLIST", ""))
-        r.ip_addrs = [l.strip() for l in sec.get("IPADDR", "").splitlines() if l.strip()][:10]
+        r.ip_addrs = [
+            line.strip()
+            for line in sec.get("IPADDR", "").splitlines()
+            if line.strip()
+        ][:10]
         r.ib = _parse_ib(sec.get("IBSTAT", ""))
         r.time_info = _parse_timedate(sec.get("TIMEDATE", ""))
         r.duration = round(time.time() - t0, 2)

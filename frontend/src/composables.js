@@ -59,26 +59,31 @@ export function useLatestOnly() {
 /**
  * Session state holder.
  *
- * The token lives in a module-scoped variable first (memory), mirrored to
- * localStorage only for page-reload survival. bootstrapSession() re-fetches
- * /auth/me on boot so the in-memory role always reflects the server's view;
- * guards and isAdminSession consult the in-memory user object only, so
- * tampering with localStorage has no privilege effect.
+ * Authentication lives in a Secure HttpOnly cookie and is therefore not
+ * readable by JavaScript. Only the non-secret user display object is cached;
+ * bootstrapSession() always re-fetches /auth/me before the app mounts.
  */
+function storedUser() {
+  try {
+    const value = JSON.parse(localStorage.getItem('user') || 'null')
+    return value && typeof value === 'object' ? value : null
+  } catch {
+    localStorage.removeItem('user')
+    return null
+  }
+}
+
 const _session = {
-  token: localStorage.getItem('token') || '',
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: storedUser(),
 }
 
 export function getSession() { return _session }
-export function setSession(token, user) {
-  _session.token = token
+export function setSession(user) {
   _session.user = user
-  localStorage.setItem('token', token)
   localStorage.setItem('user', JSON.stringify(user))
+  localStorage.removeItem('token')
 }
 export function clearSession() {
-  _session.token = ''
   _session.user = null
   localStorage.removeItem('token')
   localStorage.removeItem('user')
@@ -91,14 +96,12 @@ export function isAdminSession() { return _session.user?.role === 'admin' }
  * drops the session when the token is dead/expired.
  */
 export async function bootstrapSession() {
-  if (!_session.token) return
   try {
     const res = await axios.get('/api/auth/me', {
-      headers: { Authorization: `Bearer ${_session.token}` },
+      withCredentials: true,
       timeout: 8000,
     })
-    _session.user = res.data
-    localStorage.setItem('user', JSON.stringify(res.data))
+    setSession(res.data)
   } catch {
     clearSession()
   }

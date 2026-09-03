@@ -208,8 +208,8 @@
 
             <el-alert
               class="inline-alert"
-              title="远程地址优先使用 HTTPS"
-              description="为防止 viewer 密码泄露，MCP 默认拒绝向非本机的明文 HTTP 地址登录。只有受控私网才考虑显式打开 GPU_MONITOR_ALLOW_INSECURE_HTTP。"
+              title="远程地址必须使用 HTTPS"
+              description="只有解析后仍全部指向环回接口的地址可以使用 HTTP。远程明文 HTTP、关闭证书校验和 API 重定向都会被代码直接拒绝，没有绕过开关。"
               type="warning"
               :closable="false"
               show-icon
@@ -235,14 +235,15 @@
                 <ul>
                   <li>GPU 利用率、显存、温度、功耗与时钟</li>
                   <li>ECC、PCIe、降频原因和 24 小时风险评分</li>
-                  <li>GPU 计算进程、历史趋势和告警事件</li>
-                  <li>服务器名称、地址、标签与采集状态</li>
+                  <li>进程 PID/资源占用、历史趋势和告警事件</li>
+                  <li>服务器名称与采集状态</li>
                 </ul>
               </div>
               <div class="boundary-card blocked">
                 <div class="boundary-title"><span>×</span>明确不提供</div>
                 <ul>
-                  <li>SSH/BMC 密码、私钥及 SSH 登录用户名</li>
+                  <li>SSH/BMC 密码、私钥、管理地址及登录用户名</li>
+                  <li>默认 strict 模式下的硬件序列号、主机名、标签、人员与命令行</li>
                   <li>进程 kill、renice 或任意远程命令</li>
                   <li>立即刷新采集、修改设置或管理服务器</li>
                   <li>确认、关闭、分派告警或管理用户</li>
@@ -311,12 +312,12 @@ const toc = [
 ]
 
 const tools = [
-  { name: 'gpu_monitor_connection_status', purpose: '检查 API 与 viewer 登录', returns: '平台状态、当前账号与角色' },
+  { name: 'gpu_monitor_connection_status', purpose: '检查 API 与 viewer 登录', returns: '平台状态、角色与隐私模式' },
   { name: 'gpu_monitor_list_servers', purpose: '列出 GPU 服务器', returns: '在线状态、GPU 数、利用率、显存与功耗' },
   { name: 'gpu_monitor_cluster_summary', purpose: '查看集群概况', returns: 'GPU 总数、忙闲、温度、功耗和高风险卡' },
   { name: 'gpu_monitor_get_server_gpu_info', purpose: '查看单机 GPU 明细', returns: 'ECC、PCIe、时钟、进程和风险评分' },
   { name: 'gpu_monitor_get_gpu_history', purpose: '查询 1–168 小时趋势', returns: '利用率、显存、温度、功耗和时钟序列' },
-  { name: 'gpu_monitor_get_gpu_processes', purpose: '查看 GPU 计算进程', returns: 'PID、用户、命令和 GPU 显存占用' },
+  { name: 'gpu_monitor_get_gpu_processes', purpose: '查看 GPU 计算进程资源', returns: 'PID 和 GPU 显存占用（不含用户/argv）' },
   { name: 'gpu_monitor_get_risk_analysis', purpose: '查询风险与空占', returns: '风险排行、XID/ECC 和持续空占时长' },
   { name: 'gpu_monitor_get_gpu_alerts', purpose: '查询 GPU 告警', returns: 'GPU/XID/ECC/PCIe 告警及处理状态' },
 ]
@@ -326,8 +327,8 @@ const envVars = [
   { name: 'GPU_MONITOR_USERNAME', required: true, default: '无', description: '专用 viewer 用户名，建议使用 mcp_viewer。' },
   { name: 'GPU_MONITOR_PASSWORD', required: true, default: '无', description: 'viewer 密码，只存放在 MCP 宿主的本地环境配置中。' },
   { name: 'GPU_MONITOR_TIMEOUT', required: false, default: '15', description: '单次 API 请求超时秒数，必须大于 0 且不超过 120。' },
-  { name: 'GPU_MONITOR_VERIFY_TLS', required: false, default: 'yes', description: '是否校验 HTTPS 证书，不建议关闭。' },
-  { name: 'GPU_MONITOR_ALLOW_INSECURE_HTTP', required: false, default: 'no', description: '是否允许向非本机 HTTP 地址发送登录凭据，仅受控私网使用。' },
+  { name: 'GPU_MONITOR_MCP_PRIVACY_MODE', required: false, default: 'strict', description: 'strict 默认脱敏；仅经数据治理批准后才使用 extended。' },
+  { name: 'MCP_PRIVACY_HMAC_KEY', required: true, default: '无', description: 'strict 模式的硬件化名密钥；至少 32 个随机字符，禁止与其它密钥复用。' },
 ]
 
 const examplePrompts = [
@@ -352,8 +353,7 @@ const troubleshooting = [
   },
   {
     title: '提示拒绝 remote plain HTTP',
-    body: '这是凭据保护机制。优先为 GPU Monitor 配置 HTTPS；只有确认网络为受控私网时才启用明文 HTTP 开关。',
-    code: 'GPU_MONITOR_ALLOW_INSECURE_HTTP=yes',
+    body: '这是不可关闭的凭据保护机制。请为远程 GPU Monitor 配置可信 HTTPS；不要使用明文私网地址，也不要安装不受信任的根证书。',
   },
   {
     title: '手工运行后终端没有输出',
@@ -371,7 +371,7 @@ const troubleshooting = [
 
 const installCommand = `cd ${projectRoot}
 python3 -m venv .venv-mcp
-.venv-mcp/bin/pip install -r mcp_server/requirements.txt`
+.venv-mcp/bin/pip install --require-hashes -r mcp_server/requirements.lock`
 
 const hostConfig = computed(() => JSON.stringify({
   mcpServers: {
@@ -383,12 +383,14 @@ const hostConfig = computed(() => JSON.stringify({
         GPU_MONITOR_URL: monitorUrl,
         GPU_MONITOR_USERNAME: 'mcp_viewer',
         GPU_MONITOR_PASSWORD: '<替换为 viewer 密码>',
+        GPU_MONITOR_MCP_PRIVACY_MODE: 'strict',
+        MCP_PRIVACY_HMAC_KEY: '<替换为独立随机值>',
       },
     },
   },
 }, null, 2))
 
-const testCommand = `${projectRoot}/.venv-mcp/bin/python -m unittest discover -s ${projectRoot}/mcp_server/tests -v`
+const testCommand = `${projectRoot}/.venv-mcp/bin/python -m pytest -q ${projectRoot}/mcp_server/tests`
 
 function scrollTo(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })

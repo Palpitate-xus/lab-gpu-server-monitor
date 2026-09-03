@@ -15,6 +15,8 @@ import time
 logger = logging.getLogger("gpumon.cache")
 
 _KEY_PREFIX = "gpumon:cache:"
+MAX_CACHE_VALUE_BYTES = 32 * 1024 * 1024
+MAX_MEMORY_CACHE_ENTRIES = 1024
 
 
 class InMemoryBackend:
@@ -36,11 +38,16 @@ class InMemoryBackend:
     def set(self, key: str, value, ttl: float) -> None:
         with self._lock:
             self._data[key] = (time.monotonic() + ttl, value)
-            if len(self._data) > 1024:
+            if len(self._data) > MAX_MEMORY_CACHE_ENTRIES:
                 now = time.monotonic()
                 stale = [k for k, (e, _) in self._data.items() if e < now]
                 for k in stale:
                     self._data.pop(k, None)
+                # A large set of still-live parameter combinations must not
+                # grow this process-local cache without bound. Dict insertion
+                # order gives us a small FIFO fallback after stale eviction.
+                while len(self._data) > MAX_MEMORY_CACHE_ENTRIES:
+                    self._data.pop(next(iter(self._data)))
 
     def clear(self) -> None:
         with self._lock:
@@ -50,19 +57,37 @@ class InMemoryBackend:
 class RedisBackend:
     def __init__(self, url: str) -> None:
         import redis
+        from urllib.parse import urlsplit
 
-        self._r = redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+        from .config import get_settings
+
+        kwargs = {"socket_connect_timeout": 2, "socket_timeout": 2}
+        if urlsplit(url).scheme.casefold() == "rediss":
+            kwargs.update(ssl_cert_reqs="required", ssl_check_hostname=True)
+            ca_path = get_settings().REDIS_SSL_CA.strip()
+            if ca_path:
+                kwargs["ssl_ca_certs"] = ca_path
+        self._r = redis.Redis.from_url(url, **kwargs)
         self._r.ping()
 
     def get(self, key: str):
-        raw = self._r.get(_KEY_PREFIX + key)
+        # GETRANGE bounds memory even if a compromised/shared Redis instance
+        # plants an unexpectedly large value in our namespace.
+        raw = self._r.getrange(_KEY_PREFIX + key, 0, MAX_CACHE_VALUE_BYTES)
         if raw is None:
+            return None
+        if len(raw) > MAX_CACHE_VALUE_BYTES:
+            raise ValueError("cached value exceeds the safety limit")
+        if not raw:
             return None
         return json.loads(raw)
 
     def set(self, key: str, value, ttl: float) -> None:
         # default=str turns datetimes into ISO strings; response models parse them back
-        self._r.set(_KEY_PREFIX + key, json.dumps(value, default=str), ex=max(1, int(ttl)))
+        payload = json.dumps(value, default=str)
+        if len(payload.encode("utf-8")) > MAX_CACHE_VALUE_BYTES:
+            return
+        self._r.set(_KEY_PREFIX + key, payload, ex=max(1, int(ttl)))
 
     def clear(self) -> None:
         for k in self._r.scan_iter(_KEY_PREFIX + "*", count=200):
@@ -86,9 +111,12 @@ def get_backend():
         if url:
             try:
                 _backend = RedisBackend(url)
-                logger.info("cache backend: redis (%s)", url.split("@")[-1])
+                logger.info("cache backend: Redis enabled")
             except Exception as exc:  # unreachable redis must not break the app
-                logger.warning("redis unavailable (%s); falling back to in-memory cache", exc)
+                logger.warning(
+                    "Redis unavailable (%s); falling back to in-memory cache",
+                    type(exc).__name__,
+                )
                 _backend = InMemoryBackend()
         else:
             _backend = InMemoryBackend()

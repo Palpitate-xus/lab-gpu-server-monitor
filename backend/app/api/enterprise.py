@@ -4,13 +4,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from ..security import get_current_user, require_admin
+from ..security import (
+    check_step_up_limit,
+    get_current_user,
+    record_step_up_failure,
+    record_step_up_success,
+    require_admin,
+    verify_password,
+)
+from ..schemas import HostKeyResetRequest
 from ..database import get_db
 from ..health import gpu_risk_score, health_tree
 from ..models import (
@@ -24,7 +30,10 @@ from ..models import (
     SlowHealth,
     User,
 )
-from ..ssh_transport import forget_hostkey
+from ..ssh_transport import (
+    HostKeyFingerprintMismatch,
+    replace_hostkey_with_expected_fingerprint,
+)
 
 router = APIRouter(prefix="/api", tags=["enterprise"])
 
@@ -122,7 +131,7 @@ def all_kernel_events(
 
 @router.get("/servers/{server_id}/slow-health")
 def server_slow_health(server_id: int, db: Session = Depends(get_db),
-                       user: User = Depends(get_current_user)):
+                       user: User = Depends(require_admin)):
     latest = (
         db.query(SlowHealth)
         .filter(SlowHealth.server_id == server_id)
@@ -147,7 +156,7 @@ def server_slow_health(server_id: int, db: Session = Depends(get_db),
 
 @router.get("/servers/{server_id}/inventory")
 def server_inventory(server_id: int, db: Session = Depends(get_db),
-                     user: User = Depends(get_current_user)):
+                     user: User = Depends(require_admin)):
     latest = (
         db.query(HostInventory)
         .filter(HostInventory.server_id == server_id)
@@ -173,12 +182,64 @@ def server_inventory(server_id: int, db: Session = Depends(get_db),
 
 
 @router.post("/servers/{server_id}/reset-hostkey")
-def reset_hostkey(server_id: int, db: Session = Depends(get_db),
-                  user: User = Depends(require_admin)):
+def reset_hostkey(
+    server_id: int,
+    body: HostKeyResetRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(404, "server not found")
-    forget_hostkey(f"server_{server_id}")
+    ip, bucket = check_step_up_limit(request, user, "hostkey-reset")
+    if not verify_password(body.reauth_password, user.password_hash):
+        record_step_up_failure(ip, bucket)
+        try:
+            db.add(
+                AuditLog(
+                    username=user.username,
+                    action="server.reset_hostkey.reauth_failed",
+                    detail=f"server_id={server_id} ip={ip}",
+                )
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(503, "security audit unavailable") from exc
+        raise HTTPException(403, "administrator re-authentication failed")
+    record_step_up_success(ip, bucket)
+
+    # Record intent before changing trust state. The submitted fingerprint must
+    # have been verified through an out-of-band channel.
+    try:
+        db.add(
+            AuditLog(
+                username=user.username,
+                action="server.reset_hostkey.requested",
+                detail=(
+                    f"server_id={server_id} fingerprint="
+                    f"{body.expected_fingerprint.rstrip('=')} ip={ip}"
+                ),
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(503, "security audit unavailable") from exc
+
+    try:
+        actual_fingerprint = replace_hostkey_with_expected_fingerprint(
+            server.host,
+            server.port or 22,
+            f"server_{server_id}",
+            body.expected_fingerprint,
+        )
+    except HostKeyFingerprintMismatch as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, "unable to verify and pin the SSH host key") from exc
+
     # also clear any open HOSTKEY/SSH alerts so it can recover on next poll
     (
         db.query(AlertEvent)
@@ -190,14 +251,23 @@ def reset_hostkey(server_id: int, db: Session = Depends(get_db),
         )
         .update({"recovered_at": datetime.now(timezone.utc)}, synchronize_session=False)
     )
-    db.commit()
+    db.add(
+        AuditLog(
+            username=user.username,
+            action="server.reset_hostkey.completed",
+            detail=f"server_id={server_id} fingerprint={actual_fingerprint}",
+        )
+    )
     try:
-        db.add(AuditLog(username=user.username, action="server.reset_hostkey",
-                        detail=f"server {server.name} ({server.host})"))
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
-    return {"ok": True, "message": "host key 记录已重置，下轮采集将重新信任该主机"}
+        raise HTTPException(503, "security audit unavailable") from exc
+    return {
+        "ok": True,
+        "fingerprint": actual_fingerprint,
+        "message": "SSH host key fingerprint verified and pinned",
+    }
 
 
 @router.get("/servers/{server_id}/collect-health")
@@ -300,9 +370,18 @@ def cluster_gpu_analysis(db: Session = Depends(get_db),
     """Cluster-wide GPU idle-held detection (空占) + failure-risk ranking."""
     from .. import cache as app_cache
 
-    return app_cache.cached(
+    payload = app_cache.cached(
         "cluster:gpu-analysis", 300.0, lambda: _gpu_analysis(db)
     )
+    from ..privacy import minimize_processes
+
+    return {
+        **payload,
+        "gpus": [
+            {**gpu, "processes": minimize_processes(gpu.get("processes"))}
+            for gpu in payload.get("gpus", [])
+        ],
+    }
 
 
 def _gpu_analysis(db: Session):

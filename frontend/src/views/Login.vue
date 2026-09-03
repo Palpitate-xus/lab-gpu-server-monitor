@@ -16,13 +16,15 @@
         <el-form-item prop="password">
           <el-input v-model="form.password" type="password" placeholder="密码" show-password :prefix-icon="Lock" class="dark-input" />
         </el-form-item>
+        <el-form-item prop="otp">
+          <el-input v-model="form.otp" inputmode="numeric" maxlength="6" placeholder="管理员 MFA 动态码（Viewer 留空）" class="dark-input" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" style="width: 100%; height: 42px; font-size: 15px; letter-spacing: 0.2em" :loading="loading" :disabled="lockSeconds > 0" @click="submit">
           {{ lockSeconds > 0 ? `已锁定 ${Math.floor(lockSeconds / 60)}:${String(lockSeconds % 60).padStart(2, '0')}` : '登 录' }}
         </el-button>
         </el-form-item>
       </el-form>
-      <div v-if="isDev" style="text-align:center;color:var(--csub);font-size:12px;margin-top:4px">默认账号 admin / admin123（首次登录后请修改）</div>
     </div>
   </div>
 </template>
@@ -34,6 +36,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import api from '../api'
 import { setSession } from '../composables'
+import { safeLocalRedirect } from '../navigation'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import '../cockpit.css'
 
@@ -41,8 +44,7 @@ const router = useRouter()
 const route = useRoute()
 const formRef = ref()
 const loading = ref(false)
-const isDev = import.meta.env.DEV
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: '', password: '', otp: '' })
 const lockSeconds = ref(0)
 let lockTimer = null
 function startLockCountdown() {
@@ -57,10 +59,6 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
-function safeRedirect(r) {
-  return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/cockpit'
-}
-
 async function submit() {
   try {
     await formRef.value.validate()
@@ -70,10 +68,14 @@ async function submit() {
   loading.value = true
   try {
     const { data } = await api.post('/auth/login', new URLSearchParams(form))
-    setSession(data.access_token, data.user)
+    setSession(data.user)
     ElMessage.success(`欢迎，${data.user.display_name || data.user.username}`)
+    if (data.user.role === 'admin' && !data.user.mfa_enrolled) {
+      await router.push({ name: 'mfa-setup' })
+      return
+    }
     // hard navigation guarantees the guard re-runs with the fresh session
-    const target = safeRedirect(route.query.redirect)
+    const target = safeLocalRedirect(route.query.redirect, location.origin)
     if (router) router.push(target).catch(() => { location.href = target })
     else location.href = target
   } catch (e) {

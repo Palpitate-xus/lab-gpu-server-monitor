@@ -25,7 +25,7 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 
 | 层 | 频率 | 内容 |
 |---|---|---|
-| **fast** | 每轮（默认 30-60s） | CPU（含 iowait/每核）、内存（HugePages）、磁盘空间+inode、每设备 IO、NIC 速率/错误/丢包/链路状态、GPU 全量（利用率/显存/温度/显存温度/功耗/频率/pstate/**降频原因/ECC/PCIe 链路/retired pages**/计算进程）、进程表、登录用户、TCP/fd |
+| **fast** | 每轮（默认 30-60s） | CPU（含 iowait/每核）、内存（HugePages）、磁盘空间+inode、每设备 IO、NIC 速率/错误/丢包/链路状态、GPU 全量（利用率/显存/温度/显存温度/功耗/频率/pstate/**降频原因/ECC/PCIe 链路/retired pages**/计算进程资源）、脱敏进程资源、TCP/fd；不持久化登录用户、进程用户名或完整命令行 |
 | **kernel** | 每轮 | `journalctl -k` 增量 → **Xid / OOM / MCE / EDAC / PCIe AER / IO / NVMe / NFS / NIC reset** 事件（boot_id+hash 去重入库） |
 | **slow** | 每 5 分钟 | **NVMe SMART**（温度/备用空间/寿命/介质错误/意外断电）、mdraid 状态、NFS 挂载、systemd failed、关键服务（sshd/docker/kubelet/slurmd/nvidia-persistenced）、**MIG**、NVLink、IPMI/BMC 传感器 |
 | **inventory** | 每 24 小时 | machine-id、DMI/BIOS/序列号、lscpu、**NUMA 拓扑（节点 CPU/内存）**、`nvidia-smi topo -m`、PCI 设备 NUMA 归属、磁盘/网卡清单（serial/MAC 稳定 ID）、InfiniBand、NTP 时间同步状态 |
@@ -46,31 +46,36 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 ## 安全架构
 
 ### 密钥与凭据
-- **SECRET_KEY 只存 `.env`（已 gitignore）**，compose 通过 `env_file` 注入；
-  **轮换密钥会使已存 SSH 凭据不可解密**（错误码 `CRED_DECRYPT_FAILED`），
-  需在服务器管理页重新录入——这是设计特性，防止旧密文被旧密钥解开
-- **SSH 凭据**：Fernet 加密存储（AES-128-CBC+HMAC，密钥由 SECRET_KEY 派生）；
-  建议专用 `monitor` 用户 + ED25519 key +
+- JWT、SSH/BMC/MFA 密文、归档分别使用 `JWT_SIGNING_KEY`、
+  `CREDENTIAL_ENCRYPTION_KEYS`、`ARCHIVE_ENCRYPTION_KEY`，启动时拒绝空值、公开占位值和密钥复用。
+- `CREDENTIAL_ENCRYPTION_KEYS` 是有序 keyring：首个密钥加密、其余密钥仅解密；使用
+  `scripts/rotate_credentials.py` 可在不中断旧密文读取的情况下完成轮换。
+- **SSH/BMC/MFA 凭据**使用 Fernet 认证加密保存；建议专用 `gpumon` 用户 + ED25519 key +
   `authorized_keys` 限制（`no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`）
-- **登录密码**：bcrypt cost=12
+- 登录密码使用 bcrypt，新增/修改密码至少 15 位；首次管理员密码至少 16 位且没有默认值。
+- 指标归档使用独立 AES-256-GCM 密钥加密，目录/文件权限固定为 0700/0600。
 
 ### 认证与访问
-- **登录速率限制**：同用户名 5 次 / 同 IP 10 次失败锁 10 分钟（429 + 剩余时间），
-  登录页按钮显示锁定倒计时；成功登录清零；失败尝试写审计日志
-- **JWT 有效期 2 小时 + 吊销机制**（jti）：改密 / 禁用 / 删除用户即作废其全部存量 token
-- **API 文档默认关闭**（`/docs` `/redoc` `/openapi.json`），需要时设 `DOCS_ENABLED=yes`
-- **安全响应头**：CSP / X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy / HSTS
-- **Webhook SSRF 防护**：仅 https、解析后拒私网/环回/链路本地地址、拒绝重定向，保存时即校验
-- **容器非 root 运行**（appuser, uid 10001）+ HEALTHCHECK
-- 401 自动登出前端
+- 管理员默认强制绑定并验证 TOTP MFA；未完成绑定时，所有管理员权限接口都拒绝访问。
+- 浏览器令牌只放在 `Secure + HttpOnly + SameSite` Cookie；写请求使用双提交 CSRF 校验，
+  不再把 JWT 保存到 localStorage。
+- JWT 同时绑定不可复用的 `auth_id` 与持久化 `token_version`；登出、改密、改角色、禁用、
+  删除用户后，旧令牌跨进程重启仍立即失效。
+- 登录限制为每 IP/账号组合 5 次、每 IP 20 次失败后延迟 10 分钟；状态存储有硬容量上限，
+  不使用可被远程攻击者全局锁死的“按用户名”锁。
+- API 文档端点固定关闭；所有 API 禁止缓存，并启用 CSP、HSTS、frame/object 隔离等安全头。
+- Webhook 仅允许 HTTPS 公网目标，DNS 校验后的地址会固定到实际 TLS 连接，证书仍按原域名验证，
+  且不跟随重定向。
+- 容器 UID 10001 非 root、只读根文件系统、删除全部 capabilities，并限制 CPU/内存/PID/日志。
 - **CORS 默认关闭**（同源部署，SPA 与 API 同源）；跨域部署需显式配置
-  `CORS_ORIGINS` 白名单；反代场景设 `TRUST_PROXY=yes` 才信任 X-Forwarded-For
-- 进程 kill/renice、服务器增删、用户管理、规则、设置均需 admin；viewer 只读；
-  敏感操作全部审计日志
+  `CORS_ORIGINS` 白名单；只有来自 `TRUSTED_PROXY_CIDRS` 的代理头才会被信任。
+- Viewer 看不到主机/BMC 管理地址、凭据状态、完整 IPMI/资产或进程身份；完整实时进程仅管理员可见。
+- 远程 kill/renice 默认关闭；显式启用后仍要求管理员 MFA 和当前密码再次认证。
 
 ### 采集安全
-- **Host Key 校验**：TOFU（首次信任并记录），密钥变化立即中止并告警（防 MITM）；
-  管理员确认服务器重装后可一键重置
+- **Host Key 校验**：TOFU 首次指纹以原子、不可覆盖方式写入 0600 文件；持久化失败会中止连接，
+  指纹变化立即拒绝并告警。管理员核对服务器重装后的新指纹，才能重置信任。
+- 默认拒绝 root SSH，采集统一使用专用低权限 `gpumon` 账户。
 - **命令白名单**：采集命令全部内置固定模板，前端/用户**不可能**注入 shell
 - **服务器端零残留**：脚本经 stdin（`bash -s`）执行，不落盘、无后台进程
 - **输出限流**：单采集器 2MB 上限，`LC_ALL=C` 固定 locale
@@ -86,7 +91,8 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
   静默全部检测器与规则告警、排除出集群健康统计；可设到期时间自动恢复；
   每次状态变更与手工记录写入**故障台账**（详情页「台账」标签）
 - **标签分组**：服务器多标签（机柜/集群/团队/型号），列表与报表按标签筛选
-- **进程操作（admin）**：实时进程表（15s 刷新、排序、过滤）、kill/renice
+- **进程操作（admin）**：实时进程表（15s 刷新、排序、过滤）；kill/renice 默认关闭，
+  启用后逐次要求 MFA 会话与密码再认证
 - **告警**：用户规则（9 指标）+ 内置检测器事件流；**确认（ack）与恢复分离**——
   确认只是认领静默，条件消除后自动恢复；支持手动关闭（resolve）、认领（assign）；
   点事件（Xid/OOM/MCE）1 小时 TTL 自动关闭；**检测器事件同样推送通知**
@@ -121,35 +127,43 @@ GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 
 详细步骤见 **[部署指南 / Deployment Guide](DEPLOYMENT.md)**（[English](DEPLOYMENT.en.md)）。
 
 ```bash
-# 前端构建（docker hub 不通时的流程；网络可用可直接用 Dockerfile.multistage）
-cd frontend && pnpm install && pnpm build && cd ..
+cp .env.example .env
+chmod 600 .env
+# 为三个密钥分别执行一次，并填写 .env；不要复用输出
+openssl rand -hex 32
+# 填写首次管理员、归档和数据库配置后，先执行 DEPLOYMENT.md 中的独立迁移步骤
+export GPU_MONITOR_IMAGE="gpu-monitor:$(git rev-parse --short=12 HEAD)"
 docker compose up -d --build
 ```
 
-访问 `http://<host>:8300`，默认 `admin / admin123`（**请立即修改**；登录页仅开发模式显示默认口令）。
-
-**注意**：`SECRET_KEY` 未配置或仍为默认值时**应用拒绝启动**（防止可伪造管理员令牌与
-凭据解密）；生成示例：`python3 -c 'import secrets;print(secrets.token_urlsafe(48))'`。
+Compose 只监听 `127.0.0.1:8300`。浏览器必须通过受控 HTTPS 反向代理访问；系统没有默认
+管理员账号或密码。首次管理员登录后会被强制引导绑定 TOTP MFA，完成前不能执行管理操作。
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| SECRET_KEY | change-me | JWT 签名 + 凭据加密（**务必修改**；改后已存凭据失效） |
-| INIT_ADMIN_USERNAME / PASSWORD | admin/admin123 | 首次启动创建的管理员 |
-| DOCS_ENABLED | no | 设 yes 开放 /docs /redoc /openapi.json（默认关闭防探测） |
+| JWT_SIGNING_KEY | 无 | JWT 专用随机密钥，至少 32 字符 |
+| CREDENTIAL_ENCRYPTION_KEYS | 无 | 凭据 keyring，格式为 `当前密钥,旧密钥` |
+| ARCHIVE_ENCRYPTION_KEY | 无 | 归档 AES-256-GCM 密钥，必须是 64 位十六进制 |
+| INIT_ADMIN_USERNAME / PASSWORD | 无 | 仅空库首次启动使用；密码 16–72 位 |
+| DATABASE_URL / DATABASE_SSL_CA | SQLite / 无 | 非环回 MySQL 强制配置 CA 与最小权限运行账号 |
+| REDIS_URL / REDIS_SSL_CA | 无 | 可选缓存；非环回 Redis 强制 `rediss://`、认证和证书校验 |
+| REQUIRE_ADMIN_MFA | yes | 管理员权限默认要求 TOTP MFA |
+| REMOTE_PROCESS_CONTROL_ENABLED | no | 是否启用远程进程操作；即使启用仍需再认证 |
 | POLL_INTERVAL_SECONDS | 60 | 采集间隔（设置页可在线改） |
 
-系统设置页还可配置：数据保留天数（0=永久）、Webhook URL 与消息模板。
+系统设置页还可配置：数据保留天数（0=永久）、Webhook URL 与消息模板。Webhook URL 会加密
+保存且不会通过管理 API 回显完整令牌。
 
 ## 目录结构
 
 ```
 ├── Dockerfile / Dockerfile.multistage / docker-compose.yml
 ├── backend/
-│   ├── migrations/               # SQL 迁移（幂等，自动执行）
+│   ├── migrations/               # SQL 迁移（由短期 DDL 账号显式执行）
 │   └── app/
-│       ├── main.py               # FastAPI + SPA 托管 + 迁移
+│       ├── main.py               # FastAPI + SPA 托管 + 安全启动检查
 │       ├── remote_scripts.py     # fast/slow/inventory/kernel 四套远程脚本
 │       ├── ssh_transport.py      # SSH 传输：TOFU hostkey、故障分类、stdin 执行
 │       ├── ssh_collector.py      # fast 层解析

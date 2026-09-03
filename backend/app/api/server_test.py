@@ -3,14 +3,14 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import AuditLog, Server, User
-from ..schemas import ConnectionTestRequest, ConnectionTestResult
+from ..schemas import ConnectionTestResult
 from ..security import decrypt_text, require_admin
 from ..ssh_collector import test_connection
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
 
-@router.get("/{server_id}/test", response_model=ConnectionTestResult)
+@router.post("/{server_id}/test", response_model=ConnectionTestResult)
 def test_stored_server(
     server_id: int,
     db: Session = Depends(get_db),
@@ -27,6 +27,7 @@ def test_stored_server(
         password=decrypt_text(server.password or ""),
         private_key=decrypt_text(server.private_key or ""),
         passphrase=decrypt_text(server.passphrase or ""),
+        server_key=f"server_{server.id}",
     )
     try:
         db.add(AuditLog(username=admin.username, action="server.test", detail=f"test {server.name}: {'ok' if ok else message}"))

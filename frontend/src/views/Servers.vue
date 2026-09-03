@@ -30,12 +30,12 @@
           </template>
         </el-table-column>
         <el-table-column label="地址" min-width="180">
-          <template #default="{ row }"><span class="mono">{{ row.host }}:{{ row.port }}</span></template>
+          <template #default="{ row }"><span class="mono">{{ isAdmin ? `${row.host}:${row.port}` : '仅管理员可见' }}</span></template>
         </el-table-column>
         <el-table-column label="认证" width="90">
           <template #default="{ row }">
             <el-tag :type="row.auth_type === 'key' ? 'success' : 'info'" size="small">
-              {{ row.auth_type === 'key' ? '密钥' : '密码' }}
+              {{ isAdmin ? (row.auth_type === 'key' ? '密钥' : '密码') : '受保护' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -99,7 +99,7 @@
         </el-form-item>
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username"
-            :placeholder="editId ? '留空保持不变' : 'root'" />
+            :placeholder="editId ? '留空保持不变' : 'gpumon'" />
         </el-form-item>
         <template v-if="form.auth_type === 'password'">
           <el-form-item label="密码" prop="password">
@@ -179,7 +179,7 @@ const tagInputRef = ref()
 const newTag = ref('')
 
 const blank = () => ({
-  name: '', host: '', port: 22, auth_type: 'password', username: 'root', server_type: 'gpu',
+  name: '', host: '', port: 22, auth_type: 'password', username: 'gpumon', server_type: 'gpu',
   password: '', private_key: '', passphrase: '', tags: [], note: '', enabled: true,
   bmc_host: '', bmc_user: '', bmc_password: ''
 })
@@ -342,7 +342,7 @@ async function testConn() {
 async function testExisting(row) {
   testingId.value = row.id
   try {
-    const { data } = await api.get(`/servers/${row.id}/test`)
+    const { data } = await api.post(`/servers/${row.id}/test`)
     data.ok ? ElMessage.success(data.message) : ElMessage.error(data.message)
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '测试失败')

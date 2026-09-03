@@ -331,7 +331,10 @@ def _cluster_energy(db: Session, days: int):
 @router.get("/cluster-gpus")
 def cluster_gpus(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """Latest per-GPU snapshot of every GPU server for the cockpit matrix."""
-    return app_cache.cached("cockpit:cluster-gpus", 15.0, lambda: _cluster_gpus(db))
+    from ..privacy import minimize_gpus
+
+    payload = app_cache.cached("cockpit:cluster-gpus", 15.0, lambda: _cluster_gpus(db))
+    return [{**row, "gpus": minimize_gpus(row.get("gpus"))} for row in payload]
 
 
 def _cluster_gpus(db: Session):

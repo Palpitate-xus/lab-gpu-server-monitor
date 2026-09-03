@@ -26,7 +26,7 @@ monitoring (XID / ECC / PCIe / NVMe / RAID / kernel events / failure prediction)
 
 | Tier | Frequency | Content |
 |---|---|---|
-| **fast** | every cycle (default 30-60s) | CPU (incl. iowait/per-core), memory (HugePages), disk space + inodes, per-device IO, NIC rates/errors/drops/link state, full GPU set (utilization / VRAM / temp / memory temp / power / clocks / pstate / **throttle reasons / ECC / PCIe link / retired pages** / compute processes), process table, logged-in users, TCP/fd |
+| **fast** | every cycle (default 30-60s) | CPU (incl. iowait/per-core), memory (HugePages), disk space + inodes, per-device IO, NIC rates/errors/drops/link state, full GPU set (utilization / VRAM / temp / memory temp / power / clocks / pstate / **throttle reasons / ECC / PCIe link / retired pages** / compute resource use), minimized process resources, TCP/fd; login identities, process users, and full argv are not persisted |
 | **kernel** | every cycle | `journalctl -k` incremental → **Xid / OOM / MCE / EDAC / PCIe AER / IO / NVMe / NFS / NIC reset** events (deduplicated by boot_id+hash) |
 | **slow** | every 5 min | **NVMe SMART** (temperature / spare capacity / endurance / media errors / unexpected power loss), mdraid status, NFS mounts, systemd failed units, key services (sshd/docker/kubelet/slurmd/nvidia-persistenced), **MIG**, NVLink, IPMI/BMC sensors |
 | **inventory** | every 24 h | machine-id, DMI/BIOS/serial, lscpu, **NUMA topology (node CPU/memory)**, `nvidia-smi topo -m`, PCI device NUMA affinity, disk/NIC inventory (serial/MAC as stable IDs), InfiniBand, NTP sync status |
@@ -47,34 +47,43 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 ## Security Architecture
 
 ### Keys & Credentials
-- **SECRET_KEY lives only in `.env` (gitignored)**, injected by compose via `env_file`;
-  **rotating the key renders stored SSH credentials undecryptable** (error code
-  `CRED_DECRYPT_FAILED`) and they must be re-entered on the server management page —
-  by design, so old ciphertext can never be decrypted with an old key
-- **SSH credentials**: stored Fernet-encrypted (AES-128-CBC + HMAC, key derived from SECRET_KEY);
-  recommended: a dedicated `monitor` user + ED25519 key with
+- JWTs, stored SSH/BMC/MFA secrets, and archives use independent
+  `JWT_SIGNING_KEY`, `CREDENTIAL_ENCRYPTION_KEYS`, and `ARCHIVE_ENCRYPTION_KEY` values.
+  Startup rejects missing/public/reused secrets.
+- `CREDENTIAL_ENCRYPTION_KEYS` is an ordered keyring. The first key encrypts; later keys only
+  decrypt. `scripts/rotate_credentials.py` safely re-encrypts existing values under the primary key.
+- **SSH/BMC/MFA secrets** are Fernet authenticated-encrypted. Use a dedicated `gpumon` account +
+  ED25519 key with
   `authorized_keys` restrictions (`no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`)
-- **Login passwords**: bcrypt cost=12
+- Login passwords use bcrypt; new/changed passwords require at least 15 characters. There is no
+  built-in administrator password.
+- Metric archives are encrypted with an independent AES-256-GCM key and written as 0600 files.
 
 ### Authentication & Access
-- **Login rate limiting**: 5 failures per username / 10 per IP locks for 10 minutes
-  (429 with remaining time); the login button shows a lockout countdown; success resets
-  counters; failures are audit-logged
-- **JWT validity 2 hours + revocation** (jti): password change / disable / delete kills all existing tokens
-- **API docs disabled by default** (`/docs` `/redoc` `/openapi.json`); set `DOCS_ENABLED=yes` when needed
+- Administrators must enroll and verify TOTP MFA before any privileged API can be used.
+- Browser JWTs live only in Secure, HttpOnly, SameSite cookies; mutating requests require a
+  double-submit CSRF token. JWTs are not stored in localStorage.
+- JWTs bind an immutable account identity and persistent token version. Logout, password/role
+  changes, disablement, or deletion invalidate old tokens even after a process restart.
+- Rate limits use bounded per-IP/account and per-IP buckets without a remotely exploitable global
+  username lock.
+- API documentation endpoints are permanently disabled in the production service.
 - **Security headers**: CSP / X-Frame-Options DENY / nosniff / Referrer-Policy / Permissions-Policy / HSTS
-- **Webhook SSRF guard**: https-only, private/loopback/link-local targets refused, redirects refused, validated on save
-- **Containers run as non-root** (appuser, uid 10001) + HEALTHCHECK
+- **Webhook SSRF guard**: HTTPS-only public destinations, DNS-pinned TLS connection, original-host
+  certificate verification, and no redirects.
+- Containers run as UID 10001 with a read-only root filesystem, no Linux capabilities, and
+  CPU/memory/PID/log limits.
 - frontend auto-logout on 401
 - **CORS disabled by default** (same-origin deployment, SPA served by the API);
   cross-origin deployments must configure an explicit `CORS_ORIGINS` whitelist;
-  behind a reverse proxy set `TRUST_PROXY=yes` to trust X-Forwarded-For
-- Process kill/renice, server CRUD, user management, rules, settings all require admin;
-  viewer is read-only; sensitive operations are fully audit-logged
+  forwarded headers are accepted only from `TRUSTED_PROXY_CIDRS`.
+- Viewers cannot read management addresses, full IPMI/inventory, login/process identities, or live
+  full argv. Live processes require admin. Remote kill/renice is off by default and, when enabled,
+  requires both an MFA-authenticated session and password re-authentication.
 
 ### Collection Security
-- **Host key verification**: TOFU (trust on first use), any change aborts the connection
-  and raises an alert (anti-MITM); admins can reset after confirming a server reinstall
+- **Host key verification**: TOFU records first-use fingerprints atomically in 0600 files; failure
+  to persist aborts the connection. Any change aborts and alerts. Root SSH is denied by default.
 - **Command whitelist**: all collection commands are built-in fixed templates —
   the frontend/users **cannot** inject shell
 - **Zero footprint on monitored servers**: scripts run via stdin (`bash -s`),
@@ -110,33 +119,44 @@ GPUs are identified **by UUID**; baselines record additions/disappearances autom
 Full instructions: **[Deployment Guide](DEPLOYMENT.en.md)** ([中文](DEPLOYMENT.md)).
 
 ```bash
-# Build the frontend first (use this flow when Docker Hub is unreachable;
-# with network access you can use Dockerfile.multistage directly)
-cd frontend && pnpm install && pnpm build && cd ..
+cp .env.example .env
+chmod 600 .env
+# Run this three times and place independent values in .env
+openssl rand -hex 32
+# Configure the initial admin/database/archive, run the explicit migration, then:
+export GPU_MONITOR_IMAGE="gpu-monitor:$(git rev-parse --short=12 HEAD)"
 docker compose up -d --build
 ```
 
-Open `http://<host>:8300`, default `admin / admin123` (**change it immediately**).
+Compose listens only on `127.0.0.1:8300`; use the documented HTTPS reverse proxy. There is no
+default administrator account or password. A first-time administrator must enroll TOTP MFA before
+privileged operations are accepted.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| SECRET_KEY | change-me | JWT signing + credential encryption (**must change**; changing it invalidates stored credentials) |
-| INIT_ADMIN_USERNAME / PASSWORD | admin/admin123 | admin account created on first start |
-| DOCS_ENABLED | no | set yes to expose /docs /redoc /openapi.json (off by default) |
+| JWT_SIGNING_KEY | none | independent JWT key, at least 32 characters |
+| CREDENTIAL_ENCRYPTION_KEYS | none | ordered keyring: `current_key,old_key` |
+| ARCHIVE_ENCRYPTION_KEY | none | 64-hex-character AES-256-GCM archive key |
+| INIT_ADMIN_USERNAME / PASSWORD | none | fresh database only; password 16–72 characters |
+| DATABASE_URL / DATABASE_SSL_CA | SQLite / none | non-loopback MySQL requires a CA and least-privilege runtime account |
+| REDIS_URL / REDIS_SSL_CA | none | optional cache; non-loopback Redis requires authenticated, certificate-verified `rediss://` |
+| REQUIRE_ADMIN_MFA | yes | require TOTP for administrator privileges |
+| REMOTE_PROCESS_CONTROL_ENABLED | no | opt in to process actions, still requiring re-authentication |
 | POLL_INTERVAL_SECONDS | 60 | collection interval (changeable online on the settings page) |
 
-The settings page also supports: data retention days (0 = forever), webhook URL and message template.
+The settings page also supports data retention days (0 = forever), a webhook URL, and a message
+template. Webhook URLs are encrypted at rest and their full tokens are never returned by the API.
 
 ## Repository Layout
 
 ```
 ├── Dockerfile / Dockerfile.multistage / docker-compose.yml
 ├── backend/
-│   ├── migrations/               # SQL migrations (idempotent, auto-executed)
+│   ├── migrations/               # SQL migrations run explicitly with a short-lived DDL account
 │   └── app/
-│       ├── main.py               # FastAPI + SPA hosting + migrations
+│       ├── main.py               # FastAPI + SPA hosting + secure startup validation
 │       ├── remote_scripts.py     # four remote script sets: fast/slow/inventory/kernel
 │       ├── ssh_transport.py      # SSH transport: TOFU hostkey, fault classification, stdin exec
 │       ├── ssh_collector.py      # fast-tier parsing

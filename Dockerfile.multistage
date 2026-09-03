@@ -1,25 +1,121 @@
 # Multi-stage Dockerfile variant (requires network access to docker hub for the node image):
 #   docker build -f Dockerfile.multistage -t gpu-monitor:latest .
-FROM node:24-alpine AS frontend-build
+ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base@sha256:103eb3f4444c68ea2453bf3aad09d860eaa5a698effb3e656cd607f630f0e46d
+ARG IPMITOOL_VERSION=1.8.19
+ARG IPMITOOL_COMMIT=be11d948f89b10be094e28d8a0a5e8fb532c7b60
+ARG IPMITOOL_SHA256=0f76141a7777db87823e048624d61d51e3823b3ac63877db005029ed9b06f93a
+
+FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS frontend-build
 WORKDIR /build
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
-RUN corepack enable && pnpm install --no-frozen-lockfile
+RUN corepack enable && pnpm install --frozen-lockfile
 COPY frontend/ .
 RUN pnpm build
 
-FROM python:3.12-slim
+FROM ${WOLFI_BASE} AS ipmitool-toolchain
+ARG IPMITOOL_COMMIT
+ARG IPMITOOL_SHA256
+RUN apk add --no-cache \
+        autoconf \
+        automake \
+        build-base \
+        ca-certificates \
+        curl \
+        libtool \
+        openssl-dev \
+        pkgconf-dev
+
+FROM ipmitool-toolchain AS ipmitool-build
+ARG IPMITOOL_COMMIT
+ARG IPMITOOL_SHA256
+WORKDIR /build/ipmitool
+RUN curl --fail --silent --show-error --location \
+        --proto '=https' --tlsv1.2 \
+        "https://github.com/ipmitool/ipmitool/archive/${IPMITOOL_COMMIT}.tar.gz" \
+        --output /tmp/ipmitool.tar.gz \
+    && echo "${IPMITOOL_SHA256}  /tmp/ipmitool.tar.gz" | sha256sum -c - \
+    && tar --extract --gzip --file /tmp/ipmitool.tar.gz --strip-components=1 \
+    && grep -Fq 'struct fru_multirect_mgmt' lib/ipmi_fru.c \
+    && sed -i 's/struct fru_multirect_mgmt/struct fru_multirec_mgmt/' lib/ipmi_fru.c \
+    && ! grep -Fq 'struct fru_multirect_mgmt' lib/ipmi_fru.c \
+    && ./bootstrap \
+    && DEFAULT_INTF=lanplus \
+       CFLAGS="-O2 -std=gnu17 -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fPIE -Wformat -Wformat-security -Werror=format-security" \
+       LDFLAGS="-Wl,-z,relro,-z,now -pie" \
+       ./configure \
+          --prefix=/usr \
+          --disable-intf-bmc \
+          --disable-intf-dbus \
+          --disable-intf-dummy \
+          --disable-intf-free \
+          --disable-intf-imb \
+          --disable-intf-lipmi \
+          --disable-intf-open \
+          --disable-intf-serial \
+          --disable-intf-usb \
+          --disable-ipmishell \
+          --disable-registry-download \
+          --enable-file-security \
+          --enable-intf-lanplus \
+    && make -j2 \
+    && install -D -m 0755 src/ipmitool /out/usr/bin/ipmitool \
+    && install -D -m 0644 COPYING /out/usr/share/licenses/ipmitool/COPYING \
+    && /out/usr/bin/ipmitool -V
+
+FROM ${WOLFI_BASE} AS python-deps
+RUN apk add --no-cache \
+        py3.12-pip \
+        python-3.12
+WORKDIR /build
+COPY backend/requirements.lock .
+RUN python3.12 -m venv --without-pip /opt/venv \
+    && python3.12 -m pip --python /opt/venv install \
+        --no-cache-dir --only-binary=:all: --require-hashes -r requirements.lock
+
+FROM ${WOLFI_BASE}
+ARG IPMITOOL_VERSION
+ARG IPMITOOL_COMMIT
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
-RUN useradd -r -u 10001 appuser
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apk add --no-cache \
+        gdbm \
+        libbz2-1 \
+        libexpat1 \
+        libffi \
+        libstdc++ \
+        libuuid \
+        mpdecimal \
+        ncurses \
+        ncurses-terminfo-base \
+        python-3.12-base \
+        readline \
+        sqlite-libs \
+        tzdata \
+        xz \
+    && find /usr/share/python-wheels -type f -name 'pip*.whl' -delete \
+    && test -z "$(find /usr/share/python-wheels -type f -name 'pip*.whl' -print -quit)" \
+    && addgroup -S -g 10001 appuser \
+    && adduser -S -D -H -u 10001 -G appuser appuser
+COPY --from=ipmitool-build /out/ /
+COPY --from=python-deps /opt/venv /opt/venv
+COPY backend/requirements.lock .
+LABEL org.opencontainers.image.base.name="cgr.dev/chainguard/wolfi-base" \
+      org.opencontainers.image.base.digest="sha256:103eb3f4444c68ea2453bf3aad09d860eaa5a698effb3e656cd607f630f0e46d" \
+      io.gpu-monitor.ipmitool.version="${IPMITOOL_VERSION}" \
+      io.gpu-monitor.ipmitool.revision="${IPMITOOL_COMMIT}" \
+      io.gpu-monitor.ipmitool.source="https://github.com/ipmitool/ipmitool"
 COPY backend/app ./app
 COPY backend/migrations ./migrations
+COPY backend/scripts ./scripts
 COPY --from=frontend-build /build/dist ./static
-ENV DATA_DIR=/app/data PYTHONUNBUFFERED=1
-RUN mkdir -p /app/data && chown -R appuser:appuser /app
+ENV DATA_DIR=/app/data \
+    PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+RUN install -d -m 0700 -o appuser -g appuser /app/data /app/data/known_hosts /app/archives \
+    && chmod -R a-w,go+rX /app/app /app/migrations /app/scripts /app/static /app/requirements.lock
 VOLUME /app/data
 EXPOSE 8000
 USER appuser
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+  CMD python -c "import urllib.request;op=urllib.request.build_opener(urllib.request.ProxyHandler({}));r=op.open('http://127.0.0.1:8000/api/ready',timeout=3);exit(0 if r.status==200 else 1)" || exit 1
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header", "--workers", "1", "--no-proxy-headers"]

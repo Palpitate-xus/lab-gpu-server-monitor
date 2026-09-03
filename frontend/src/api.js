@@ -1,13 +1,13 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { clearSession, getSession } from './composables'
+import { clearSession } from './composables'
 
-const api = axios.create({ baseURL: '/api', timeout: 30000 })
-
-api.interceptors.request.use((config) => {
-  const token = getSession().token
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 30000,
+  withCredentials: true,
+  xsrfCookieName: 'gpumon_csrf',
+  xsrfHeaderName: 'X-CSRF-Token',
 })
 
 let redirecting = false

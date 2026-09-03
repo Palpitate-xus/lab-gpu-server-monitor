@@ -107,11 +107,14 @@ async function loadOpenAlerts() {
 function onCommand(cmd) {
   if (cmd === 'logout') {
     ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
-      .then(() => {
+      .then(async () => {
+        await api.post('/auth/logout')
         clearSession()
         router.push('/login')
       })
-      .catch(() => {})
+      .catch((e) => {
+        if (e && e.friendlyMessage) ElMessageBox.alert(e.friendlyMessage, '退出失败')
+      })
   }
 }
 

@@ -1,22 +1,25 @@
-"""Login rate limiting: per-IP + per-username failed-attempt tracking.
+"""Bounded login rate limiting: per-IP + per-IP/account tracking.
 
 In-memory sliding window (single-process deployment; no Redis dependency).
-- per username:    5 failures / 10 min  -> account locked 10 min
-- per IP:         10 failures / 10 min  -> IP locked 10 min
-  (shared NAT/proxy offices won't brick each other so easily)
-- successful login clears the counters for that ip+username pair
+- per IP/account: 5 failures / 10 min -> that source/account pair is delayed
+- per IP:        20 failures / 10 min -> that source is delayed
+
+There is deliberately no global username lock: an unauthenticated attacker
+must not be able to lock an administrator out from every trusted source.
 """
 
 from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
-MAX_FAILURES = 5
-MAX_FAILURES_IP = 10
+MAX_FAILURES_PAIR = 5
+MAX_FAILURES_IP = 20
 WINDOW_SECONDS = 600  # 10 min
 LOCK_SECONDS = 600
+MAX_BUCKETS = 4096
 
 
 @dataclass
@@ -27,8 +30,8 @@ class _Counter:
 
 class LoginRateLimiter:
     def __init__(self):
-        self._by_ip: dict[str, _Counter] = {}
-        self._by_user: dict[str, _Counter] = {}
+        self._by_ip: OrderedDict[str, _Counter] = OrderedDict()
+        self._by_pair: OrderedDict[str, _Counter] = OrderedDict()
         self._lock = threading.Lock()
 
     def _prune(self, c: _Counter, now: float) -> None:
@@ -42,41 +45,58 @@ class LoginRateLimiter:
         """Returns (allowed, retry_after_seconds)."""
         now = time.time()
         with self._lock:
-            for key, table in ((f"ip:{ip}", self._by_ip), (f"user:{username}", self._by_user)):
+            for key, table in (
+                (f"ip:{ip}", self._by_ip),
+                (f"pair:{ip}\0{username.casefold()}", self._by_pair),
+            ):
                 c = table.get(key)
                 if c and c.locked_until > now:
                     return False, int(c.locked_until - now)
             return True, 0
 
     def _threshold(self, table: dict) -> int:
-        return MAX_FAILURES_IP if table is self._by_ip else MAX_FAILURES
+        return MAX_FAILURES_IP if table is self._by_ip else MAX_FAILURES_PAIR
+
+    @staticmethod
+    def _bounded(table: OrderedDict[str, _Counter]) -> None:
+        while len(table) > MAX_BUCKETS:
+            table.popitem(last=False)
 
     def record_failure(self, ip: str, username: str) -> None:
         now = time.time()
         with self._lock:
-            for table, key in ((self._by_ip, f"ip:{ip}"), (self._by_user, f"user:{username}")):
+            for table, key in (
+                (self._by_ip, f"ip:{ip}"),
+                (self._by_pair, f"pair:{ip}\0{username.casefold()}"),
+            ):
                 c = table.setdefault(key, _Counter())
+                table.move_to_end(key)
                 self._prune(c, now)
                 c.failures.append(now)
                 if len(c.failures) >= self._threshold(table):
                     c.locked_until = now + LOCK_SECONDS
                     c.failures = []
+                self._bounded(table)
             # opportunistically drop long-empty entries to bound memory
-            for table in (self._by_ip, self._by_user):
+            for table in (self._by_ip, self._by_pair):
                 for k in [k for k, c in table.items() if self._stale(c, now)]:
                     table.pop(k, None)
 
     def record_success(self, ip: str, username: str) -> None:
         with self._lock:
-            self._by_ip.pop(f"ip:{ip}", None)
-            self._by_user.pop(f"user:{username}", None)
+            self._by_pair.pop(f"pair:{ip}\0{username.casefold()}", None)
 
     def status(self) -> dict:
         now = time.time()
         with self._lock:
-            locked_ips = [k[3:] for k, c in self._by_ip.items() if c.locked_until > now]
-            locked_users = [k[5:] for k, c in self._by_user.items() if c.locked_until > now]
-            return {"locked_ips": locked_ips, "locked_users": locked_users}
+            return {
+                "locked_ip_count": sum(c.locked_until > now for c in self._by_ip.values()),
+                "locked_pair_count": sum(c.locked_until > now for c in self._by_pair.values()),
+                "tracked_bucket_count": len(self._by_ip) + len(self._by_pair),
+            }
 
 
 limiter = LoginRateLimiter()
+# Independent buckets for password/TOTP confirmations performed with an
+# already-authenticated session. They must not consume the public login quota.
+step_up_limiter = LoginRateLimiter()

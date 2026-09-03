@@ -1,0 +1,18 @@
+-- Replace the host patterns and passwords before execution. Do not put real
+-- passwords in Git. Run this as a MySQL administrator over a TLS connection.
+
+CREATE USER 'gpumon_migrate'@'GPU_MONITOR_NETWORK'
+  IDENTIFIED BY 'GENERATE_A_LONG_RANDOM_PASSWORD' REQUIRE SSL;
+CREATE USER 'gpumon_app'@'GPU_MONITOR_NETWORK'
+  IDENTIFIED BY 'GENERATE_A_DIFFERENT_LONG_RANDOM_PASSWORD' REQUIRE SSL;
+
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP,
+      REFERENCES, CREATE TEMPORARY TABLES
+  ON gpu_monitor.* TO 'gpumon_migrate'@'GPU_MONITOR_NETWORK';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON gpu_monitor.* TO 'gpumon_app'@'GPU_MONITOR_NETWORK';
+
+-- After verifying both accounts, revoke/remove the old broad account.
+-- REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'gpumon'@'%';
+-- DROP USER 'gpumon'@'%';

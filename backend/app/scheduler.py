@@ -22,7 +22,6 @@ from .database import SessionLocal
 from .models import (
     AlertEvent,
     AlertRule,
-    GpuBaseline,
     HostInventory,
     IpmiSnapshot,
     KernelEventRow,
@@ -50,6 +49,7 @@ _state = {
     "last_run": None,
     "last_duration": 0.0,
     "interval": settings.POLL_INTERVAL_SECONDS,
+    "heartbeat_monotonic": None,
     "lock": threading.Lock(),
     "last_retention_day": "",
 }
@@ -61,6 +61,11 @@ _server_busy: set[tuple[int, str]] = set()
 _busy_guard = threading.Lock()
 
 _cycle_lock = threading.Lock()
+
+
+def _touch_scheduler_heartbeat() -> None:
+    with _state["lock"]:
+        _state["heartbeat_monotonic"] = time.monotonic()
 
 
 def _server_begin(server_id: int, tier: str) -> bool:
@@ -364,77 +369,146 @@ def update_gpu_idle_state(server_id: int, collected_at: datetime, gpus: list) ->
         db.close()
 
 
-def _archive_expired_metrics(cutoff: datetime) -> bool:
+def _archive_expired_metrics(cutoff: datetime) -> int | None:
     """Export every server_metrics row older than cutoff to a tar.gz JSONL
-    archive in ARCHIVE_DIR. Returns True only when it is safe to delete:
-    the archive was written, or there was nothing to archive. Any failure
-    (or an unset ARCHIVE_DIR) returns False so retention skips the delete
-    and no data is ever lost."""
+    archive in ARCHIVE_DIR. Returns the greatest archived row ID (zero when
+    there was nothing to archive). Any failure or an unset ARCHIVE_DIR returns
+    None, so retention skips deletion. The caller deletes only IDs at or below
+    the returned boundary, preventing a concurrently inserted old row from
+    being deleted without appearing in the archive."""
     import json
     import os
     import tarfile
+    import tempfile
 
     from sqlalchemy import func as sa_func
 
     archive_dir = get_settings().ARCHIVE_DIR.strip()
     db = SessionLocal()
+    temporary_paths: list[str] = []
     try:
-        n = (
-            db.query(sa_func.count(ServerMetric.id))
+        max_id = (
+            db.query(sa_func.max(ServerMetric.id))
             .filter(ServerMetric.collected_at < cutoff)
             .scalar()
         )
-        if not n:
-            return True
+        if max_id is None:
+            return 0
+        n = (
+            db.query(sa_func.count(ServerMetric.id))
+            .filter(ServerMetric.collected_at < cutoff, ServerMetric.id <= max_id)
+            .scalar()
+        )
         if not archive_dir:
             logger.warning(
                 "retention wants to delete %d expired metrics but ARCHIVE_DIR "
                 "is not set; refusing to delete", n)
-            return False
-        os.makedirs(archive_dir, exist_ok=True)
+            return None
+        from .archive_crypto import ensure_archive_storage
+
+        ensure_archive_storage(archive_dir)
 
         now = datetime.now(timezone.utc)
         stamp = now.strftime("%Y-%m-%d_%H%M%S")
         jsonl_name = f"server_metrics_{stamp}.jsonl"
-        part_path = os.path.join(archive_dir, f".{jsonl_name}.part")
-        cols = [c.key for c in ServerMetric.__table__.columns]
-
+        servers_name = f"servers_{stamp}.jsonl"
         written = 0
-        with open(part_path, "w", encoding="utf-8") as fh:
+        # Anonymous temporary files have no persistent pathname to recover
+        # after SIGKILL/power loss. Plain JSONL/tar data is never published in
+        # ARCHIVE_DIR; only the authenticated encrypted result is named.
+        with (
+            tempfile.TemporaryFile(mode="w+b", dir=archive_dir) as metrics_tmp,
+            tempfile.TemporaryFile(mode="w+b", dir=archive_dir) as servers_tmp,
+            tempfile.TemporaryFile(mode="w+b", dir=archive_dir) as tar_tmp,
+        ):
+            os.fchmod(metrics_tmp.fileno(), 0o600)
+            os.fchmod(servers_tmp.fileno(), 0o600)
+            os.fchmod(tar_tmp.fileno(), 0o600)
+            from .privacy import minimize_metric
+
             q = (
                 db.query(ServerMetric)
-                .filter(ServerMetric.collected_at < cutoff)
+                .filter(ServerMetric.collected_at < cutoff, ServerMetric.id <= max_id)
                 .order_by(ServerMetric.id.asc())
             )
             for m in q.yield_per(300):
-                fh.write(json.dumps(
-                    {c: getattr(m, c) for c in cols}, default=str,
-                ) + "\n")
+                metrics_tmp.write(
+                    (
+                        json.dumps(minimize_metric(m), default=str) + "\n"
+                    ).encode("utf-8")
+                )
                 written += 1
+            if written != n:
+                raise RuntimeError(
+                    f"archive row count changed: expected {n}, serialized {written}"
+                )
 
-        # servers snapshot alongside the metrics: restores need the FK targets
-        servers_name = f"servers_{stamp}.jsonl"
-        servers_part = os.path.join(archive_dir, f".{servers_name}.part")
-        srv_cols = [c.key for c in Server.__table__.columns]
-        with open(servers_part, "w", encoding="utf-8") as fh:
+            # Server metadata restores only missing FK targets, disabled and
+            # without addresses or credentials.
             for s in db.query(Server).order_by(Server.id.asc()):
-                fh.write(json.dumps(
-                    {c: getattr(s, c) for c in srv_cols}, default=str,
-                ) + "\n")
+                servers_tmp.write(
+                    (
+                        json.dumps(
+                            {
+                                "id": s.id,
+                                "name": s.name,
+                                "server_type": s.server_type,
+                                "tags": s.tags or [],
+                            },
+                            default=str,
+                        )
+                        + "\n"
+                    ).encode("utf-8")
+                )
 
-        tar_path = os.path.join(archive_dir, f"server_metrics_{stamp}.tar.gz")
-        with tarfile.open(tar_path, "w:gz") as tf:
-            tf.add(part_path, arcname=jsonl_name)
-            tf.add(servers_part, arcname=servers_name)
-        os.remove(part_path)
-        os.remove(servers_part)
-        logger.info("archived %d expired metrics -> %s", written, tar_path)
-        return written == n or written > 0
+            metrics_size = metrics_tmp.tell()
+            servers_size = servers_tmp.tell()
+            metrics_tmp.seek(0)
+            servers_tmp.seek(0)
+            with tarfile.open(fileobj=tar_tmp, mode="w:gz") as tf:
+                for name, source, size in (
+                    (jsonl_name, metrics_tmp, metrics_size),
+                    (servers_name, servers_tmp, servers_size),
+                ):
+                    info = tarfile.TarInfo(name=name)
+                    info.size = size
+                    info.mode = 0o600
+                    info.mtime = int(now.timestamp())
+                    tf.addfile(info, source)
+            tar_tmp.flush()
+            tar_tmp.seek(0)
+
+            from .archive_crypto import encrypt_fileobj
+
+            final_path = os.path.join(archive_dir, f"server_metrics_{stamp}.tar.gz.enc")
+            encrypted_part = final_path + ".part"
+            temporary_paths.append(encrypted_part)
+            encrypt_fileobj(
+                tar_tmp,
+                encrypted_part,
+                get_settings().ARCHIVE_ENCRYPTION_KEY,
+            )
+        # Publish without overwriting an archive from a same-second run.
+        os.link(encrypted_part, final_path)
+        os.unlink(encrypted_part)
+        os.chmod(final_path, 0o600)
+        directory_fd = os.open(archive_dir, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        logger.info("archived %d expired metrics -> %s", written, final_path)
+        return max_id
     except Exception:
         logger.exception("metric archive failed; retention delete skipped")
-        return False
+        return None
     finally:
         db.close()
+        for temporary_path in temporary_paths:
+            try:
+                os.remove(temporary_path)
+            except FileNotFoundError:
+                pass
 
 
 def _retention_cleanup() -> None:
@@ -457,12 +531,18 @@ def _retention_cleanup() -> None:
                 days = 0
         if days > 0:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-            if not _archive_expired_metrics(cutoff):
+            archived_through_id = _archive_expired_metrics(cutoff)
+            if archived_through_id is None:
+                return
+            if archived_through_id == 0:
                 return
             while True:
                 ids = [
                     i for (i,) in db.query(ServerMetric.id)
-                    .filter(ServerMetric.collected_at < cutoff)
+                    .filter(
+                        ServerMetric.collected_at < cutoff,
+                        ServerMetric.id <= archived_through_id,
+                    )
                     .limit(5000)
                     .all()
                 ]
@@ -721,7 +801,6 @@ def _run_cycle() -> None:
     servers = _load_servers()
     if not servers:
         return
-    now = datetime.now(timezone.utc)
     now_n = _utcnow_naive()
     last_slow = _last_collect_time(SlowHealth)
     last_inv = _last_collect_time(HostInventory)
@@ -897,16 +976,21 @@ def _scheduler_loop() -> None:
     logger.info("scheduler started")
     last_hourly_day_hour = ""
     while not _stop_event.is_set():
+        _touch_scheduler_heartbeat()
         started = datetime.now(timezone.utc)
         try:
             _expire_maintenance()
+            _touch_scheduler_heartbeat()
             _run_cycle_guarded()
+            _touch_scheduler_heartbeat()
             _retention_cleanup()
+            _touch_scheduler_heartbeat()
             hh = started.strftime("%Y-%m-%d %H")
             if hh != last_hourly_day_hour and started.minute >= 2:
                 # roll up the previous hour once, shortly after it completes
                 last_hourly_day_hour = hh
                 _hourly_aggregate()
+                _touch_scheduler_heartbeat()
         except Exception:
             logger.exception("poll cycle failed")
         finished = datetime.now(timezone.utc)
@@ -1130,8 +1214,22 @@ def trigger_poll() -> bool:
 
 def scheduler_status() -> dict:
     with _state["lock"]:
+        thread = _state.get("thread")
+        heartbeat = _state.get("heartbeat_monotonic")
+        heartbeat_age = time.monotonic() - heartbeat if heartbeat is not None else None
+        heartbeat_timeout = max(CYCLE_JOIN_TIMEOUT + 60, _state["interval"] * 3)
+        alive = bool(thread and thread.is_alive())
         return {
             "running": _state["running"],
+            "alive": alive,
+            "healthy": bool(
+                alive
+                and heartbeat_age is not None
+                and heartbeat_age <= heartbeat_timeout
+            ),
+            "heartbeat_age_seconds": (
+                round(heartbeat_age, 2) if heartbeat_age is not None else None
+            ),
             "interval": _state["interval"],
             "last_run": _state["last_run"],
             "last_duration": round(_state["last_duration"], 2),

@@ -25,15 +25,30 @@
             <el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="MFA" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.role === 'admin'" :type="row.mfa_enrolled ? 'success' : 'danger'" size="small">
+              {{ row.mfa_enrolled ? '已绑定' : '未绑定' }}
+            </el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="创建时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240">
+        <el-table-column label="操作" min-width="320">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" :type="row.is_active ? 'warning' : 'success'" @click="toggleActive(row)">
               {{ row.is_active ? '禁用' : '启用' }}
             </el-button>
+            <el-button
+              v-if="row.role === 'admin' && row.mfa_enrolled && row.id !== me?.id"
+              size="small"
+              type="warning"
+              plain
+              @click="resetMfa(row)"
+            >重置 MFA</el-button>
             <el-popconfirm title="确定删除该用户？" @confirm="remove(row)">
               <template #reference>
                 <el-button size="small" type="danger" :disabled="row.id === me?.id">删除</el-button>
@@ -51,7 +66,7 @@
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input v-model="form.password" type="password" show-password
-            :placeholder="editId ? '留空保持不变' : '至少 6 位'" />
+            :placeholder="editId ? '留空保持不变' : '至少 15 位'" />
         </el-form-item>
         <el-form-item label="显示名">
           <el-input v-model="form.display_name" />
@@ -94,7 +109,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
 import { getSession, setSession } from '../composables'
@@ -122,7 +137,7 @@ const rules = {
   password: [
     { validator: (r, v, cb) => {
       if (!editId.value && !v) cb(new Error('请输入密码'))
-      else if (v && v.length < 6) cb(new Error('密码至少 6 位'))
+      else if (v && v.length < 15) cb(new Error('密码至少 15 位'))
       else cb()
     }, trigger: 'blur' }
   ]
@@ -132,7 +147,7 @@ const pwdRules = {
   old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
   new_password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码至少 6 位', trigger: 'blur' }
+    { min: 15, message: '密码至少 15 位', trigger: 'blur' }
   ],
   confirm: [
     { validator: (r, v, cb) => v === pwdForm.new_password ? cb() : cb(new Error('两次密码不一致')), trigger: 'blur' }
@@ -210,6 +225,21 @@ async function remove(row) {
   }
 }
 
+async function resetMfa(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认重置管理员 ${row.username} 的 MFA？其所有现有会话会立即失效。`,
+      '重置 MFA',
+      { type: 'warning' }
+    )
+    await api.post(`/users/${row.id}/reset-mfa`)
+    ElMessage.success('MFA 已重置；该管理员下次登录必须重新绑定')
+    load()
+  } catch (e) {
+    if (e && e !== 'cancel' && e.friendlyMessage) ElMessage.error(e.friendlyMessage)
+  }
+}
+
 async function changePwd() {
   try {
     await pwdFormRef.value.validate()
@@ -220,8 +250,8 @@ async function changePwd() {
   try {
     const { data } = await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
     if (data.access_token) {
-      // old tokens were just revoked; adopt the fresh one for this session
-      setSession(data.access_token, getSession().user)
+      // The backend replaced the HttpOnly cookie with the new token version.
+      setSession(getSession().user)
     }
     ElMessage.success('密码已修改')
     pwdDlg.value = false

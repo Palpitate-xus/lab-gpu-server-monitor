@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -50,7 +49,7 @@ def _snap_to_dict(s: IpmiSnapshot) -> dict:
 
 @router.get("/latest")
 def ipmi_latest(server_id: int, db: Session = Depends(get_db),
-                _: User = Depends(get_current_user)):
+                _: User = Depends(require_admin)):
     """Full most-recent IPMI dump + derived summary."""
     _server_or_404(db, server_id)
     s = (

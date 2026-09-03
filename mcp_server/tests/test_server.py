@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 import unittest
-from urllib.error import HTTPError
+from unittest import mock
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 
 from mcp import Client
@@ -200,7 +202,12 @@ class _ExpiringTokenOpener:
         if path == "/api/auth/login":
             self.login_count += 1
             self.asserted_timeout = timeout
-            return _Response({"access_token": f"token-{self.login_count}"})
+            return _Response(
+                {
+                    "access_token": f"token-{self.login_count}",
+                    "user": {"role": "viewer"},
+                }
+            )
         if path == "/api/auth/me":
             auth = request.headers.get("Authorization", "")
             self.auth_headers.append(auth)
@@ -240,13 +247,124 @@ class ApiClientTests(unittest.TestCase):
                 password="secret",
             )
 
+    def test_loopback_prefix_hostname_cannot_bypass_https_requirement(self):
+        with self.assertRaisesRegex(server.GpuMonitorApiError, "remote plain HTTP"):
+            server.GpuMonitorClient(
+                base_url="http://127.attacker.example:8300",
+                username="mcp_viewer",
+                password="secret",
+            )
+
+    def test_poisoned_localhost_resolution_cannot_bypass_https_requirement(self):
+        answer = [
+            (
+                server.socket.AF_INET,
+                server.socket.SOCK_STREAM,
+                server.socket.IPPROTO_TCP,
+                "",
+                ("203.0.113.9", 0),
+            )
+        ]
+        with mock.patch.object(server.socket, "getaddrinfo", return_value=answer):
+            with self.assertRaisesRegex(server.GpuMonitorApiError, "remote plain HTTP"):
+                server.GpuMonitorClient(
+                    base_url="http://localhost:8300",
+                    username="mcp_viewer",
+                    password="secret",
+                )
+
+    def test_redirects_are_disabled_to_protect_credentials(self):
+        client = server.GpuMonitorClient(
+            base_url="http://127.0.0.1:8300",
+            username="mcp_viewer",
+            password="secret",
+        )
+        redirect_handlers = [
+            handler
+            for handler in client._opener.handlers
+            if isinstance(handler, server.HTTPRedirectHandler)
+        ]
+        self.assertEqual(len(redirect_handlers), 1)
+        self.assertIsNone(
+            redirect_handlers[0].redirect_request(
+                None, None, 302, "Found", {}, "https://attacker.example/"
+            )
+        )
+
+    def test_login_rejects_non_viewer_account(self):
+        client = server.GpuMonitorClient(
+            base_url="http://127.0.0.1:8300",
+            username="admin",
+            password="secret",
+        )
+        client._opener = mock.Mock()
+        client._opener.open.return_value = _Response(
+            {"access_token": "admin-token", "user": {"role": "admin"}}
+        )
+        with self.assertRaisesRegex(server.GpuMonitorApiError, "dedicated viewer"):
+            client._login()
+
+    def test_strict_errors_do_not_expose_api_details_or_base_url(self):
+        client = server.GpuMonitorClient(
+            base_url="http://127.0.0.1:8300",
+            username="mcp_viewer",
+            password="secret",
+        )
+        opener = mock.Mock()
+        opener.open.side_effect = HTTPError(
+            "http://127.0.0.1:8300/api/private",
+            500,
+            "failed",
+            {},
+            BytesIO(b'{"detail":"database password=do-not-leak"}'),
+        )
+        client._opener = opener
+        with mock.patch.dict(
+            "os.environ", {"GPU_MONITOR_MCP_PRIVACY_MODE": "strict"}
+        ):
+            with self.assertRaises(server.GpuMonitorApiError) as caught:
+                client._send("/api/private")
+        message = str(caught.exception)
+        self.assertIn("HTTP 500", message)
+        self.assertNotIn("do-not-leak", message)
+        self.assertNotIn("127.0.0.1", message)
+
+        opener.open.side_effect = URLError("connect to internal-db.example failed")
+        with mock.patch.dict(
+            "os.environ", {"GPU_MONITOR_MCP_PRIVACY_MODE": "strict"}
+        ):
+            with self.assertRaises(server.GpuMonitorApiError) as caught:
+                client._send("/api/private")
+        self.assertNotIn("internal-db.example", str(caught.exception))
+
+    def test_hardware_alias_is_keyed_and_stable(self):
+        first_key = "first-independent-key-000000000000000000000000"
+        second_key = "second-independent-key-00000000000000000000000"
+        with mock.patch.dict("os.environ", {"MCP_PRIVACY_HMAC_KEY": first_key}):
+            first = server._opaque_hardware_id("GPU-sensitive-uuid")
+            again = server._opaque_hardware_id("GPU-sensitive-uuid")
+        with mock.patch.dict("os.environ", {"MCP_PRIVACY_HMAC_KEY": second_key}):
+            second = server._opaque_hardware_id("GPU-sensitive-uuid")
+        self.assertEqual(first, again)
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first, hashlib.sha256(b"GPU-sensitive-uuid").hexdigest()[:16])
+
 
 class McpServerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.env = mock.patch.dict(
+            "os.environ",
+            {
+                "GPU_MONITOR_MCP_PRIVACY_MODE": "strict",
+                "MCP_PRIVACY_HMAC_KEY": "test-only-privacy-key-000000000000000000000000",
+            },
+        )
+        self.env.start()
         server._client_instance = FakeGpuMonitorClient()
 
     def tearDown(self):
         server._client_instance = None
+        self.env.stop()
 
     async def test_tools_are_registered_as_read_only(self):
         async with Client(server.mcp, raise_exceptions=True) as client:
@@ -278,7 +396,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         payload = result.structured_content
         self.assertEqual(payload["server"]["id"], 1)
         self.assertEqual(payload["gpu_count"], 1)
-        self.assertEqual(payload["gpus"][0]["uuid"], "GPU-test-1")
+        self.assertNotIn("uuid", payload["gpus"][0])
+        self.assertNotIn("hostname", payload["metric"])
+        self.assertNotIn("error", payload["metric"])
+        self.assertTrue(payload["gpus"][0]["hardware_id_hash"])
         self.assertEqual(payload["gpus"][0]["risk"]["score"], 10)
 
     async def test_history_is_bounded(self):

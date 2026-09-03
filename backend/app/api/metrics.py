@@ -1,14 +1,23 @@
 from datetime import datetime, timedelta, timezone
+import threading
+import time as _time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, load_only
 
 from .. import cache as app_cache
 from ..database import get_db
 from ..models import AuditLog, Server, ServerMetric, User
+from ..privacy import minimize_metric
 from ..schemas import DashboardStats, MetricOut, ProcessAction
-from ..security import decrypt_text, get_current_user, require_admin
+from ..security import (
+    check_step_up_limit,
+    get_current_user,
+    record_step_up_failure,
+    record_step_up_success,
+    require_admin,
+)
 from ..ssh_collector import live_processes, remote_command
 from .. import scheduler
 
@@ -111,7 +120,8 @@ def latest_metrics(
     _: User = Depends(get_current_user),
 ):
     variant = "slim" if slim else "full"
-    return app_cache.cached(f"metrics:latest:{variant}", 10.0, lambda: _latest_payload(db, slim))
+    payload = app_cache.cached(f"metrics:latest:{variant}", 10.0, lambda: _latest_payload(db, slim))
+    return [minimize_metric(row) for row in payload]
 
 
 def _latest_payload(db: Session, slim: bool) -> list[dict]:
@@ -139,7 +149,7 @@ def server_latest(server_id: int, db: Session = Depends(get_db), _: User = Depen
     )
     if m is None:
         raise HTTPException(status_code=404, detail="No metrics for this server yet")
-    return m
+    return minimize_metric(m)
 
 
 @router.get("/server/{server_id}/history")
@@ -236,19 +246,16 @@ def refresh_now(_: User = Depends(require_admin)):
 
 # ---------------- live processes / process actions (btop parity) ----------------
 
-import threading
-import time as _time
-
 _procs_cache: dict[int, tuple[float, dict]] = {}
 _procs_lock = threading.Lock()
 _PROCS_TTL = 10.0
 
 
-@router.get("/server/{server_id}/processes")
+@router.post("/server/{server_id}/processes")
 def server_processes(
     server_id: int,
     sort: str = Query(default="cpu", pattern="^(cpu|mem|pid|time)$"),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Fresh process table fetched live over SSH (not from history)."""
@@ -267,6 +274,7 @@ def server_processes(
         private_key_enc=server.private_key or "",
         passphrase_enc=server.passphrase or "",
         sort=sort,
+        server_key=f"server_{server.id}",
     )
     if not ok:
         raise HTTPException(status_code=502, detail=str(data))
@@ -280,19 +288,68 @@ def server_processes(
 def process_action(
     server_id: int,
     body: ProcessAction,
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
     """Kill or renice a process on the remote server (admin only)."""
+    from ..config import get_settings
+    from ..security import verify_password
+
+    if not get_settings().remote_process_control_enabled:
+        raise HTTPException(status_code=403, detail="remote process control is disabled")
+    ip, bucket = check_step_up_limit(request, admin, "process-action")
+    if not verify_password(body.reauth_password, admin.password_hash):
+        record_step_up_failure(ip, bucket)
+        try:
+            db.add(
+                AuditLog(
+                    username=admin.username,
+                    action="process.reauth_failed",
+                    detail=f"server_id={server_id} pid={body.pid} ip={ip}",
+                )
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="security audit unavailable") from exc
+        raise HTTPException(status_code=403, detail="administrator re-authentication failed")
+    record_step_up_success(ip, bucket)
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    sig = "".join(c for c in body.signal.upper() if c.isalnum()) or "TERM"
+    sig = body.signal
     if body.action == "kill":
-        command = f"kill -{sig} {body.pid}"
+        action_command = f"kill -{sig} {body.pid}"
     else:
-        command = f"renice {body.nice} -p {body.pid}"
+        action_command = f"renice {body.nice} -p {body.pid}"
+    command = (
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+        f"stat=$(cat /proc/{body.pid}/stat 2>/dev/null) || exit 75; "
+        "rest=${stat##*) }; set -- $rest; current=${20}; "
+        f"[ \"$current\" = \"{body.start_ticks}\" ] || "
+        "{ echo 'process identity changed'; exit 75; }; "
+        + action_command
+    )
+
+    # Commit an intent record before the irreversible remote action. If the
+    # audit store is unavailable, fail closed and do not contact the host.
+    try:
+        db.add(
+            AuditLog(
+                username=admin.username,
+                action=f"process.{body.action}.requested",
+                detail=(
+                    f"server={server.name} pid={body.pid} "
+                    f"start_ticks={body.start_ticks} ip={ip}"
+                ),
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="security audit unavailable") from exc
 
     ok, msg = remote_command(
         host=server.host,
@@ -302,13 +359,14 @@ def process_action(
         private_key_enc=server.private_key or "",
         passphrase_enc=server.passphrase or "",
         command=command,
+        server_key=f"server_{server.id}",
     )
     try:
         db.add(
             AuditLog(
                 username=admin.username,
-                action=f"process.{body.action}",
-                detail=f"{server.name}: {command} -> {'ok' if ok else msg}",
+                action=f"process.{body.action}.result",
+                detail=f"server={server.name} pid={body.pid} -> {'ok' if ok else msg}",
             )
         )
         db.commit()

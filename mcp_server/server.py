@@ -7,22 +7,32 @@ account and exposes a small, read-only GPU-focused tool surface over stdio.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import ipaddress
 import json
 import os
-import ssl
+import socket
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """Never forward login data or bearer tokens to a redirected URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class GpuMonitorApiError(RuntimeError):
@@ -33,16 +43,60 @@ class GpuMonitorApiError(RuntimeError):
         self.status = status
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _is_loopback(hostname: str | None) -> bool:
     host = (hostname or "").strip("[]").lower()
-    return host == "localhost" or host == "::1" or host.startswith("127.")
+    if host == "localhost":
+        try:
+            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+            addresses = {ipaddress.ip_address(info[4][0]) for info in infos}
+            return bool(addresses) and all(address.is_loopback for address in addresses)
+        except (OSError, ValueError):
+            return False
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _strict_privacy() -> bool:
+    mode = os.getenv("GPU_MONITOR_MCP_PRIVACY_MODE", "strict").strip().lower()
+    if mode not in {"strict", "extended"}:
+        raise GpuMonitorApiError(
+            "GPU_MONITOR_MCP_PRIVACY_MODE must be strict or extended"
+        )
+    return mode == "strict"
+
+
+def _opaque_hardware_id(value: Any) -> str:
+    raw = str(value or "")
+    if not raw:
+        return ""
+    key = os.getenv("MCP_PRIVACY_HMAC_KEY", "").strip()
+    if len(key) < 32 or key.casefold() in {"change-me", "changeme", "secret"}:
+        raise GpuMonitorApiError(
+            "MCP_PRIVACY_HMAC_KEY must be an independent random value of at least 32 characters"
+        )
+    return hmac.new(key.encode(), raw.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def _privacy_gpu_record(item: dict[str, Any]) -> dict[str, Any]:
+    if not _strict_privacy():
+        return item
+    out = dict(item)
+    for key in ("uuid", "serial", "pci_bus_id", "gpu_uuid"):
+        if key in out:
+            out[f"{key}_hash"] = _opaque_hardware_id(out.get(key))
+            out.pop(key, None)
+    if "processes" in out:
+        out["processes"] = [
+            {
+                "pid": p.get("pid"),
+                "gpu_memory_mb": _rounded(p.get("gpu_memory_mb", p.get("mem_mb"))),
+            }
+            for p in out.get("processes", [])
+            if isinstance(p, dict)
+        ]
+    return out
 
 
 def _error_detail(raw: bytes) -> str:
@@ -69,8 +123,6 @@ class GpuMonitorClient:
     username: str
     password: str = field(repr=False)
     timeout: float = 15.0
-    verify_tls: bool = True
-    allow_insecure_http: bool = False
     _token: str = field(default="", init=False, repr=False)
     _token_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
@@ -88,14 +140,15 @@ class GpuMonitorClient:
             raise GpuMonitorApiError(
                 "Do not embed credentials in GPU_MONITOR_URL; use the username/password variables"
             )
-        if (
-            parsed.scheme == "http"
-            and not _is_loopback(parsed.hostname)
-            and not self.allow_insecure_http
-        ):
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise GpuMonitorApiError("GPU_MONITOR_URL must contain only scheme, host, and optional port")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise GpuMonitorApiError("GPU_MONITOR_URL contains an invalid port") from exc
+        if parsed.scheme == "http" and not _is_loopback(parsed.hostname):
             raise GpuMonitorApiError(
-                "Refusing to send credentials over remote plain HTTP. Use HTTPS or set "
-                "GPU_MONITOR_ALLOW_INSECURE_HTTP=yes for a trusted private network."
+                "Refusing to send credentials over remote plain HTTP; configure HTTPS"
             )
         if not self.username:
             raise GpuMonitorApiError("GPU_MONITOR_USERNAME is required")
@@ -104,12 +157,12 @@ class GpuMonitorClient:
         if self.timeout <= 0 or self.timeout > 120:
             raise GpuMonitorApiError("GPU_MONITOR_TIMEOUT must be in (0, 120] seconds")
 
-        handlers: list[Any] = []
+        handlers: list[Any] = [_NoRedirect()]
         # Local monitor traffic should not accidentally leave through an HTTP proxy.
         if _is_loopback(parsed.hostname):
             handlers.append(ProxyHandler({}))
-        if parsed.scheme == "https" and not self.verify_tls:
-            handlers.append(HTTPSHandler(context=ssl._create_unverified_context()))
+        # HTTPS always uses the system trust store and hostname validation.
+        # There is intentionally no environment switch that disables it.
         self._opener = build_opener(*handlers)
 
     @classmethod
@@ -123,8 +176,6 @@ class GpuMonitorClient:
             username=os.getenv("GPU_MONITOR_USERNAME", "").strip(),
             password=os.getenv("GPU_MONITOR_PASSWORD", ""),
             timeout=timeout,
-            verify_tls=_env_bool("GPU_MONITOR_VERIFY_TLS", True),
-            allow_insecure_http=_env_bool("GPU_MONITOR_ALLOW_INSECURE_HTTP", False),
         )
 
     def _send(
@@ -155,11 +206,20 @@ class GpuMonitorClient:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             raw = exc.read(64 * 1024)
+            if _strict_privacy():
+                raise GpuMonitorApiError(
+                    f"GPU Monitor API request failed (HTTP {exc.code})",
+                    status=exc.code,
+                ) from None
             raise GpuMonitorApiError(
                 f"GPU Monitor API returned HTTP {exc.code}: {_error_detail(raw)}",
                 status=exc.code,
             ) from None
         except URLError as exc:
+            if _strict_privacy():
+                raise GpuMonitorApiError(
+                    "Cannot reach the configured GPU Monitor API"
+                ) from None
             reason = str(getattr(exc, "reason", exc))[:300]
             raise GpuMonitorApiError(
                 f"Cannot reach GPU Monitor at {self.base_url}: {reason}"
@@ -192,9 +252,14 @@ class GpuMonitorClient:
             content_type="application/x-www-form-urlencoded",
         )
         token = payload.get("access_token", "") if isinstance(payload, dict) else ""
+        user = payload.get("user", {}) if isinstance(payload, dict) else {}
         if not token:
             raise GpuMonitorApiError(
                 "GPU Monitor login succeeded without an access token"
+            )
+        if not isinstance(user, dict) or user.get("role") != "viewer":
+            raise GpuMonitorApiError(
+                "GPU Monitor MCP requires a dedicated viewer account"
             )
         self._token = token
         return token
@@ -276,10 +341,7 @@ def _gpu_snapshot(
     """Return useful GPU fields while bounding process data sent to the model."""
     out = {
         "index": gpu.get("index", 0),
-        "uuid": gpu.get("uuid", ""),
         "name": gpu.get("name", ""),
-        "serial": gpu.get("serial", ""),
-        "pci_bus_id": gpu.get("pci_bus_id", ""),
         "utilization_pct": _rounded(gpu.get("utilization")),
         "memory_utilization_pct": _rounded(gpu.get("util_memory")),
         "memory_used_mb": _rounded(gpu.get("mem_used_mb")),
@@ -314,15 +376,31 @@ def _gpu_snapshot(
             "maximum": int(_number(gpu.get("pcie_width_max"))),
         },
     }
+    if _strict_privacy():
+        out["hardware_id_hash"] = _opaque_hardware_id(gpu.get("uuid"))
+    else:
+        out.update(
+            {
+                "uuid": gpu.get("uuid", ""),
+                "serial": gpu.get("serial", ""),
+                "pci_bus_id": gpu.get("pci_bus_id", ""),
+            }
+        )
     processes = [p for p in (gpu.get("processes") or []) if isinstance(p, dict)]
     out["process_count"] = len(processes)
     if include_processes:
         out["processes"] = [
             {
                 "pid": p.get("pid"),
-                "user": p.get("user", ""),
-                "command": str(p.get("command") or "")[:120],
                 "gpu_memory_mb": _rounded(p.get("mem_mb")),
+                **(
+                    {
+                        "user": p.get("user", ""),
+                        "command": str(p.get("command") or "")[:120],
+                    }
+                    if not _strict_privacy()
+                    else {}
+                ),
             }
             for p in processes[:50]
         ]
@@ -331,26 +409,34 @@ def _gpu_snapshot(
 
 
 def _server_public(server: dict[str, Any]) -> dict[str, Any]:
-    return {
+    out = {
         "id": server.get("id"),
         "name": server.get("name", ""),
-        "host": server.get("host", ""),
-        "port": server.get("port", 22),
         "enabled": bool(server.get("enabled", False)),
         "server_type": server.get("server_type", "gpu"),
         "lifecycle_status": server.get("status") or "active",
-        "status_reason": server.get("status_reason") or "",
-        "status_until": server.get("status_until"),
-        "tags": list(server.get("tags") or []),
     }
+    if not _strict_privacy():
+        out.update(
+            {
+                "host": server.get("host", ""),
+                "port": server.get("port", 22),
+                "status_reason": server.get("status_reason") or "",
+                "status_until": server.get("status_until"),
+                "tags": list(server.get("tags") or []),
+            }
+        )
+    return out
 
 
 def _resolve_server(api: GpuMonitorClient, reference: str) -> dict[str, Any]:
     ref = str(reference or "").strip()
     if not ref:
         raise GpuMonitorApiError(
-            "server must be an ID, exact name, hostname, or host address"
+            "server must be an ID, exact name, or unambiguous name fragment"
         )
+    if len(ref) > 128 or any(ord(character) < 32 or ord(character) == 127 for character in ref):
+        raise GpuMonitorApiError("server reference is invalid or too long")
     servers = _as_list(api.get("/api/servers"), "server list")
     gpu_servers = [s for s in servers if s.get("server_type", "gpu") != "cpu"]
 
@@ -402,12 +488,9 @@ def _summarize_matrix(
             {
                 "server_id": row.get("server_id"),
                 "server_name": row.get("server_name", ""),
-                "hostname": row.get("hostname", ""),
                 "enabled": bool(row.get("enabled", False)),
                 "online": bool(row.get("online", False)),
-                "lifecycle_status": row.get("status") or "active",
-                "tags": list(row.get("tags") or []),
-                "error": row.get("error", ""),
+        "lifecycle_status": row.get("status") or "active",
                 "gpu_count": len(gpus),
                 "average_utilization_pct": round(sum(utils) / len(utils), 1)
                 if utils
@@ -423,6 +506,10 @@ def _summarize_matrix(
                 ),
             }
         )
+        if not _strict_privacy():
+            out[-1]["hostname"] = row.get("hostname", "")
+            out[-1]["tags"] = list(row.get("tags") or [])
+            out[-1]["error"] = row.get("error", "")
     return out
 
 
@@ -442,15 +529,21 @@ def gpu_monitor_connection_status() -> dict[str, Any]:
     api = _get_client()
     health = api.health()
     me = api.get("/api/auth/me")
+    authenticated_user = {
+        "role": me.get("role", "") if isinstance(me, dict) else "",
+    }
+    if not _strict_privacy() and isinstance(me, dict):
+        authenticated_user.update(
+            {
+                "username": me.get("username", ""),
+                "display_name": me.get("display_name", ""),
+            }
+        )
     return {
-        "base_url": api.base_url,
         "health": health,
-        "authenticated_user": {
-            "username": me.get("username", "") if isinstance(me, dict) else "",
-            "display_name": me.get("display_name", "") if isinstance(me, dict) else "",
-            "role": me.get("role", "") if isinstance(me, dict) else "",
-        },
+        "authenticated_user": authenticated_user,
         "read_only_tools": True,
+        "privacy_mode": "strict" if _strict_privacy() else "extended",
     }
 
 
@@ -518,7 +611,7 @@ def gpu_monitor_cluster_summary() -> dict[str, Any]:
         "risk": {
             "idle_held_count": int(_number(analysis.get("idle_held_count"))),
             "high_risk_count": int(_number(analysis.get("high_risk_count"))),
-            "highest_risk_gpus": risky[:10],
+            "highest_risk_gpus": [_privacy_gpu_record(g) for g in risky[:10]],
         },
     }
 
@@ -528,7 +621,7 @@ def gpu_monitor_get_server_gpu_info(server: str) -> dict[str, Any]:
     """Get a detailed latest GPU snapshot for one server.
 
     Args:
-        server: Server ID, exact name, hostname, host address, or an unambiguous name fragment.
+        server: Server ID, exact name, or an unambiguous name fragment.
     """
     api = _get_client()
     resolved = _resolve_server(api, server)
@@ -559,19 +652,21 @@ def gpu_monitor_get_server_gpu_info(server: str) -> dict[str, Any]:
             "maximum_temperature_24h_c": _rounded(risk.get("max_temp")),
         }
         snapshots.append(gpu)
+    metric = {
+        "collected_at": latest.get("collected_at"),
+        "age_seconds": _data_age_seconds(latest.get("collected_at")),
+        "status": latest.get("status", "unknown"),
+        "error_code": latest.get("error_code", ""),
+        "gpu_driver": latest.get("gpu_driver", ""),
+        "ssh_latency_seconds": _rounded(latest.get("ssh_latency"), 3),
+        "collection_duration_seconds": _rounded(latest.get("duration"), 2),
+    }
+    if not _strict_privacy():
+        metric["hostname"] = latest.get("hostname", "")
+        metric["error"] = latest.get("error", "")
     return {
         "server": _server_public(resolved),
-        "metric": {
-            "collected_at": latest.get("collected_at"),
-            "age_seconds": _data_age_seconds(latest.get("collected_at")),
-            "status": latest.get("status", "unknown"),
-            "error_code": latest.get("error_code", ""),
-            "error": latest.get("error", ""),
-            "hostname": latest.get("hostname", ""),
-            "gpu_driver": latest.get("gpu_driver", ""),
-            "ssh_latency_seconds": _rounded(latest.get("ssh_latency"), 3),
-            "collection_duration_seconds": _rounded(latest.get("duration"), 2),
-        },
+        "metric": metric,
         "gpu_count": len(snapshots),
         "gpus": snapshots,
     }
@@ -584,7 +679,7 @@ def gpu_monitor_get_gpu_history(
     """Get downsampled aggregate GPU history for one server.
 
     Args:
-        server: Server ID, name, hostname, host address, or unique name fragment.
+        server: Server ID, exact name, or unique name fragment.
         hours: History window from 1 to 168 hours.
         max_points: Maximum returned points from 10 to 720.
     """
@@ -655,21 +750,30 @@ def gpu_monitor_get_gpu_processes(server: str) -> dict[str, Any]:
         gpu_rows.append(
             {
                 "gpu_index": raw_gpu.get("index"),
-                "gpu_uuid": raw_gpu.get("uuid", ""),
                 "gpu_name": raw_gpu.get("name", ""),
                 "process_count": len(processes),
                 "processes": [
                     {
                         "pid": p.get("pid"),
-                        "user": p.get("user", ""),
-                        "command": str(p.get("command") or "")[:120],
                         "gpu_memory_mb": _rounded(p.get("mem_mb")),
+                        **(
+                            {
+                                "user": p.get("user", ""),
+                                "command": str(p.get("command") or "")[:120],
+                            }
+                            if not _strict_privacy()
+                            else {}
+                        ),
                     }
                     for p in processes[:100]
                 ],
                 "processes_truncated": len(processes) > 100,
             }
         )
+        if _strict_privacy():
+            gpu_rows[-1]["gpu_uuid_hash"] = _opaque_hardware_id(raw_gpu.get("uuid"))
+        else:
+            gpu_rows[-1]["gpu_uuid"] = raw_gpu.get("uuid", "")
     return {
         "server": _server_public(resolved),
         "collected_at": latest.get("collected_at"),
@@ -715,7 +819,7 @@ def gpu_monitor_get_risk_analysis(
         },
         "matched_count": len(gpus),
         "returned_count": min(len(gpus), limit),
-        "gpus": gpus[:limit],
+        "gpus": [_privacy_gpu_record(gpu) for gpu in gpus[:limit]],
     }
 
 
@@ -726,7 +830,7 @@ def gpu_monitor_get_gpu_alerts(
     """Get GPU-related alert events, optionally restricted to one server.
 
     Args:
-        server: Optional server ID/name/hostname/host; empty means the whole cluster.
+        server: Optional server ID/name; empty means the whole cluster.
         open_only: Return only unrecovered alerts when true.
         limit: Maximum source events inspected, from 1 to 200.
     """
@@ -756,14 +860,20 @@ def gpu_monitor_get_gpu_alerts(
                     "server_name": row.get("server_name", ""),
                     "metric": row.get("metric", ""),
                     "rule_name": row.get("rule_name", ""),
-                    "message": row.get("message", ""),
                     "value": row.get("value"),
                     "threshold": row.get("threshold"),
                     "triggered_at": row.get("triggered_at"),
                     "recovered_at": row.get("recovered_at"),
                     "acked_at": row.get("acked_at"),
-                    "acked_by": row.get("acked_by", ""),
-                    "assignee": row.get("assignee", ""),
+                    **(
+                        {
+                            "message": row.get("message", ""),
+                            "acked_by": row.get("acked_by", ""),
+                            "assignee": row.get("assignee", ""),
+                        }
+                        if not _strict_privacy()
+                        else {}
+                    ),
                 }
             )
     return {
@@ -776,6 +886,8 @@ def gpu_monitor_get_gpu_alerts(
 
 def main() -> None:
     """Run the local stdio transport; stdout is reserved for MCP framing."""
+    if _strict_privacy():
+        _opaque_hardware_id("configuration-probe")
     mcp.run()
 
 

@@ -1,11 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import AuditLog, User
 from ..schemas import PasswordChange, UserCreate, UserOut, UserUpdate
-from ..security import get_current_user, hash_password, require_admin
-from .. import token_revocation
+from ..security import (
+    create_access_token,
+    check_step_up_limit,
+    get_current_user,
+    hash_password,
+    increment_token_version,
+    record_step_up_failure,
+    record_step_up_success,
+    require_admin,
+    set_auth_cookies,
+)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -66,10 +75,9 @@ def update_user(
         user.is_active = body.is_active
     if body.password:
         user.password_hash = hash_password(body.password)
-    db.commit()
-    # security: credential/permission change invalidates existing sessions
     if body.password or body.is_active is False or body.role is not None:
-        token_revocation.revoke_user_tokens(user.id)
+        increment_token_version(db, user)
+    db.commit()
     db.refresh(user)
     audit(db, admin.username, "user.update", f"updated user {user.username}")
     return user
@@ -85,7 +93,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depen
     username = user.username
     db.delete(user)
     db.commit()
-    token_revocation.revoke_user_tokens(user_id)
     audit(db, admin.username, "user.delete", f"deleted user {username}")
     return {"ok": True}
 
@@ -93,18 +100,71 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depen
 @router.post("/change-password")
 def change_password(
     body: PasswordChange,
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current: User = Depends(get_current_user),
 ):
     from ..security import verify_password
 
+    ip, bucket = check_step_up_limit(request, current, "password-change")
     if not verify_password(body.old_password, current.password_hash):
+        record_step_up_failure(ip, bucket)
+        audit(db, current.username, "user.password_failed", f"ip={ip}")
         raise HTTPException(status_code=400, detail="Old password is incorrect")
-    current.password_hash = hash_password(body.new_password)
+    observed_hash = current.password_hash
+    observed_version = current.token_version
+    new_hash = hash_password(body.new_password)
+    changed = (
+        db.query(User)
+        .filter(
+            User.id == current.id,
+            User.password_hash == observed_hash,
+            User.token_version == observed_version,
+        )
+        .update(
+            {
+                User.password_hash: new_hash,
+                User.token_version: User.token_version + 1,
+            },
+            synchronize_session=False,
+        )
+    )
+    if changed != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Account changed concurrently; sign in again and retry",
+        )
     db.commit()
-    token_revocation.revoke_user_tokens(current.id)  # kill all sessions incl. stolen tokens
+    db.refresh(current)
+    record_step_up_success(ip, bucket)
     audit(db, current.username, "user.password", "changed own password")
-    # re-issue a token for THIS session (all old ones were just revoked)
-    from ..security import create_access_token
+    # Re-issue a token carrying the new persistent version for this session.
+    token = create_access_token(
+        current,
+        mfa_verified=bool(getattr(request.state, "auth_mfa", False)),
+        token_version=observed_version + 1,
+    )
+    set_auth_cookies(response, token)
+    return {"ok": True, "access_token": token}
 
-    return {"ok": True, "access_token": create_access_token(current.username, current.id)}
+
+@router.post("/{user_id}/reset-mfa")
+def reset_user_mfa(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="Use the self-service MFA disable flow")
+    user.mfa_secret = ""
+    user.mfa_confirmed = False
+    user.mfa_last_counter = -1
+    increment_token_version(db, user)
+    db.commit()
+    audit(db, admin.username, "user.mfa_reset", f"reset MFA for {user.username}")
+    return {"ok": True}

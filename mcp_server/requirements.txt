@@ -1,3 +1,3 @@
-# Kept separate from backend/requirements.txt because MCP SDK v2 requires
-# Pydantic >= 2.12 while the web application currently pins Pydantic 2.10.x.
+# Direct dependency declaration. Production installs use requirements.lock,
+# which pins and hashes the complete transitive dependency graph.
 mcp==2.1.1

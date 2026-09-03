@@ -1,13 +1,29 @@
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+MIN_PASSWORD_LENGTH = 15
+
+
+def _clean_network_host(value: str, *, allow_empty: bool = False) -> str:
+    value = value.strip()
+    if not value and allow_empty:
+        return ""
+    if not value or any(
+        character.isspace() or ord(character) < 33 or ord(character) == 127
+        for character in value
+    ):
+        raise ValueError("host must not be empty or contain whitespace/control characters")
+    return value
 
 
 # ---------------- auth / users ----------------
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
+    otp: str = Field(default="", max_length=8, pattern=r"^\d{0,8}$")
 
 
 class UserOut(BaseModel):
@@ -19,12 +35,13 @@ class UserOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    mfa_enrolled: bool = False
     created_at: datetime
 
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=2, max_length=64)
-    password: str = Field(min_length=6, max_length=72)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=72)
     display_name: str = ""
     email: str = ""
     role: Literal["admin", "viewer"] = "viewer"
@@ -35,12 +52,30 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[Literal["admin", "viewer"]] = None
     is_active: Optional[bool] = None
-    password: Optional[str] = Field(default=None, min_length=6, max_length=72)
+    password: Optional[str] = Field(default=None, min_length=MIN_PASSWORD_LENGTH, max_length=72)
 
 
 class PasswordChange(BaseModel):
     old_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=6, max_length=72)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=72)
+
+
+class MfaCode(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class MfaDisable(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class HostKeyResetRequest(BaseModel):
+    expected_fingerprint: str = Field(
+        min_length=50,
+        max_length=60,
+        pattern=r"^SHA256:[A-Za-z0-9+/]{43}={0,1}$",
+    )
+    reauth_password: str = Field(min_length=1, max_length=128)
 
 
 # ---------------- servers ----------------
@@ -49,7 +84,7 @@ class ServerBase(BaseModel):
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(default=22, ge=1, le=65535)
     auth_type: Literal["password", "key"] = "password"
-    username: str = Field(default="root", min_length=1, max_length=64)
+    username: str = Field(default="gpumon", min_length=1, max_length=64)
     password: Optional[str] = None
     private_key: Optional[str] = None
     passphrase: Optional[str] = None
@@ -60,6 +95,16 @@ class ServerBase(BaseModel):
     bmc_host: str = Field(default="", max_length=255)
     bmc_user: str = Field(default="", max_length=64)
     bmc_password: Optional[str] = None
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        return _clean_network_host(value)
+
+    @field_validator("bmc_host")
+    @classmethod
+    def validate_bmc_host(cls, value: str) -> str:
+        return _clean_network_host(value, allow_empty=True)
 
 
 class ServerCreate(ServerBase):
@@ -82,6 +127,16 @@ class ServerUpdate(BaseModel):
     bmc_host: Optional[str] = Field(default=None, max_length=255)
     bmc_user: Optional[str] = Field(default=None, max_length=64)
     bmc_password: Optional[str] = None
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str | None) -> str | None:
+        return None if value is None else _clean_network_host(value)
+
+    @field_validator("bmc_host")
+    @classmethod
+    def validate_bmc_host(cls, value: str | None) -> str | None:
+        return None if value is None else _clean_network_host(value, allow_empty=True)
 
 
 class ServerOut(BaseModel):
@@ -116,13 +171,18 @@ class ServerStatusUpdate(BaseModel):
 
 
 class ConnectionTestRequest(BaseModel):
-    host: str
+    host: str = Field(min_length=1, max_length=255)
     port: int = Field(default=22, ge=1, le=65535)
     auth_type: Literal["password", "key"] = "password"
-    username: str
+    username: str = Field(min_length=1, max_length=64)
     password: Optional[str] = None
     private_key: Optional[str] = None
     passphrase: Optional[str] = None
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        return _clean_network_host(value)
 
 
 class ConnectionTestResult(BaseModel):
@@ -277,12 +337,14 @@ class SettingsUpdate(BaseModel):
     poll_interval: Optional[int] = Field(default=None, ge=10, le=86400)
     retention_days: Optional[int] = Field(default=None, ge=0, le=3650)
     energy_price: Optional[float] = Field(default=None, ge=0, le=100)
-    webhook_url: Optional[str] = None
-    webhook_template: Optional[str] = None
+    webhook_url: Optional[str] = Field(default=None, max_length=2048)
+    webhook_template: Optional[str] = Field(default=None, max_length=65536)
 
 
 class ProcessAction(BaseModel):
     action: Literal["kill", "renice"]
     pid: int = Field(ge=1)
-    signal: str = "TERM"  # TERM | KILL | HUP ...
+    start_ticks: int = Field(gt=0)
+    signal: Literal["TERM", "KILL", "HUP", "INT"] = "TERM"
     nice: int = Field(default=0, ge=-20, le=19)
+    reauth_password: str = Field(min_length=1, max_length=128)

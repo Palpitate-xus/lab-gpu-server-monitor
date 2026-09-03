@@ -12,16 +12,9 @@ Output uses a simple ==SECTION== delimiter protocol parsed centrally.
 
 from __future__ import annotations
 
-import io
-import re
-import time
-from dataclasses import dataclass, field
-from typing import Optional
 
-import paramiko
 
 from .config import get_settings
-from .security import decrypt_text
 
 settings = get_settings()
 
@@ -33,7 +26,7 @@ MAX_OUTPUT_BYTES = 2 * 1024 * 1024  # hard cap per collector
 # attempted because parsing relies on $(...) which POSIX sh also has).
 
 FAST_SCRIPT = r"""
-export LC_ALL=C LANG=C
+export LC_ALL=C LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 # ---------- gpu queries (validate incrementally; old drivers reject fields) ---
 G1=$(timeout 10 nvidia-smi --query-gpu=index,gpu_uuid,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed,driver_version --format=csv,noheader,nounits 2>/dev/null || true)
 case "$G1" in
@@ -100,8 +93,9 @@ echo "==GPUHEALTH=="; echo "$G2"
 echo "==GPUCLOCK=="; echo "$G3"
 echo "==GPUAPPS=="; echo "$GPUAPPS"
 echo "==GPUAPPNAME=="; echo "$GPUAPPNAME"
-echo "==PS=="; ps -eo pid,ppid,user:24,pcpu,pmem,rss:16,vsz:16,stat,etimes,args:256 --sort=-pcpu 2>/dev/null | head -n 501
-echo "==WHO=="; who -u 2>/dev/null | head -n 12
+# The scheduled collector needs resource values and the executable name only.
+# Full usernames/argv are fetched solely by the admin-only live process API.
+echo "==PS=="; ps -eo pid,ppid,user:24,pcpu,pmem,rss:16,vsz:16,stat,etimes,comm:80 --sort=-pcpu 2>/dev/null | head -n 501
 echo "==SOCKETS=="; cat /proc/net/sockstat 2>/dev/null
 echo "==FDNR=="; cat /proc/sys/fs/file-nr 2>/dev/null
 echo "==PIDMAX=="; cat /proc/sys/kernel/pid_max 2>/dev/null
@@ -115,7 +109,7 @@ true
 """
 
 SLOW_SCRIPT = r"""
-export LC_ALL=C LANG=C
+export LC_ALL=C LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 # ---------- nvme smart ----------
 echo "==NVMEDEVS=="; ls /dev/nvme[0-9]* 2>/dev/null | grep -v 'p[0-9]' || true
 echo "==NVMESMART=="
@@ -149,7 +143,7 @@ true
 """
 
 INVENTORY_SCRIPT = r"""
-export LC_ALL=C LANG=C
+export LC_ALL=C LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 echo "==MACHINEID=="; cat /etc/machine-id 2>/dev/null || true
 echo "==DMI=="; for f in sys_vendor product_name product_serial product_uuid bios_version bios_date; do v=$(cat /sys/class/dmi/id/$f 2>/dev/null); [ -n "$v" ] && echo "$f=$v"; done
 echo "==LSCPU=="; lscpu 2>/dev/null || true
@@ -172,7 +166,7 @@ true
 
 # kernel events (fast-tier; incremental via since-boot-id + dmesg tail)
 KERNEL_SCRIPT = r"""
-export LC_ALL=C LANG=C
+export LC_ALL=C LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin
 echo "==BOOTID=="; cat /proc/sys/kernel/random/boot_id 2>/dev/null
 echo "==KLOG=="
 if command -v journalctl >/dev/null 2>&1; then

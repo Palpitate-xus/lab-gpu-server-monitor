@@ -14,15 +14,29 @@ import sys
 from .database import IS_MYSQL, SessionLocal
 from .models import AlertEvent, AlertRule, AuditLog, Server, ServerMetric, Setting, User
 
+_IMPORT_TABLES = {
+    "settings",
+    "users",
+    "servers",
+    "alert_rules",
+    "alert_events",
+    "audit_logs",
+    "server_metrics",
+}
+
 
 def _fetch_all(cur, table: str) -> list[dict]:
-    cur.execute(f"SELECT * FROM {table}")
+    if table not in _IMPORT_TABLES:
+        raise ValueError(f"table is not approved for import: {table}")
+    # Identifier cannot be parameterized by sqlite3. It is strictly allowlisted.
+    cur.execute(f"SELECT * FROM {table}")  # nosec B608
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 def import_from_sqlite(sqlite_path: str, with_history: bool = True) -> dict:
-    assert IS_MYSQL, "target database must be MySQL (DATABASE_URL)"
+    if not IS_MYSQL:
+        raise RuntimeError("target database must be MySQL (DATABASE_URL)")
     conn = sqlite3.connect(sqlite_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()

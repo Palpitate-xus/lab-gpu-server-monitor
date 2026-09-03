@@ -1,6 +1,6 @@
 from datetime import timezone as _tz
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -28,21 +28,60 @@ def audit(db: Session, username: str, action: str, detail: str = "") -> None:
         db.rollback()
 
 
-def _to_out(server: Server) -> ServerOut:
+def _to_out(server: Server, include_management: bool = True) -> ServerOut:
     out = ServerOut.model_validate(server)
-    out.has_password = bool(server.password)
-    out.has_key = bool(server.private_key)
-    out.has_bmc = bool(server.bmc_host)
+    if include_management:
+        out.has_password = bool(server.password)
+        out.has_key = bool(server.private_key)
+        out.has_bmc = bool(server.bmc_host)
+    else:
+        out.host = ""
+        out.port = 0
+        out.auth_type = ""
+        out.note = ""
+        out.status_reason = None
+        out.bmc_host = ""
+        out.bmc_user = ""
+        out.has_password = False
+        out.has_key = False
+        out.has_bmc = False
     return out
 
 
+def _reject_root_ssh(username: str | None) -> None:
+    from ..config import get_settings
+
+    if username and username.strip().lower() == "root" and not get_settings().allow_root_ssh:
+        raise HTTPException(
+            status_code=400,
+            detail="root SSH is disabled; provision a dedicated least-privilege gpumon account",
+        )
+
+
 @router.get("", response_model=list[ServerOut])
-def list_servers(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return [_to_out(s) for s in db.query(Server).order_by(Server.id).all()]
+def list_servers(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from ..config import get_settings
+
+    include_management = bool(
+        user.is_admin
+        and (
+            not get_settings().require_admin_mfa
+            or (user.mfa_enrolled and getattr(request.state, "auth_mfa", False))
+        )
+    )
+    return [
+        _to_out(server, include_management=include_management)
+        for server in db.query(Server).order_by(Server.id).all()
+    ]
 
 
 @router.post("", response_model=ServerOut)
 def create_server(body: ServerCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    _reject_root_ssh(body.username)
     exists = db.query(Server).filter(Server.name == body.name).first()
     if exists:
         raise HTTPException(status_code=400, detail=f"服务器名称已存在: {body.name}")
@@ -93,12 +132,16 @@ def update_server(
         server.port = body.port
         addr_changed = True
     if addr_changed:
-        # new address = new host identity; drop stale TOFU trust
-        from ..ssh_transport import forget_hostkey
-        forget_hostkey(f"server_{server.id}")
+        # Preflight storage before committing the address. The old trust file
+        # remains in place until the DB transaction succeeds, so a failed
+        # update can never silently downgrade the old target to first-use TOFU.
+        from ..ssh_transport import ensure_hostkey_storage
+
+        ensure_hostkey_storage()
     if body.auth_type is not None:
         server.auth_type = body.auth_type
     if body.username is not None:
+        _reject_root_ssh(body.username)
         server.username = body.username
     if body.password is not None:
         server.password = encrypt_text(body.password)
@@ -123,6 +166,12 @@ def update_server(
     db.commit()
     db.refresh(server)
     audit(db, admin.username, "server.update", f"updated server {server.name}")
+    if addr_changed:
+        # New address = new host identity. Between commit and deletion the old
+        # key makes connection attempts fail closed under RejectPolicy.
+        from ..ssh_transport import forget_hostkey
+
+        forget_hostkey(f"server_{server.id}")
     return _to_out(server)
 
 
@@ -132,6 +181,9 @@ def delete_server(server_id: int, db: Session = Depends(get_db), admin: User = D
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
     name = server.name
+    from ..ssh_transport import ensure_hostkey_storage, forget_hostkey
+
+    ensure_hostkey_storage()
     from ..models import (
         GpuBaseline,
         HostInventory,
@@ -147,11 +199,16 @@ def delete_server(server_id: int, db: Session = Depends(get_db), admin: User = D
         db.query(model).filter(model.server_id == server_id).delete(
             synchronize_session=False
         )
-    from ..ssh_transport import forget_hostkey
-    forget_hostkey(f"server_{server_id}")
     db.delete(server)
+    db.add(
+        AuditLog(
+            username=admin.username,
+            action="server.delete",
+            detail=f"deleted server {name}",
+        )
+    )
     db.commit()
-    audit(db, admin.username, "server.delete", f"deleted server {name}")
+    forget_hostkey(f"server_{server_id}")
     return {"ok": True}
 
 
@@ -160,6 +217,7 @@ def test_server_connection(
     body: ConnectionTestRequest,
     _: User = Depends(require_admin),
 ):
+    _reject_root_ssh(body.username)
     import ipaddress
     # crude SSRF guard: if the host is a literal IP, refuse non-public targets;
     # hostnames still resolve during connect (this endpoint is admin-only and
@@ -177,6 +235,7 @@ def test_server_connection(
         password=body.password or "",
         private_key=body.private_key or "",
         passphrase=body.passphrase or "",
+        server_key=f"target_{body.host}_{body.port}",
     )
     return ConnectionTestResult(ok=ok, message=message)
 
