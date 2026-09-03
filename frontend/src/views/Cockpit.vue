@@ -82,7 +82,11 @@
 
     <!-- ===== cluster health strip ===== -->
     <div class="health-strip" v-if="healthSummary.length">
-      <div v-for="h in healthSummary" :key="h.server_id" class="health-chip" :class="`hs-${h.overall}`" @click="$router.push(`/servers/${h.server_id}`)">
+      <div v-for="h in healthSummary" :key="h.server_id" class="health-chip" :class="`hs-${h.overall}`"
+        role="link" tabindex="0" :aria-label="`查看 ${h.name} 服务器详情`"
+        @click="$router.push(`/servers/${h.server_id}`)"
+        @keydown.enter.prevent="$router.push(`/servers/${h.server_id}`)"
+        @keydown.space.prevent="$router.push(`/servers/${h.server_id}`)">
         <span class="live-dot" v-if="h.overall === 'ok'"></span>
         <el-icon v-else-if="h.overall === 'critical'" color="var(--cred)"><CircleCloseFilled /></el-icon>
         <el-icon v-else color="var(--cyellow)"><WarningFilled /></el-icon>
@@ -612,8 +616,8 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
   .trend-panel-title { align-items: flex-start; flex-direction: column; gap: 10px; }
   .matrix-panel-actions { justify-content: flex-start; }
   .trend-panel-title :deep(.el-radio-group) { max-width: 100%; overflow-x: auto; }
-  .health-strip { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
-  .health-chip { flex: 0 0 auto; }
+  .health-strip { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
+  .health-chip { min-width: 0; flex: 1 1 155px; }
   .cockpit-chart-lg { height: 260px; }
 }
 @media (max-width: 420px) {
