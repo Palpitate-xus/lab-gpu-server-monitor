@@ -56,6 +56,9 @@ services:
       # This value must use the short-lived DDL account. It is intentionally
       # separate from the runtime DATABASE_URL in .env.
       DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+      DATABASE_SSL_CA: ${MIGRATION_DATABASE_SSL_CA:-/run/secrets/gpu-monitor/mysql-ca.pem}
+      DATABASE_SSL_CERT: ${MIGRATION_DATABASE_SSL_CERT:-}
+      DATABASE_SSL_KEY: ${MIGRATION_DATABASE_SSL_KEY:-}
       AUTO_MIGRATE: "yes"
     volumes:
       - ./data:/app/data:rw
