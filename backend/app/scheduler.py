@@ -609,18 +609,25 @@ def _store_kernel_events(server_id: int, boot_id: str, events) -> None:
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
+        pending = []
         for ev in events:
             h = hashlib.sha256(
                 f"{boot_id}|{ev.event_type}|{ev.xid}|{ev.raw_message[:200]}".encode()
             ).hexdigest()[:40]
-            exists = (
-                db.query(KernelEventRow.id)
-                .filter(KernelEventRow.server_id == server_id,
-                        KernelEventRow.dedup_hash == h)
-                .first()
+            pending.append((h, ev))
+        known_hashes = {
+            dedup_hash
+            for (dedup_hash,) in db.query(KernelEventRow.dedup_hash)
+            .filter(
+                KernelEventRow.server_id == server_id,
+                KernelEventRow.dedup_hash.in_([item[0] for item in pending]),
             )
-            if exists:
+            .all()
+        }
+        for h, ev in pending:
+            if h in known_hashes:
                 continue
+            known_hashes.add(h)
             db.add(KernelEventRow(
                 server_id=server_id,
                 collected_at=now,

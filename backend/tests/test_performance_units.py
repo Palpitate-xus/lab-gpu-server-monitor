@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
@@ -14,6 +15,7 @@ from backend.app.database import Base
 from backend.app.models import (
     Server,
     AlertRule,
+    KernelEventRow,
     ServerMetric,
     ServerMetricHourly,
     ServerProcessSnapshot,
@@ -322,6 +324,40 @@ def test_hourly_rollup_batches_server_metric_reads(monkeypatch):
         assert rows[0].mem_avg_pct == 60.0
         assert rows[0].idle_held_minutes == 1
         assert (rows[1].samples, rows[1].ok_samples) == (1, 0)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_kernel_event_dedup_uses_one_lookup_per_batch(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    db = session_factory()
+    try:
+        kernel_event = SimpleNamespace(
+            event_type="GPU_XID",
+            severity="critical",
+            gpu_uuid="GPU-1",
+            xid=79,
+            message="GPU error",
+            raw_message="NVRM: Xid 79",
+        )
+        selects = []
+
+        def record_select(_conn, _cursor, statement, _params, _context, _many):
+            normalized = statement.lower()
+            if normalized.lstrip().startswith("select") and "from kernel_events" in normalized:
+                selects.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_select)
+        monkeypatch.setattr(scheduler_module, "SessionLocal", session_factory)
+        scheduler_module._store_kernel_events(7, "boot-a", [kernel_event, kernel_event])
+        scheduler_module._store_kernel_events(7, "boot-a", [kernel_event, kernel_event])
+        event.remove(engine, "before_cursor_execute", record_select)
+
+        assert len(selects) == 2
+        assert db.query(KernelEventRow).count() == 1
     finally:
         db.close()
         engine.dispose()
