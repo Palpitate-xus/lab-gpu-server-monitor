@@ -744,26 +744,59 @@ async function loadEvents() {
   try {
     const { data } = await api.get(`/servers/${serverId.value}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
     events.value = data
-  } catch (e) { loadFail(e); events.value = [] }
+    return true
+  } catch (e) { loadFail(e); events.value = []; return false }
 }
 async function loadSlowHealth() {
-  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data } catch (e) { loadFail(e); slowHealth.value = {} }
+  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data; return true } catch (e) { loadFail(e); slowHealth.value = {}; return false }
 }
 const ipmi = ref(null)
 async function loadIpmi() {
-  try { ipmi.value = (await api.get(`/servers/${serverId.value}/ipmi/latest`)).data } catch { ipmi.value = null }
+  try { ipmi.value = (await api.get(`/servers/${serverId.value}/ipmi/latest`)).data; return true } catch { ipmi.value = null; return false }
 }
 async function loadInventory() {
-  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data } catch (e) { loadFail(e); inventory.value = {} }
+  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data; return true } catch (e) { loadFail(e); inventory.value = {}; return false }
 }
 async function loadNotes() {
-  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data } catch (e) { loadFail(e); notes.value = [] }
+  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data; return true } catch (e) { loadFail(e); notes.value = []; return false }
 }
 async function loadCollectHealth() {
-  try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data } catch { collectHealth.value = null }
+  try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data; return true } catch { collectHealth.value = null; return false }
+}
+
+const enterpriseLoaded = new Set()
+const enterpriseInflight = new Map()
+function enterpriseGroup(tab) {
+  return tab === 'nvme' || tab === 'services' ? 'slow-health' : tab
+}
+async function ensureEnterpriseTab(tab) {
+  if (tab === 'events') return loadEvents()
+  const group = enterpriseGroup(tab)
+  if (enterpriseLoaded.has(group)) return true
+  if (enterpriseInflight.has(group)) return enterpriseInflight.get(group)
+  const loaders = {
+    'slow-health': loadSlowHealth,
+    inventory: loadInventory,
+    notes: loadNotes,
+    collect: loadCollectHealth,
+    ipmi: loadIpmi,
+  }
+  const loader = loaders[group]
+  if (!loader) return false
+  const requestedServerId = serverId.value
+  const pending = loader()
+    .then((ok) => {
+      if (ok && requestedServerId === serverId.value) enterpriseLoaded.add(group)
+      return ok
+    })
+    .finally(() => {
+      if (enterpriseInflight.get(group) === pending) enterpriseInflight.delete(group)
+    })
+  enterpriseInflight.set(group, pending)
+  return pending
 }
 function loadEnterprise() {
-  loadOverview(); loadEvents(); loadSlowHealth(); loadInventory(); loadNotes(); loadCollectHealth(); loadIpmi()
+  loadOverview(); ensureEnterpriseTab(entTab.value)
 }
 
 async function setStatus(status) {
@@ -1027,7 +1060,10 @@ async function renice(row) {
 function startTimers() {
   stopTimers()
   liveTimer = setInterval(loadProcs, 15000)
-  entTimer = setInterval(() => { loadOverview(); loadEvents() }, 60000)
+  entTimer = setInterval(() => {
+    loadOverview()
+    if (entTab.value === 'events') loadEvents()
+  }, 60000)
   mainTimer = setInterval(load, 30000)
 }
 function stopTimers() {
@@ -1040,8 +1076,11 @@ watch(serverId, () => {
   metric.value = null; history.value = []; procs.value = []; events.value = []
   server.value = null; health.value = null; riskGpus.value = []; slowHealth.value = {}
   inventory.value = {}; notes.value = []; collectHealth.value = null
+  enterpriseLoaded.clear(); enterpriseInflight.clear()
   load(); loadProcs(); loadEnterprise(); startTimers()
 })
+
+watch(entTab, (tab) => ensureEnterpriseTab(tab))
 
 onMounted(() => {
   if (invalidId.value) return
