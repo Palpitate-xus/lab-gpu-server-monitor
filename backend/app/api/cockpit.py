@@ -58,7 +58,8 @@ def _cluster_history(db: Session, hours: int):
         ))
         .filter(ServerMetric.collected_at >= since, ServerMetric.status == "ok")
         .order_by(ServerMetric.collected_at.asc())
-        .all()
+        .execution_options(stream_results=True)
+        .yield_per(500)
     )
 
     # group by minute bucket; the key must include the date or 48h windows

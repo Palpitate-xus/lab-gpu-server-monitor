@@ -174,6 +174,11 @@ def server_history(
     from sqlalchemy.orm import load_only
 
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    filters = (
+        ServerMetric.server_id == server_id,
+        ServerMetric.collected_at >= since,
+    )
+    row_count = db.query(func.count(ServerMetric.id)).filter(*filters).scalar() or 0
     rows = (
         db.query(ServerMetric)
         .options(load_only(
@@ -183,12 +188,13 @@ def server_history(
             ServerMetric.disks, ServerMetric.net_ifaces, ServerMetric.disk_io,
             ServerMetric.gpus, ServerMetric.load1, ServerMetric.cpu_count,
         ))
-        .filter(ServerMetric.server_id == server_id, ServerMetric.collected_at >= since)
+        .filter(*filters)
         .order_by(ServerMetric.collected_at.asc())
-        .all()
+        .execution_options(stream_results=True)
+        .yield_per(500)
     )
     # downsample long windows to ~720 points (frontend charts do not need more)
-    stride = max(1, len(rows) // 720)
+    stride = max(1, row_count // 720)
     series = []
     for idx, m in enumerate(rows):
         if m.status != "ok" or idx % stride:
