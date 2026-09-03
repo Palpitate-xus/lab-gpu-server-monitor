@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
 from ..ipmi_collector import collect_ipmi, ipmitool_available, summarize
@@ -82,15 +82,21 @@ def ipmi_history(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (
         db.query(IpmiSnapshot)
+        .options(load_only(
+            IpmiSnapshot.collected_at,
+            IpmiSnapshot.ok,
+            IpmiSnapshot.chassis,
+            IpmiSnapshot.power,
+        ))
         .filter(IpmiSnapshot.server_id == server_id,
                 IpmiSnapshot.collected_at >= since)
         .order_by(IpmiSnapshot.collected_at.asc())
-        .all()
+        .execution_options(stream_results=True)
+        .yield_per(500)
     )
     out = []
     for s in rows:
-        d = _snap_to_dict(s)
-        summ = _sum(d)
+        summ = _sum({"chassis": s.chassis or {}, "power": s.power or {}})
         out.append({
             "time": (s.collected_at.replace(tzinfo=timezone.utc)
                      if s.collected_at.tzinfo is None else s.collected_at).isoformat(),
