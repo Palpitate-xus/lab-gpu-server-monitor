@@ -158,7 +158,7 @@
               </el-descriptions>
               <div v-if="g.processes?.length" style="margin-top:8px">
                 <div style="font-size:12px;color:var(--csub);margin-bottom:4px">GPU 进程</div>
-                <el-table :data="g.processes" size="small" max-height="220">
+                <el-table class="desktop-only" :data="g.processes" size="small" max-height="220">
                   <el-table-column prop="pid" label="PID" width="80" />
                   <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip />
                   <el-table-column label="显存" width="100">
@@ -166,6 +166,16 @@
                   </el-table-column>
                   <el-table-column prop="command" label="进程" min-width="140" show-overflow-tooltip />
                 </el-table>
+                <div class="mobile-only gpu-process-list">
+                  <div v-for="row in g.processes" :key="row.pid" class="gpu-process-item">
+                    <div>
+                      <b class="mono">PID {{ row.pid }}</b>
+                      <span>{{ row.user || '未知用户' }}</span>
+                    </div>
+                    <span class="mono">{{ fmtSizeMB(row.mem_mb) }}</span>
+                    <p class="mono">{{ row.command || '—' }}</p>
+                  </div>
+                </div>
               </div>
             </el-card>
           </el-col>
@@ -333,16 +343,16 @@
       <el-card id="detail-enterprise" class="page-card detail-section enterprise-card">
         <el-tabs v-model="entTab">
           <el-tab-pane label="内核事件" name="events">
-            <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
+            <div class="enterprise-toolbar">
               <el-radio-group v-model="evSev" size="small" @change="loadEvents">
                 <el-radio-button value="">全部</el-radio-button>
                 <el-radio-button value="critical">严重</el-radio-button>
                 <el-radio-button value="warning">警告</el-radio-button>
               </el-radio-group>
               <el-button size="small" :icon="Refresh" @click="loadEvents">刷新</el-button>
-              <span style="font-size:12px;color:var(--csub)">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
+              <span class="enterprise-toolbar__hint">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
             </div>
-            <el-table :data="events" size="small" max-height="320">
+            <el-table class="desktop-only" :data="events" size="small" max-height="320">
               <el-table-column label="时间" width="160">
                 <template #default="{ row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
               </el-table-column>
@@ -359,6 +369,29 @@
               </el-table-column>
               <el-table-column prop="message" label="消息" min-width="400" show-overflow-tooltip />
             </el-table>
+            <div v-if="events.length" class="mobile-only enterprise-event-list">
+              <article
+                v-for="row in events"
+                :key="row.id"
+                class="mobile-data-card enterprise-event-card"
+                :class="`enterprise-event-card--${row.severity}`"
+              >
+                <div class="mobile-data-card__head">
+                  <div class="mobile-data-card__title mono">
+                    {{ row.event_type }}
+                    <span v-if="row.xid">Xid {{ row.xid }}</span>
+                  </div>
+                  <el-tag :type="row.severity === 'critical' ? 'danger' : row.severity === 'warning' ? 'warning' : 'info'" size="small">
+                    {{ row.severity }}
+                  </el-tag>
+                </div>
+                <p>{{ row.message }}</p>
+                <div class="mobile-data-card__meta">
+                  <span>时间</span><span>{{ fmtTime(row.collected_at) }}</span>
+                  <span>GPU</span><span class="mono enterprise-event-card__gpu">{{ row.gpu_uuid || '—' }}</span>
+                </div>
+              </article>
+            </div>
             <el-empty v-if="!events.length" description="24 小时内无内核异常事件" :image-size="50" />
           </el-tab-pane>
 
@@ -1100,6 +1133,55 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 .health-sub.st-ok { color: var(--ctext); }
 .health-sub.st-warning { color: var(--cyellow); }
 .health-sub.st-critical { color: var(--cred); }
+.enterprise-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.enterprise-toolbar__hint {
+  color: var(--csub);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.enterprise-event-card + .enterprise-event-card { margin-top: 9px; }
+.enterprise-event-card--critical { border-left: 3px solid var(--cred); }
+.enterprise-event-card--warning { border-left: 3px solid var(--cyellow); }
+.enterprise-event-card--info { border-left: 3px solid var(--cprimary); }
+.enterprise-event-card .mobile-data-card__title span {
+  margin-left: 5px;
+  color: var(--cred);
+  font-size: 11px;
+}
+.enterprise-event-card p {
+  margin: 0 0 11px;
+  color: var(--ctext);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.enterprise-event-card__gpu { overflow-wrap: anywhere; }
+.gpu-process-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--cborder);
+  border-radius: 7px;
+  background: var(--cpanel2);
+  font-size: 11px;
+}
+.gpu-process-item + .gpu-process-item { margin-top: 7px; }
+.gpu-process-item > div { display: flex; min-width: 0; gap: 7px; }
+.gpu-process-item > div span { color: var(--csub); }
+.gpu-process-item > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--csub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .topo-pre {
   background: var(--cpanel2);
   border: 1px solid var(--cborder);
@@ -1170,10 +1252,28 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   .gpu-card-tags { justify-content: flex-start; }
   .gpu-card :deep(.el-card__body) { padding: 14px; }
   .gpu-card :deep(.el-progress) { max-width: 95px; }
+  .gpu-card :deep(.el-descriptions__table) { width: 100%; table-layout: fixed; }
+  .gpu-card :deep(.el-descriptions__table tbody) { display: block; width: 100%; }
+  .gpu-card :deep(.el-descriptions__table tr) {
+    display: grid;
+    grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+    width: 100%;
+  }
+  .gpu-card :deep(.el-descriptions__cell) {
+    display: block;
+    width: auto !important;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .chart-box { height: 250px; }
   .chart-box-sm { height: 220px; }
   .enterprise-card :deep(.el-tabs__nav-wrap) { padding: 0 24px; }
   .enterprise-card :deep(.el-tabs__item) { padding: 0 12px; }
+  .enterprise-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .enterprise-toolbar :deep(.el-radio-group) { min-width: 220px; flex: 1; flex-wrap: nowrap; }
+  .enterprise-toolbar :deep(.el-radio-button) { flex: 1; }
+  .enterprise-toolbar :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }
+  .enterprise-toolbar__hint { width: 100%; }
   .topo-pre { max-height: 260px; }
 }
 @media (max-width: 420px) {
