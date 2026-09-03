@@ -220,7 +220,13 @@ async def lifespan(app):
             logger.info("applied migrations: %s", ", ".join(applied))
     else:
         schema = inspect(engine)
-        required_tables = {"users", "servers", "server_metrics", "schema_migrations"}
+        required_tables = {
+            "users",
+            "servers",
+            "server_metrics",
+            "server_process_snapshots",
+            "schema_migrations",
+        }
         missing = required_tables.difference(schema.get_table_names())
         if missing:
             raise RuntimeError(
