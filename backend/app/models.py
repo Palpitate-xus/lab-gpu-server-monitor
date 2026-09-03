@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -92,6 +93,9 @@ class Server(Base):
 
 class ServerMetric(Base):
     __tablename__ = "server_metrics"
+    __table_args__ = (
+        Index("ix_server_metrics_server_time", "server_id", "collected_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(
@@ -180,6 +184,16 @@ class AlertRule(Base):
 
 class AlertEvent(Base):
     __tablename__ = "alert_events"
+    __table_args__ = (
+        Index("idx_alert_open_time", "recovered_at", "triggered_at"),
+        Index(
+            "idx_alert_server_open",
+            "server_id",
+            "recovered_at",
+            "metric",
+            "rule_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     rule_id: Mapped[Optional[int]] = mapped_column(
@@ -219,6 +233,7 @@ class Setting(Base):
 
 class HostInventory(Base):
     __tablename__ = "host_inventory"
+    __table_args__ = (Index("idx_inv_server", "server_id", "collected_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
@@ -240,7 +255,11 @@ class HostInventory(Base):
 
 class KernelEventRow(Base):
     __tablename__ = "kernel_events"
-    __table_args__ = (UniqueConstraint("server_id", "dedup_hash", name="uq_kernel_dedup"),)
+    __table_args__ = (
+        UniqueConstraint("server_id", "dedup_hash", name="uq_kernel_dedup"),
+        Index("idx_kernel_server", "server_id", "collected_at"),
+        Index("idx_kernel_type", "event_type", "collected_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
@@ -257,6 +276,7 @@ class KernelEventRow(Base):
 
 class SlowHealth(Base):
     __tablename__ = "slow_health"
+    __table_args__ = (Index("idx_slow_server", "server_id", "collected_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
@@ -292,6 +312,7 @@ class ServerNote(Base):
     """Maintenance / repair ledger entries attached to a server."""
 
     __tablename__ = "server_notes"
+    __table_args__ = (Index("idx_note_server_time", "server_id", "ts"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
@@ -328,6 +349,7 @@ class IpmiSnapshot(Base):
     """Full out-of-band IPMI dump (everything ipmitool returned)."""
 
     __tablename__ = "ipmi_snapshots"
+    __table_args__ = (Index("idx_ipmi_server_time", "server_id", "collected_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)

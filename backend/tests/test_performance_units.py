@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.api.metrics import _latest_payload, server_latest
@@ -13,6 +13,12 @@ from backend.app.models import Server, ServerMetric, ServerProcessSnapshot
 def test_latest_metric_hydrates_latest_only_process_snapshot():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
+    assert "ix_server_metrics_server_time" in {
+        item["name"] for item in inspect(engine).get_indexes("server_metrics")
+    }
+    assert "idx_alert_open_time" in {
+        item["name"] for item in inspect(engine).get_indexes("alert_events")
+    }
     db = sessionmaker(bind=engine)()
     try:
         server = Server(name="perf-test", host="127.0.0.1")
