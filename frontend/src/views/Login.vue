@@ -244,7 +244,7 @@ async function submit() {
   gap: 11px;
   margin-bottom: 30px;
 }
-.login-heading .live-dot { margin-top: 11px; flex: 0 0 auto; }
+.login-heading .live-dot { margin-top: 9px; flex: 0 0 auto; }
 .login-title {
   font-size: 22px;
   font-weight: 700;
