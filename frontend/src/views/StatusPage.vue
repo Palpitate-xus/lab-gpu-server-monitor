@@ -3,7 +3,7 @@
     <div class="sp-container">
       <!-- header -->
       <header class="sp-header">
-        <h1><span class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></span>{{ data?.title || '服务状态' }}</h1>
+        <h1><span v-if="data?.overall" class="sp-live-dot" :class="data.overall.all_operational ? 'ok' : 'bad'"></span>{{ data?.title || '服务状态' }}</h1>
         <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
       </header>
 
@@ -204,11 +204,11 @@ onUnmounted(() => clearInterval(timer))
   width: 10px; height: 10px; border-radius: 50%; display: inline-block;
   animation: sp-pulse 2s infinite;
 }
-.sp-live-dot.ok { background: #10b981; box-shadow: 0 0 0 4px rgba(16,185,129,.2); }
-.sp-live-dot.bad { background: #ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,.2); }
+.sp-live-dot.ok { --sp-halo: rgba(16,185,129,.22); background: #10b981; }
+.sp-live-dot.bad { --sp-halo: rgba(239,68,68,.22); background: #ef4444; }
 @keyframes sp-pulse {
-  0%,100% { box-shadow: 0 0 0 4px rgba(16,185,129,.25); }
-  50% { box-shadow: 0 0 0 8px rgba(16,185,129,.08); }
+  0%,100% { box-shadow: 0 0 0 4px var(--sp-halo, transparent); }
+  50% { box-shadow: 0 0 0 8px transparent; }
 }
 
 .sp-card {
