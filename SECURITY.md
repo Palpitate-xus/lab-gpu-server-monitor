@@ -34,3 +34,14 @@ MFA, and Webhook values with the new primary key.
 - `AUDIT_2026-09-13.md` — security and interaction audit: findings, dispositions,
   verification evidence, and the items intentionally left for a human decision.
 - `CODE_REVIEW.md` — 2026-08-29 full-stack code review.
+
+## Owner-approved exceptions (2026-09-13)
+
+These deliberately relax the gates above; each is reversible in `.env` plus
+`docker compose up -d`.
+
+| Setting | Value | Consequence | Revert when |
+|---|---|---|---|
+| `ports` | `8300:8000` (all interfaces) | Lab users reach the console directly; source IPs are preserved, so `TRUSTED_PROXY_CIDRS=172.24.0.1/32` still keeps `X-Forwarded-For` unspoofable from the LAN | A TLS reverse proxy fronts the service |
+| `ALLOW_INSECURE_HTTP` | `yes` | Login over plain HTTP is accepted; credentials cross the lab network unencrypted. With `no`, every `http://` Origin is rejected as cross-site and nobody can sign in | TLS is terminated in front of the app |
+| `REQUIRE_ADMIN_MFA` | `no` | Admins are not forced to enrol TOTP, and admin endpoints no longer require a verified second factor | Any admin account is worth protecting with a second factor |

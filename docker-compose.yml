@@ -7,7 +7,8 @@ services:
     container_name: gpu-monitor
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${GPU_MONITOR_PORT:-8300}:8000"
+      # Owner-approved 2026-09-13: reachable from the lab network, not loopback-only.
+      - "${GPU_MONITOR_PORT:-8300}:8000"
     extra_hosts:
       # Same-host MySQL can publish a certificate hostname that is not in DNS.
       # Override this alias in .env; hostname verification remains enabled.
