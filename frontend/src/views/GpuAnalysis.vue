@@ -218,7 +218,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '../api'
-import { pct } from '../format'
+import { fmtDuration, pct } from '../format'
 import { chartTheme } from '../theme'
 
 const loading = ref(false)
@@ -279,8 +279,9 @@ function rowClass({ row }) {
 }
 
 function fmtIdleMin(m) {
-  if (m >= 60) return `${Math.floor(m / 60)}h${Math.round(m % 60)}m`
-  return `${m}分钟`
+  if (!m || m <= 0) return '—'
+  // idle state is tracked per minute, so fmtDuration's seconds are always zero
+  return fmtDuration(m * 60).replace(/ 0s$/, '')
 }
 function riskColor(v) {
   const T = chartTheme.value
