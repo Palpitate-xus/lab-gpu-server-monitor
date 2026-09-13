@@ -985,13 +985,102 @@ def _expire_maintenance() -> None:
         db.close()
 
 
+_ROLLUP_BACKFILL_HOURS = 24 * 45  # how far back a missing rollup hour is still closed
+
+
+def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
+    """Aggregate one closed hour into server_metrics_hourly (idempotent)."""
+    from .models import ServerMetricHourly
+
+    existing_by_server = {
+        row.server_id: row
+        for row in db.query(ServerMetricHourly)
+        .filter(
+            ServerMetricHourly.server_id.in_(server_ids),
+            ServerMetricHourly.hour == hour_start,
+        )
+        .all()
+    }
+    rows_by_server: dict[int, list[ServerMetric]] = {
+        server_id: [] for server_id in server_ids
+    }
+    rows = (
+        db.query(ServerMetric)
+        .options(load_only(
+            ServerMetric.server_id, ServerMetric.status, ServerMetric.cpu_percent,
+            ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
+            ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
+        ))
+        .filter(
+            ServerMetric.server_id.in_(server_ids),
+            ServerMetric.collected_at >= hour_start,
+            ServerMetric.collected_at < hour_end,
+        )
+        .execution_options(stream_results=True)
+        .yield_per(500)
+    )
+    for row in rows:
+        rows_by_server[row.server_id].append(row)
+
+    aggregates = []
+    for sid in server_ids:
+        server_rows = rows_by_server[sid]
+        ok = [row for row in server_rows if row.status == "ok"]
+        agg = ServerMetricHourly(
+            server_id=sid,
+            hour=hour_start,
+            samples=len(server_rows),
+            ok_samples=len(ok),
+        )
+        if ok:
+            cpus = [r.cpu_percent or 0 for r in ok]
+            agg.cpu_avg = round(sum(cpus) / len(cpus), 1)
+            agg.cpu_max = round(max(cpus), 1)
+            mems = [r.mem_used_mb / r.mem_total_mb * 100 for r in ok if r.mem_total_mb]
+            agg.mem_avg_pct = round(sum(mems) / len(mems), 1) if mems else 0
+            utils, mem_pcts, powers = [], [], []
+            idle_samples = 0
+            for r in ok:
+                for g in (r.gpus or []):
+                    u = g.get("utilization", 0) or 0
+                    utils.append(u)
+                    tot, used = g.get("mem_total_mb", 0) or 0, g.get("mem_used_mb", 0) or 0
+                    if tot > 0:
+                        mem_pcts.append(used / tot * 100)
+                        if used / tot >= 0.30 and u <= 5:
+                            idle_samples += 1
+                    p = g.get("power_draw", 0) or 0
+                    if p:
+                        powers.append(p)
+            agg.gpu_util_avg = round(sum(utils) / len(utils), 1) if utils else 0
+            agg.gpu_util_max = round(max(utils), 1) if utils else 0
+            agg.gpu_mem_pct_avg = round(sum(mem_pcts) / len(mem_pcts), 1) if mem_pcts else 0
+            agg.gpu_power_avg = round(sum(powers) / len(powers), 1) if powers else 0
+            agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
+            agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
+            # approximate minutes of idle-but-held GPU samples
+            agg.idle_held_minutes = int(idle_samples * interval / 60)
+        aggregates.append(agg)
+
+    for existing in existing_by_server.values():
+        db.delete(existing)
+    db.flush()
+    db.add_all(aggregates)
+    db.commit()
+
+
 def _hourly_aggregate() -> None:
-    """Roll the previous completed hour into server_metrics_hourly (idempotent)."""
+    """Close every rollup hour that is still missing (idempotent).
+
+    Normally that is just the previous completed hour. After scheduler
+    downtime, a database restore or an import it is the whole gap, so
+    rollup-based charts never show gray holes for samples the raw table
+    still holds.
+    """
     from .models import ServerMetricHourly
 
     now = datetime.now(timezone.utc)
-    hour_end = now.replace(minute=0, second=0, microsecond=0)
-    hour_start = hour_end - timedelta(hours=1)
+    prev_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     db = SessionLocal()
     try:
         server_ids = [
@@ -1000,82 +1089,26 @@ def _hourly_aggregate() -> None:
         ]
         if not server_ids:
             return
-        existing_by_server = {
-            row.server_id: row
-            for row in db.query(ServerMetricHourly)
-            .filter(
-                ServerMetricHourly.server_id.in_(server_ids),
-                ServerMetricHourly.hour == hour_start,
-            )
-            .all()
-        }
-        rows_by_server: dict[int, list[ServerMetric]] = {
-            server_id: [] for server_id in server_ids
-        }
-        rows = (
-            db.query(ServerMetric)
-            .options(load_only(
-                ServerMetric.server_id, ServerMetric.status, ServerMetric.cpu_percent,
-                ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
-                ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
-            ))
-            .filter(
-                ServerMetric.server_id.in_(server_ids),
-                ServerMetric.collected_at >= hour_start,
-                ServerMetric.collected_at < hour_end,
-            )
-            .execution_options(stream_results=True)
-            .yield_per(500)
-        )
-        for row in rows:
-            rows_by_server[row.server_id].append(row)
-
+        last = db.query(func.max(ServerMetricHourly.hour)).scalar()
+        if last is not None and last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if last is None:
+            # -1 so an empty rollup closes exactly the whole window, cap included
+            hour = prev_hour - timedelta(hours=_ROLLUP_BACKFILL_HOURS - 1)
+        elif last < prev_hour:
+            hour = last + timedelta(hours=1)
+        else:
+            # already rolled: still refresh the previous hour so samples that
+            # arrived late are picked up, exactly like the single-hour version
+            hour = prev_hour
         interval = _load_interval()
-        aggregates = []
-        for sid in server_ids:
-            server_rows = rows_by_server[sid]
-            ok = [row for row in server_rows if row.status == "ok"]
-            agg = ServerMetricHourly(
-                server_id=sid,
-                hour=hour_start,
-                samples=len(server_rows),
-                ok_samples=len(ok),
-            )
-            if ok:
-                cpus = [r.cpu_percent or 0 for r in ok]
-                agg.cpu_avg = round(sum(cpus) / len(cpus), 1)
-                agg.cpu_max = round(max(cpus), 1)
-                mems = [r.mem_used_mb / r.mem_total_mb * 100 for r in ok if r.mem_total_mb]
-                agg.mem_avg_pct = round(sum(mems) / len(mems), 1) if mems else 0
-                utils, mem_pcts, powers = [], [], []
-                idle_samples = 0
-                for r in ok:
-                    for g in (r.gpus or []):
-                        u = g.get("utilization", 0) or 0
-                        utils.append(u)
-                        tot, used = g.get("mem_total_mb", 0) or 0, g.get("mem_used_mb", 0) or 0
-                        if tot > 0:
-                            mem_pcts.append(used / tot * 100)
-                            if used / tot >= 0.30 and u <= 5:
-                                idle_samples += 1
-                        p = g.get("power_draw", 0) or 0
-                        if p:
-                            powers.append(p)
-                agg.gpu_util_avg = round(sum(utils) / len(utils), 1) if utils else 0
-                agg.gpu_util_max = round(max(utils), 1) if utils else 0
-                agg.gpu_mem_pct_avg = round(sum(mem_pcts) / len(mem_pcts), 1) if mem_pcts else 0
-                agg.gpu_power_avg = round(sum(powers) / len(powers), 1) if powers else 0
-                agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
-                agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
-                # approximate minutes of idle-but-held GPU samples
-                agg.idle_held_minutes = int(idle_samples * interval / 60)
-            aggregates.append(agg)
-
-        for existing in existing_by_server.values():
-            db.delete(existing)
-        db.flush()
-        db.add_all(aggregates)
-        db.commit()
+        closed = 0
+        while hour <= prev_hour and closed < _ROLLUP_BACKFILL_HOURS:
+            _roll_hour(db, hour, hour + timedelta(hours=1), server_ids, interval)
+            hour += timedelta(hours=1)
+            closed += 1
+        if closed:
+            logger.info("hourly aggregate closed %d hour(s) up to %s", closed, prev_hour)
     except Exception:
         logger.exception("hourly aggregate failed")
         db.rollback()

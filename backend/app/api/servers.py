@@ -227,19 +227,26 @@ def test_server_connection(
     def _bad_ip(ip) -> bool:
         return ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local
 
+    # Resolve once and connect to the validated address: a second lookup
+    # inside test_connection would let a short-TTL name swap to loopback or
+    # the metadata address between check and connect.
+    target = ""
     try:
-        if _bad_ip(ipaddress.ip_address(body.host)):
+        literal = ipaddress.ip_address(body.host)
+        if _bad_ip(literal):
             return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
+        target = str(literal)
     except ValueError:
         try:
             infos = socket.getaddrinfo(body.host, body.port or 22, proto=socket.IPPROTO_TCP)
         except OSError:
             return ConnectionTestResult(ok=False, message=f"DNS 解析失败: {body.host}")
-        for info in infos:
-            if _bad_ip(ipaddress.ip_address(info[4][0])):
-                return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
+        answers = [ipaddress.ip_address(info[4][0]) for info in infos]
+        if not answers or any(_bad_ip(ip) for ip in answers):
+            return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
+        target = str(answers[0])
     ok, message = test_connection(
-        host=body.host,
+        host=target,
         port=body.port,
         username=body.username,
         password=body.password or "",
