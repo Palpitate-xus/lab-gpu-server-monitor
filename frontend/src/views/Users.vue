@@ -168,7 +168,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
-import { getSession, setSession } from '../composables'
+import { getSession } from '../composables'
 import { fmtTime } from '../format'
 
 const loading = ref(false)
@@ -306,11 +306,7 @@ async function changePwd() {
   }
   savingPwd.value = true
   try {
-    const { data } = await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
-    if (data.access_token) {
-      // The backend replaced the HttpOnly cookie with the new token version.
-      setSession(getSession().user)
-    }
+    await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
     ElMessage.success('密码已修改')
     pwdDlg.value = false
     Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })

@@ -131,10 +131,10 @@ def test_password_change_issues_valid_new_token_and_revokes_old(client: TestClie
         headers={"X-CSRF-Token": csrf},
     )
     assert changed.status_code == 200
-    new_token = changed.json()["access_token"]
-    assert client.get(
-        "/api/auth/me", headers={"Authorization": f"Bearer {new_token}"}
-    ).status_code == 200
+    assert changed.json() == {"ok": True}
+    # the rotated credential must travel only in the HttpOnly cookie: a body
+    # copy would be capturable by proxies and front-end logging
+    assert client.get("/api/auth/me").status_code == 200
     assert client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {old_token}"}
     ).status_code == 401
