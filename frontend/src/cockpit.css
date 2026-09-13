@@ -131,7 +131,7 @@ html.dark {
 
 .gpu-matrix {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
   gap: 10px;
 }
 .gpu-cell {
@@ -152,16 +152,35 @@ html.dark {
 .gpu-cell-head { display: flex; justify-content: space-between; align-items: baseline; }
 .gpu-cell-name { font-size: 12px; font-weight: 600; color: var(--ctext); }
 .gpu-cell-badge { font-size: 10px; color: var(--csub); }
+.gpu-meters { display: grid; gap: 6px; margin-top: 8px; }
+.gpu-meter-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+  color: var(--csub);
+  font-size: 10px;
+  line-height: 1;
+}
+.gpu-meter-label .mono { color: var(--ctext); }
 .gpu-util-bar {
   height: 5px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--csub) 18%, transparent);
-  margin: 7px 0 5px;
   overflow: hidden;
 }
 .gpu-util-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
-.gpu-cell-rows { font-size: 11px; color: var(--csub); display: flex; flex-direction: column; gap: 2px; }
-.gpu-cell-rows .mono { color: var(--ctext); }
+.gpu-cell-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  color: var(--csub);
+  font-size: 10px;
+}
+.gpu-cell-meta .mono { color: var(--ctext); }
+.gpu-cell-memory { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== alert ticker ===== */
 
@@ -450,7 +469,7 @@ html.dark .kpi-value {
   50%      { box-shadow: 0 0 0 6px transparent; opacity: .55; }
 }
 
-/* ---- 5. GPU matrix cells: hover glow + full-load shimmer ---- */
+/* ---- 5. GPU matrix cells: static load state + hover affordance ---- */
 .gpu-cell { transition: transform .18s, box-shadow .25s, border-color .25s; }
 .gpu-cell:hover {
   transform: translateY(-2px);
@@ -458,20 +477,6 @@ html.dark .kpi-value {
   box-shadow: 0 5px 18px -4px color-mix(in srgb, var(--cprimary) 45%, transparent);
   z-index: 2;
 }
-.gpu-cell-full { position: relative; overflow: hidden; }
-.gpu-cell-full::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--cyellow) 20%, transparent) 50%, transparent 70%);
-  animation: ckt-shimmer 2.8s linear infinite;
-  pointer-events: none;
-}
-@keyframes ckt-shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
 /* ---- 6. tables: row hover accent bar ---- */
 .cockpit .el-table__body tr:hover > td.el-table__cell:first-child {
   box-shadow: inset 3px 0 0 var(--cprimary);
@@ -518,7 +523,7 @@ html.dark .kpi-value {
 
 /* ---- reduced motion: strip animations, keep colors ---- */
 @media (prefers-reduced-motion: reduce) {
-  .live-dot, .live-dot.err, .gpu-cell-full::before { animation: none; }
+  .live-dot, .live-dot.err { animation: none; }
   .cockpit-panel, .gpu-cell, .dark-main > :first-child { transition: none; animation: none; }
 }
 

@@ -124,12 +124,25 @@
               <span class="gpu-cell-name">{{ g.server_short }}·{{ g.index }}</span>
               <span class="gpu-cell-badge">{{ g.pstate || shortName(g.name) }}</span>
             </div>
-            <div class="gpu-util-bar">
-              <div class="gpu-util-fill" :style="{ width: g.utilization + '%', background: utilGradient(g.utilization) }"></div>
+            <div class="gpu-meters">
+              <div class="gpu-meter">
+                <div class="gpu-meter-label"><span>负载</span><span class="mono">{{ gpuUtilPercent(g) }}%</span></div>
+                <div class="gpu-util-bar" role="progressbar" aria-label="GPU 负载"
+                     :aria-valuenow="gpuUtilPercent(g)" aria-valuemin="0" aria-valuemax="100">
+                  <div class="gpu-util-fill" :style="{ width: gpuUtilPercent(g) + '%', background: utilGradient(gpuUtilPercent(g)) }"></div>
+                </div>
+              </div>
+              <div class="gpu-meter">
+                <div class="gpu-meter-label"><span>显存</span><span class="mono">{{ gpuMemoryPercent(g) }}%</span></div>
+                <div class="gpu-util-bar" role="progressbar" aria-label="GPU 显存占用"
+                     :aria-valuenow="gpuMemoryPercent(g)" aria-valuemin="0" aria-valuemax="100">
+                  <div class="gpu-util-fill" :style="{ width: gpuMemoryPercent(g) + '%', background: memoryGradient(gpuMemoryPercent(g)) }"></div>
+                </div>
+              </div>
             </div>
-            <div class="gpu-cell-rows">
-              <span>利用 <span class="mono">{{ g.utilization }}%</span> · {{ g.temperature }}°C</span>
-              <span class="mono">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
+            <div class="gpu-cell-meta">
+              <span>温度 <span class="mono">{{ g.temperature }}°C</span></span>
+              <span class="mono gpu-cell-memory" title="显存已用 / 总量">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
             </div>
           </div>
         </div>
@@ -150,12 +163,25 @@
                 <span class="gpu-cell-name">GPU {{ g.index }}</span>
                 <span class="gpu-cell-badge">{{ g.pstate || shortName(g.name) }}</span>
               </div>
-              <div class="gpu-util-bar">
-                <div class="gpu-util-fill" :style="{ width: g.utilization + '%', background: utilGradient(g.utilization) }"></div>
+              <div class="gpu-meters">
+                <div class="gpu-meter">
+                  <div class="gpu-meter-label"><span>负载</span><span class="mono">{{ gpuUtilPercent(g) }}%</span></div>
+                  <div class="gpu-util-bar" role="progressbar" aria-label="GPU 负载"
+                       :aria-valuenow="gpuUtilPercent(g)" aria-valuemin="0" aria-valuemax="100">
+                    <div class="gpu-util-fill" :style="{ width: gpuUtilPercent(g) + '%', background: utilGradient(gpuUtilPercent(g)) }"></div>
+                  </div>
+                </div>
+                <div class="gpu-meter">
+                  <div class="gpu-meter-label"><span>显存</span><span class="mono">{{ gpuMemoryPercent(g) }}%</span></div>
+                  <div class="gpu-util-bar" role="progressbar" aria-label="GPU 显存占用"
+                       :aria-valuenow="gpuMemoryPercent(g)" aria-valuemin="0" aria-valuemax="100">
+                    <div class="gpu-util-fill" :style="{ width: gpuMemoryPercent(g) + '%', background: memoryGradient(gpuMemoryPercent(g)) }"></div>
+                  </div>
+                </div>
               </div>
-              <div class="gpu-cell-rows">
-                <span>利用 <span class="mono">{{ g.utilization }}%</span> · {{ g.temperature }}°C</span>
-                <span class="mono">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
+              <div class="gpu-cell-meta">
+                <span>温度 <span class="mono">{{ g.temperature }}°C</span></span>
+                <span class="mono gpu-cell-memory" title="显存已用 / 总量">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
               </div>
             </div>
           </div>
@@ -486,10 +512,32 @@ function utilGradient(u) {
   return 'linear-gradient(90deg,#34d399,#10b981)'
 }
 
+function normalizedPercent(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.round(Math.min(100, Math.max(0, number))) : 0
+}
+
+function gpuUtilPercent(g) {
+  return normalizedPercent(g.utilization)
+}
+
+function gpuMemoryPercent(g) {
+  const total = Number(g.mem_total_mb)
+  return total > 0 ? normalizedPercent((Number(g.mem_used_mb) / total) * 100) : 0
+}
+
+function memoryGradient(value) {
+  if (value >= 95) return 'linear-gradient(90deg,#fb7185,#f87171)'
+  if (value >= 85) return 'linear-gradient(90deg,#fbbf24,#f59e0b)'
+  if (value >= 50) return 'linear-gradient(90deg,#22d3ee,#0ea5e9)'
+  return 'linear-gradient(90deg,#34d399,#10b981)'
+}
+
 function gpuCellClass(g) {
-  const memPct = g.mem_total_mb ? (g.mem_used_mb / g.mem_total_mb) * 100 : 0
-  if (g.utilization >= 90 || memPct >= 95) return 'gpu-cell-full'
-  if (g.utilization >= 70 || memPct >= 85) return 'gpu-cell-busy'
+  const utilization = gpuUtilPercent(g)
+  const memory = gpuMemoryPercent(g)
+  if (utilization >= 90 || memory >= 95) return 'gpu-cell-full'
+  if (utilization >= 70 || memory >= 85) return 'gpu-cell-busy'
   return 'gpu-cell-idle'
 }
 
