@@ -171,6 +171,10 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
         for server_id, day, samples, ok_samples in rollup_rows:
             key = day if isinstance(day, str) else day.strftime("%Y-%m-%d")
             total = int(samples or 0)
+            # The rollup also stores hours with no samples; a zero total would
+            # divide by zero below and must read as "no data", like a missing day.
+            if total <= 0:
+                continue
             ok = int(ok_samples or 0)
             day_counts[(server_id, key)] = {"total": total, "ok": ok}
             summary = totals_by_server.setdefault(

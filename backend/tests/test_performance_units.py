@@ -130,6 +130,14 @@ def test_public_status_uses_fixed_bulk_query_count():
                 samples=1,
                 ok_samples=1,
             ),
+            # _hourly_aggregate stores hours with no samples too; a zero total
+            # must read as "no data", not divide by zero.
+            ServerMetricHourly(
+                server_id=gpu_server.id,
+                hour=(now - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0),
+                samples=0,
+                ok_samples=0,
+            ),
         ])
         db.commit()
 
