@@ -3,8 +3,9 @@
     <el-card class="page-card mfa-card">
       <template #header>
         <div class="mfa-card-head">
-          <div><b>保护管理员账户</b><span>绑定基于时间的一次性动态码（TOTP）</span></div>
-          <el-tag type="warning" effect="plain">必须完成</el-tag>
+          <div><b>绑定 MFA 动态码</b><span>用认证器 App 扫码，登录时多一道校验</span></div>
+          <el-tag v-if="mfaRequired" type="warning" effect="plain">管理员必须完成</el-tag>
+          <el-tag v-else type="info" effect="plain">可选</el-tag>
         </div>
       </template>
       <el-skeleton v-if="loading" :rows="4" animated />
@@ -55,14 +56,16 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import api from '../api'
-import { setSession } from '../composables'
+import { getSession, setSession } from '../composables'
 
 const router = useRouter()
+// The server reports whether this deployment actually requires admin MFA.
+const mfaRequired = computed(() => getSession().user?.mfa_required)
 const loading = ref(true)
 const saving = ref(false)
 const setupError = ref('')

@@ -2,11 +2,10 @@
   <div class="help-page cockpit">
     <section class="help-hero">
       <div class="hero-copy">
-        <div class="eyebrow">GPU MONITOR · INTEGRATION GUIDE</div>
-        <h1>让 AI 安全地读取 GPU 集群状态</h1>
+        <h1>MCP 接入说明</h1>
         <p>
-          内置 MCP Server 复用平台现有 API、JWT 权限与缓存，让 Codex、Claude Desktop、
-          Cursor 等 MCP 宿主查询 GPU 状态、趋势、进程、风险和告警。
+          在 Codex、Claude Desktop、Cursor 这类支持 MCP 的工具里配置本平台，
+          就能直接用自然语言查询 GPU 状态、趋势、进程、风险和告警（只读）。
         </p>
         <div class="hero-tags">
           <el-tag type="success" effect="dark" round>只读工具</el-tag>
@@ -466,15 +465,6 @@ async function copyText(text, label) {
 .endpoint-card {
   position: relative;
   z-index: 1;
-}
-
-.eyebrow {
-  margin-bottom: 10px;
-  color: var(--help-accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
 }
 
 .hero-copy h1 {

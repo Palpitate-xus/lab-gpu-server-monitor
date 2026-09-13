@@ -3,8 +3,7 @@
     <div class="sp-container">
       <!-- header -->
       <header class="sp-header">
-        <div class="sp-eyebrow"><span class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></span> SERVICE STATUS</div>
-        <h1>{{ data?.title || '服务状态' }}</h1>
+        <h1><span class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></span>{{ data?.title || '服务状态' }}</h1>
         <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
       </header>
 
@@ -198,17 +197,8 @@ onUnmounted(() => clearInterval(timer))
 .sp-container { max-width: 860px; margin: 0 auto; padding: 48px 20px 40px; }
 
 .sp-header { text-align: center; margin-bottom: 28px; }
-.sp-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  color: #0891b2;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .16em;
-}
-.sp-header h1 { font-size: 28px; margin: 12px 0 7px; letter-spacing: -.02em; }
+.sp-header h1 { font-size: 28px; margin: 0 0 7px; letter-spacing: -.02em; }
+.sp-header h1 .sp-live-dot { margin-right: 9px; vertical-align: middle; }
 .sp-header p { margin: 0; opacity: .58; font-size: 13px; }
 .sp-live-dot {
   width: 10px; height: 10px; border-radius: 50%; display: inline-block;

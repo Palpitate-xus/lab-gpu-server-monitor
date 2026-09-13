@@ -45,3 +45,4 @@ These deliberately relax the gates above; each is reversible in `.env` plus
 | `ports` | `8300:8000` (all interfaces) | Lab users reach the console directly; source IPs are preserved, so `TRUSTED_PROXY_CIDRS=172.24.0.1/32` still keeps `X-Forwarded-For` unspoofable from the LAN | A TLS reverse proxy fronts the service |
 | `ALLOW_INSECURE_HTTP` | `yes` | Login over plain HTTP is accepted; credentials cross the lab network unencrypted. With `no`, every `http://` Origin is rejected as cross-site and nobody can sign in | TLS is terminated in front of the app |
 | `REQUIRE_ADMIN_MFA` | `no` | Admins are not forced to enrol TOTP, and admin endpoints no longer require a verified second factor | Any admin account is worth protecting with a second factor |
+| `COOKIE_SECURE` | `no` | Session cookies are sent over plain HTTP. With `yes`, browsers silently drop the cookie on `http://` and every login appears to expire at once | TLS is terminated in front of the app |

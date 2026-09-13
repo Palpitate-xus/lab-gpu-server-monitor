@@ -2,8 +2,8 @@
   <div class="cockpit">
     <div class="toolbar analysis-toolbar">
       <div class="analysis-heading">
-        <b>GPU 智能分析</b>
-        <span>识别空占资源与潜在硬件风险</span>
+        <b>GPU 分析</b>
+        <span>找出占着显存却没在算的卡，以及有故障风险的卡</span>
       </div>
       <div class="analysis-controls">
         <span v-if="lastUpdated" class="analysis-updated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>

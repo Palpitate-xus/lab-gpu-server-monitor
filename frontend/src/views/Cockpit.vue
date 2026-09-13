@@ -7,10 +7,7 @@
     <div class="cockpit-page-head">
       <div class="cockpit-page-identity">
         <span class="live-dot" :class="{ err: hasError }"></span>
-        <div>
-          <span class="cockpit-page-title">GPU 集群驾驶舱</span>
-          <span class="cockpit-page-kicker">CLUSTER COCKPIT</span>
-        </div>
+        <span class="cockpit-page-title">GPU 集群驾驶舱</span>
       </div>
       <div class="cockpit-page-actions">
         <span v-if="lastUpdated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
@@ -28,8 +25,8 @@
     <!-- ===== KPI band ===== -->
     <div class="kpi-band">
       <div class="cockpit-panel kpi-accent-cyan">
-        <div class="kpi-value">{{ nServers }}<span class="kpi-unit">/ {{ stats.servers_total }} 在线</span></div>
-        <div class="kpi-label">服务器 ONLINE</div>
+        <div class="kpi-value">{{ nServers }}<span class="kpi-unit">/{{ stats.servers_total }}</span></div>
+        <div class="kpi-label">在线服务器</div>
       </div>
       <div class="cockpit-panel kpi-accent-purple">
         <div class="kpi-value">{{ nGpus }}<span class="kpi-unit">卡</span></div>
@@ -48,8 +45,8 @@
         <div class="kpi-label">CPU 平均 · 内存 {{ fmtPct(memPct) }}%</div>
       </div>
       <div class="cockpit-panel" :class="alertClass">
-        <div class="kpi-value">{{ openAlerts }}<span class="kpi-unit">告警</span></div>
-        <div class="kpi-label">未恢复告警 EVENTS</div>
+        <div class="kpi-value">{{ openAlerts }}<span class="kpi-unit">起</span></div>
+        <div class="kpi-label">未恢复告警</div>
       </div>
       <div class="cockpit-panel kpi-accent-yellow energy-kpi">
         <div class="kpi-value">{{ fmtPower(clusterPowerW) }}<span class="kpi-unit">W</span></div>
@@ -573,9 +570,7 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
   margin-bottom: 16px;
 }
 .cockpit-page-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.cockpit-page-identity > div { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .cockpit-page-title { font-size: 20px; font-weight: 700; letter-spacing: .035em; white-space: nowrap; }
-.cockpit-page-kicker { color: var(--csub); font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
 .cockpit-page-actions {
   display: flex;
   align-items: center;
