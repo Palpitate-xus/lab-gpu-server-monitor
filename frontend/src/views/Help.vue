@@ -10,7 +10,6 @@
         <div class="hero-tags">
           <el-tag type="success" effect="dark" round>只读工具</el-tag>
           <el-tag effect="plain" round>stdio 本地传输</el-tag>
-          <el-tag type="info" effect="plain" round>官方 MCP SDK 2.1.1</el-tag>
           <el-tag type="warning" effect="plain" round>viewer 最小权限</el-tag>
         </div>
       </div>

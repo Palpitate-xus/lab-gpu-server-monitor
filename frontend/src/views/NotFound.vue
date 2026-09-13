@@ -3,7 +3,7 @@
     <div class="cockpit-panel notfound-panel">
       <div class="notfound-code">404</div>
       <div class="notfound-title">页面不存在</div>
-      <p class="notfound-sub">请检查地址是否正确，或返回驾驶舱继续查看集群状态。</p>
+      <p class="notfound-sub">请检查地址是否正确。</p>
       <el-button type="primary" @click="$router.push('/cockpit')">返回驾驶舱</el-button>
     </div>
   </div>
