@@ -46,3 +46,4 @@ These deliberately relax the gates above; each is reversible in `.env` plus
 | `ALLOW_INSECURE_HTTP` | `yes` | Login over plain HTTP is accepted; credentials cross the lab network unencrypted. With `no`, every `http://` Origin is rejected as cross-site and nobody can sign in | TLS is terminated in front of the app |
 | `REQUIRE_ADMIN_MFA` | `no` | Admins are not forced to enrol TOTP, and admin endpoints no longer require a verified second factor | Any admin account is worth protecting with a second factor |
 | `COOKIE_SECURE` | `no` | Session cookies are sent over plain HTTP. With `yes`, browsers silently drop the cookie on `http://` and every login appears to expire at once | TLS is terminated in front of the app |
+| `ALLOW_ROOT_SSH` | `yes` | Collector and connection test accept `root` as the SSH user (65-pve offers no other account); a compromised monitor host then reaches root on that server | Every server has a dedicated least-privilege account |
