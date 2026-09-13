@@ -13,7 +13,7 @@ from sqlalchemy import and_, func as sa_func
 from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
-from ..models import Server, ServerMetric, Setting, User
+from ..models import Server, ServerMetric, ServerMetricHourly, Setting, User
 from ..security import require_admin
 
 router = APIRouter(prefix="/api", tags=["status-page"])
@@ -148,28 +148,36 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
     latest_by_server = {}
     day_counts: dict[tuple[int, str], dict[str, int]] = {}
     if server_ids:
-        totals_rows = (
+        # Uptime counts come from the hourly rollup: one row per server-hour
+        # instead of ~18k raw rows per server-day. Two grouped scans of the raw
+        # table over the history window cost ~8s in production. The scheduler
+        # only closes out the previous completed hour, so the in-flight hour is
+        # absent here and a newly added server has no history until it closes.
+        rollup_day = sa_func.date(ServerMetricHourly.hour).label("d")
+        rollup_rows = (
             db.query(
-                ServerMetric.server_id,
-                ServerMetric.status,
-                sa_func.count(ServerMetric.id),
-                sa_func.avg(ServerMetric.ssh_latency),
+                ServerMetricHourly.server_id,
+                rollup_day,
+                sa_func.sum(ServerMetricHourly.samples),
+                sa_func.sum(ServerMetricHourly.ok_samples),
             )
             .filter(
-                ServerMetric.server_id.in_(server_ids),
-                ServerMetric.collected_at >= buckets[0][0],
+                ServerMetricHourly.server_id.in_(server_ids),
+                ServerMetricHourly.hour >= buckets[0][0],
             )
-            .group_by(ServerMetric.server_id, ServerMetric.status)
+            .group_by(ServerMetricHourly.server_id, rollup_day)
             .all()
         )
-        for server_id, status, count, avg_latency in totals_rows:
+        for server_id, day, samples, ok_samples in rollup_rows:
+            key = day if isinstance(day, str) else day.strftime("%Y-%m-%d")
+            total = int(samples or 0)
+            ok = int(ok_samples or 0)
+            day_counts[(server_id, key)] = {"total": total, "ok": ok}
             summary = totals_by_server.setdefault(
                 server_id, {"total": 0, "ok": 0, "avg_latency": 0}
             )
-            summary["total"] += count
-            if status == "ok":
-                summary["ok"] += count
-                summary["avg_latency"] = avg_latency or 0
+            summary["total"] += total
+            summary["ok"] += ok
 
         latest_times = (
             db.query(
@@ -203,28 +211,25 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
         # result deterministic while retaining one latest row per server.
         latest_by_server = {row.server_id: row for row in latest_rows}
 
-        day_rows = (
+        # The rollup carries no latency column, so average it over a bounded
+        # recent window; scanning the full history for it cost ~2.8s alone.
+        latency_rows = (
             db.query(
                 ServerMetric.server_id,
-                sa_func.date(ServerMetric.collected_at).label("d"),
-                ServerMetric.status,
-                sa_func.count(ServerMetric.id),
+                sa_func.avg(ServerMetric.ssh_latency),
             )
             .filter(
                 ServerMetric.server_id.in_(server_ids),
-                ServerMetric.collected_at >= buckets[0][0],
+                ServerMetric.collected_at >= now - timedelta(hours=24),
+                ServerMetric.status == "ok",
             )
-            .group_by(ServerMetric.server_id, "d", ServerMetric.status)
+            .group_by(ServerMetric.server_id)
             .all()
         )
-        for server_id, day, status, count in day_rows:
-            key = day if isinstance(day, str) else day.strftime("%Y-%m-%d")
-            counts = day_counts.setdefault(
-                (server_id, key), {"total": 0, "ok": 0}
-            )
-            counts["total"] += count
-            if status == "ok":
-                counts["ok"] += count
+        for server_id, avg_latency in latency_rows:
+            totals_by_server.setdefault(
+                server_id, {"total": 0, "ok": 0, "avg_latency": 0}
+            )["avg_latency"] = avg_latency or 0
 
     result = []
     for s in servers:

@@ -109,6 +109,30 @@ def test_public_status_uses_fixed_bulk_query_count():
         ])
         db.commit()
 
+        # Uptime is read from the hourly rollup, so mirror the raw samples the
+        # way _hourly_aggregate would have closed them out.
+        db.add_all([
+            ServerMetricHourly(
+                server_id=gpu_server.id,
+                hour=(now - timedelta(days=1)).replace(minute=0, second=0, microsecond=0),
+                samples=1,
+                ok_samples=1,
+            ),
+            ServerMetricHourly(
+                server_id=gpu_server.id,
+                hour=now.replace(minute=0, second=0, microsecond=0),
+                samples=1,
+                ok_samples=0,
+            ),
+            ServerMetricHourly(
+                server_id=cpu_server.id,
+                hour=now.replace(minute=0, second=0, microsecond=0),
+                samples=1,
+                ok_samples=1,
+            ),
+        ])
+        db.commit()
+
         selects = []
 
         def record_select(_conn, _cursor, statement, _params, _context, _many):
