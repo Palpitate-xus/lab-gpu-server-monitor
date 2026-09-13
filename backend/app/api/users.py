@@ -147,7 +147,7 @@ def change_password(
         token_version=observed_version + 1,
     )
     set_auth_cookies(response, token)
-    return {"ok": True, "access_token": token}
+    return {"ok": True}
 
 
 @router.post("/{user_id}/reset-mfa")

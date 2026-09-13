@@ -7,8 +7,6 @@ The public endpoints (/api/status-public*) require NO authentication.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone as tz
-from time import monotonic
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func as sa_func
@@ -93,7 +91,9 @@ def get_config(db: Session = Depends(get_db), _: User = Depends(require_admin)):
 @router.put("/status-page/config")
 def put_config(body: StatusPageConfig, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     _save_config(db, body.model_dump())
-    _PUBLIC_CACHE.clear()
+    from .. import cache as app_cache
+
+    app_cache.invalidate_prefix("status:")
     return {"ok": True}
 
 
@@ -121,16 +121,11 @@ def status_public(db: Session = Depends(get_db)):
     cfg = _load_config(db)
     if not cfg.get("published"):
         return {"published": False}
-    cached = _PUBLIC_CACHE.get("payload")
-    if cached and monotonic() - _PUBLIC_CACHE.get("at", 0) < _PUBLIC_CACHE_TTL:
-        return cached
-    payload = _build_public_payload(db, cfg)
-    _PUBLIC_CACHE.update(payload=payload, at=monotonic())
-    return payload
+    from .. import cache as app_cache
 
-
-_PUBLIC_CACHE: dict = {}
-_PUBLIC_CACHE_TTL = 30  # seconds; page refreshes are infrequent by nature
+    return app_cache.cached(
+        "status:public", 30.0, lambda: _build_public_payload(db, cfg)
+    )
 
 
 def _build_public_payload(db: Session, cfg: dict) -> dict:
@@ -282,6 +277,8 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
         "servers_online": sum(1 for r in result if r["online"]),
     }
     return {
+        # Always True here: the public endpoint gates on the config flag before
+        # calling, and the admin preview must return a render-ready payload.
         "published": True,
         "title": cfg.get("title", ""),
         "description": cfg.get("description", ""),

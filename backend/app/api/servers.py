@@ -219,15 +219,25 @@ def test_server_connection(
 ):
     _reject_root_ssh(body.username)
     import ipaddress
-    # crude SSRF guard: if the host is a literal IP, refuse non-public targets;
-    # hostnames still resolve during connect (this endpoint is admin-only and
-    # is meant for real servers the admin manages)
+    import socket
+
+    # SSRF guard: refuse loopback/link-local (incl. cloud metadata
+    # 169.254.169.254)/multicast targets, both as literal IPs and behind
+    # hostnames. Private ranges stay allowed: lab servers live there.
+    def _bad_ip(ip) -> bool:
+        return ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local
+
     try:
-        ip = ipaddress.ip_address(body.host)
-        if ip.is_loopback or ip.is_multicast or ip.is_unspecified:
+        if _bad_ip(ipaddress.ip_address(body.host)):
             return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
     except ValueError:
-        pass
+        try:
+            infos = socket.getaddrinfo(body.host, body.port or 22, proto=socket.IPPROTO_TCP)
+        except OSError:
+            return ConnectionTestResult(ok=False, message=f"DNS 解析失败: {body.host}")
+        for info in infos:
+            if _bad_ip(ipaddress.ip_address(info[4][0])):
+                return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
     ok, message = test_connection(
         host=body.host,
         port=body.port,

@@ -280,7 +280,7 @@ def refresh_now(_: User = Depends(require_admin)):
 
 # ---------------- live processes / process actions (btop parity) ----------------
 
-_procs_cache: dict[int, tuple[float, dict]] = {}
+_procs_cache: dict[tuple[int, str], tuple[float, dict]] = {}
 _procs_lock = threading.Lock()
 _PROCS_TTL = 10.0
 
@@ -294,7 +294,7 @@ def server_processes(
 ):
     """Fresh process table fetched live over SSH (not from history)."""
     with _procs_lock:
-        hit = _procs_cache.get(server_id)
+        hit = _procs_cache.get((server_id, sort))
         if hit and _time.monotonic() - hit[0] < _PROCS_TTL:
             return hit[1]
     server = db.get(Server, server_id)
@@ -314,7 +314,7 @@ def server_processes(
         raise HTTPException(status_code=502, detail=str(data))
     payload = {"processes": data, "count": len(data)}
     with _procs_lock:
-        _procs_cache[server_id] = (_time.monotonic(), payload)
+        _procs_cache[(server_id, sort)] = (_time.monotonic(), payload)
     return payload
 
 
@@ -400,7 +400,7 @@ def process_action(
             AuditLog(
                 username=admin.username,
                 action=f"process.{body.action}.result",
-                detail=f"server={server.name} pid={body.pid} -> {'ok' if ok else msg}",
+                detail=f"server={server.name} action={body.action} pid={body.pid} -> {'ok' if ok else 'failed'}",
             )
         )
         db.commit()
