@@ -204,7 +204,10 @@ async function refreshNow() {
 
 onMounted(() => {
   load()
-  timer = setInterval(() => load(true), 30000)
+  timer = setInterval(() => {
+    if (document.hidden) return
+    load(true)
+  }, 30000)
 })
 onUnmounted(() => {
   clearInterval(timer)

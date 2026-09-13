@@ -85,8 +85,25 @@ async function setup() {
 }
 
 async function copy(value) {
-  await navigator.clipboard.writeText(value)
-  ElMessage.success('已复制')
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(value)
+    ElMessage.success('已复制')
+  } catch {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = value
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      textarea.remove()
+      ElMessage.success('已复制')
+    } catch {
+      ElMessage.warning('复制失败，请手动选择文本复制')
+    }
+  }
 }
 
 async function confirm() {

@@ -35,7 +35,7 @@
     </nav>
 
     <template v-if="metric">
-      <el-alert v-if="metric.status !== 'ok'" :title="`采集失败: ${metric.error}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
+      <el-alert v-if="metric.status !== 'ok'" :title="`采集失败: ${metricErrorText}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
 
       <!-- ===== health model tree ===== -->
       <el-card id="detail-health" v-if="health && health.categories" class="page-card detail-section" style="margin-top:14px">
@@ -598,7 +598,7 @@
                 <el-option value="repair" label="维修" />
               </el-select>
               <el-input v-model="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
-              <el-button size="small" type="primary" @click="addNote">记录</el-button>
+              <el-button size="small" type="primary" :loading="noteSaving" @click="addNote">记录</el-button>
             </div>
             <el-table :data="notes" size="small" max-height="320">
               <el-table-column label="时间" width="160">
@@ -651,6 +651,8 @@
         </el-tabs>
       </el-card>
     </template>
+    <el-alert v-else-if="loadError" type="error" show-icon :closable="false" style="margin-bottom:14px"
+              :title="`数据加载失败：${loadError}`" />
     <el-empty v-else-if="!loading" description="暂无采集数据，请等待采集周期或点击「立即采集」" />
   </div>
 </template>
@@ -683,6 +685,7 @@ const loading = ref(false)
 const server = ref(null)
 const isGpuServer = computed(() => (server.value?.server_type ?? 'gpu') === 'gpu')
 const metric = ref(null)
+const loadError = ref('')
 let _lastFailToast = 0
 function loadFail(e) {
   // one gentle toast per 30s — polling failures must not spam
@@ -817,14 +820,18 @@ async function setStatus(status) {
   }
 }
 
+const noteSaving = ref(false)
 async function addNote() {
   if (!noteInput.value.trim()) return
+  noteSaving.value = true
   try {
     await api.post(`/servers/${serverId.value}/notes`, { kind: noteKind.value, content: noteInput.value.trim() })
     noteInput.value = ''
     loadNotes()
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '记录失败')
+  } finally {
+    noteSaving.value = false
   }
 }
 
@@ -838,7 +845,9 @@ const physicalNics = computed(() =>
 
 function fmtUnits(units) {
   if (units === undefined || units === null) return '—'
-  return (units * 512 / 1024 / 1024 / 1024).toFixed(1) + 'TB'  // data units -> GB (512k each)
+  const gb = units * 512000 / 1e9
+  if (gb >= 1000) return (gb / 1000).toFixed(2) + 'TB'
+  return gb.toFixed(1) + 'GB'
 }
 function gpuRisk(uuid) {
   return riskGpus.value.find(r => r.uuid === uuid) || { risk: 0, risk_label: '健康' }
@@ -856,6 +865,18 @@ function overallLabel(s) { return { critical: '危急', warning: '警告', ok: '
 function statusLabel(s) { return { critical: '危急', warning: '警告', ok: '正常' }[s] || s }
 
 const isAdmin = computed(() => isAdminSession())
+const FAULT_LABELS = {
+  SSH_AUTH_FAILED: '认证失败', SSH_HOSTKEY_CHANGED: '主机密钥变更', SSH_DNS_FAILED: 'DNS 失败',
+  SSH_REFUSED: '连接拒绝', SSH_DOWN: 'SSH 不可达', COLLECT_TIMEOUT: '采集超时', COLLECT_FAILED: '采集失败',
+  CRED_DECRYPT_FAILED: '凭据需重新录入',
+}
+function faultLabel(code) { return FAULT_LABELS[code] || code }
+const metricErrorText = computed(() => {
+  if (!metric.value) return ''
+  if (isAdmin.value) return metric.value.error || faultLabel(metric.value.error_code)
+  const code = metric.value.error_code
+  return (code && code !== 'OK') ? faultLabel(code) : '采集异常'
+})
 const gpus = computed(() => metric.value?.gpus || [])
 const cores = computed(() => metric.value?.cores || [])
 
@@ -984,7 +1005,13 @@ async function load() {
     server.value = serverList.status === 'fulfilled'
       ? (serverList.value || []).find(s => s.id === serverId.value) || null
       : server.value
-    metric.value = latest.status === 'fulfilled' ? latest.value : null
+    if (latest.status === 'fulfilled') {
+      metric.value = latest.value
+      loadError.value = ''
+    } else {
+      metric.value = null
+      loadError.value = latest.reason?.friendlyMessage || '加载失败'
+    }
   } catch (e) {
     if (!metric.value) ElMessage.error(e.friendlyMessage || '加载失败')
   } finally {
@@ -1033,7 +1060,7 @@ async function kill(row, signal) {
     clearTimeout(killTimer)
     killTimer = setTimeout(loadProcs, 800)
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || 'kill 失败')
+    if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
   }
 }
 
@@ -1075,7 +1102,7 @@ function stopTimers() {
 watch(serverId, () => {
   metric.value = null; history.value = []; procs.value = []; events.value = []
   server.value = null; health.value = null; riskGpus.value = []; slowHealth.value = {}
-  inventory.value = {}; notes.value = []; collectHealth.value = null
+  inventory.value = {}; notes.value = []; collectHealth.value = null; loadError.value = ''
   enterpriseLoaded.clear(); enterpriseInflight.clear()
   load(); loadProcs(); loadEnterprise(); startTimers()
 })

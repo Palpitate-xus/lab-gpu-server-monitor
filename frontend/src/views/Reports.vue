@@ -13,6 +13,11 @@
       <el-button size="small" :icon="Download" @click="exportCsv">导出 CSV</el-button>
     </div>
 
+    <el-alert v-if="loadError" type="error" show-icon :closable="false" style="margin-top:12px"
+              :title="`数据加载失败：${loadError}`">
+      <el-button size="small" type="primary" plain @click="load">重试</el-button>
+    </el-alert>
+
     <el-row :gutter="14" class="report-kpis">
       <el-col :span="8" :xs="{ span: 12 }"><el-card class="stat-card report-kpi-card">
         <div class="stat-value">{{ report?.total_gpu_hours ?? 0 }}</div>
@@ -96,7 +101,7 @@
           </article>
         </div>
       </div>
-      <el-empty v-if="!loading && !(report?.servers?.length)" description="暂无聚合数据（小时级聚合在系统运行满 1 小时后开始产生）" :image-size="60" />
+      <el-empty v-if="!loading && !loadError && !(report?.servers?.length)" description="暂无聚合数据（小时级聚合在系统运行满 1 小时后开始产生）" :image-size="60" />
     </el-card>
   </div>
 </template>
@@ -111,6 +116,7 @@ import { csvRow } from '../csv'
 const hours = ref(24)
 const tag = ref('')
 const loading = ref(false)
+const loadError = ref('')
 const report = ref(null)
 const allTags = ref([])
 
@@ -122,11 +128,12 @@ const idleRatio = computed(() => {
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const { data } = await api.get('/cluster/utilization-report', { params: { hours: hours.value, tag: tag.value || undefined } })
     report.value = data
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '加载失败')
+    loadError.value = e.friendlyMessage || '加载失败'
   } finally {
     loading.value = false
   }

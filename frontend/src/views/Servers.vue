@@ -184,7 +184,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import api from '../api'
 import { isAdminSession } from '../composables'
@@ -223,7 +223,9 @@ const testingIpmi = ref(false)
 const rules = computed(() => ({
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   host: [{ required: true, message: '请输入主机地址', trigger: 'blur' }],
-  username: [{ required: !editId.value, message: '请输入用户名', trigger: 'blur' }]
+  username: [{ required: !editId.value, message: '请输入用户名', trigger: 'blur' }],
+  password: [{ required: form.auth_type === 'password' && !editId.value, message: '请输入 SSH 密码', trigger: 'blur' }],
+  private_key: [{ required: form.auth_type === 'key' && !editId.value, message: '请粘贴 SSH 私钥', trigger: 'blur' }]
 }))
 
 const allTags = computed(() => [...new Set(serversList.value.flatMap(s => s.tags || []))].sort())
@@ -311,14 +313,15 @@ async function save() {
 
 async function testIpmi() {
   if (!editId.value) return
+  try {
+    await ElMessageBox.confirm('测试前将保存 BMC 配置，继续？', '测试 IPMI', { type: 'warning' })
+  } catch {
+    return
+  }
   testingIpmi.value = true
   try {
-    const payload = { ...form }
-    if (!payload.username) delete payload.username
-    if (!payload.password) delete payload.password
-    if (!payload.private_key) delete payload.private_key
-    if (!payload.passphrase) delete payload.passphrase
-    if (!payload.bmc_password) delete payload.bmc_password
+    const payload = { bmc_host: form.bmc_host, bmc_user: form.bmc_user }
+    if (form.bmc_password) payload.bmc_password = form.bmc_password
     await api.put(`/servers/${editId.value}`, payload)
     const { data } = await api.post(`/servers/${editId.value}/ipmi/test`)
     if (data.ok) {

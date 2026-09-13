@@ -101,9 +101,11 @@
             <el-table-column label="操作" width="185">
               <template #default="{ row }">
                 <template v-if="!row.recovered_at">
-                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" @click="ack(row)">确认</el-button>
-                  <el-button v-if="isAdmin" size="small" type="danger" @click="resolveEvent(row)">关闭</el-button>
-                  <el-button size="small" :disabled="!!row.assignee" @click="assign(row)">认领</el-button>
+                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</el-button>
+                  <el-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" @confirm="resolveEvent(row)">
+                    <template #reference><el-button size="small" type="danger" :loading="resolvingId === row.id">关闭</el-button></template>
+                  </el-popconfirm>
+                  <el-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</el-button>
                 </template>
                 <span v-else style="color:var(--csub)">—</span>
               </template>
@@ -142,9 +144,11 @@
                   </template>
                 </div>
                 <div v-if="!row.recovered_at" class="mobile-data-card__actions">
-                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" @click="ack(row)">确认</el-button>
-                  <el-button size="small" :disabled="!!row.assignee" @click="assign(row)">认领</el-button>
-                  <el-button v-if="isAdmin" size="small" type="danger" plain @click="resolveEvent(row)">关闭事件</el-button>
+                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</el-button>
+                  <el-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</el-button>
+                  <el-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" @confirm="resolveEvent(row)">
+                    <template #reference><el-button size="small" type="danger" plain :loading="resolvingId === row.id">关闭事件</el-button></template>
+                  </el-popconfirm>
                 </div>
               </article>
             </div>
@@ -246,6 +250,9 @@ const dlg = ref(false)
 const editId = ref(null)
 const saving = ref(false)
 const formRef = ref()
+const ackingId = ref(null)
+const resolvingId = ref(null)
+const assigningId = ref(null)
 
 const blank = () => ({ name: '', metric: 'gpu_temp', op: '>', threshold: 80, duration_minutes: 0, server_id: null, enabled: true })
 const form = reactive(blank())
@@ -318,7 +325,11 @@ function openEdit(row) {
 }
 
 async function save() {
-  await formRef.value.validate().catch(() => Promise.reject())
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
   saving.value = true
   try {
     const payload = { ...form, server_id: form.server_id || null }
@@ -355,38 +366,51 @@ async function removeRule(row) {
 }
 
 async function ack(row) {
+  ackingId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/ack`)
     ElMessage.success('已确认')
     loadEvents()
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '操作失败')
+  } finally {
+    ackingId.value = null
   }
 }
 
 async function resolveEvent(row) {
+  resolvingId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/resolve`)
     ElMessage.success('已关闭')
     loadEvents()
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '操作失败')
+  } finally {
+    resolvingId.value = null
   }
 }
 
 async function assign(row) {
+  assigningId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/assign`, {})
     ElMessage.success('已认领')
     loadEvents()
   } catch (e) {
     ElMessage.error(e.friendlyMessage || '操作失败')
+  } finally {
+    assigningId.value = null
   }
 }
 
 onMounted(() => {
   loadAll()
-  pollTimer = setInterval(() => loadAll({ silent: true }), 30000)  // keep event stream live without manual refresh
+  // keep event stream live without manual refresh
+  pollTimer = setInterval(() => {
+    if (document.hidden) return
+    loadAll({ silent: true })
+  }, 30000)
 })
 onUnmounted(() => clearInterval(pollTimer))
 

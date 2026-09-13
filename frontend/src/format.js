@@ -133,12 +133,7 @@ export function fmtTime(t) {
 
 export function fmtUptime(seconds) {
   if (!seconds || seconds <= 0) return '—'
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d > 0) return `${d}天${h}小时`
-  if (h > 0) return `${h}小时${m}分`
-  return `${m}分钟`
+  return fmtDuration(seconds)
 }
 
 export function fmtNetBytes(bytes) {

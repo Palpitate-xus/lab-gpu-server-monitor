@@ -134,13 +134,16 @@ function onCommand(cmd) {
   if (cmd === 'logout') {
     ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
       .then(async () => {
-        await api.post('/auth/logout')
-        clearSession()
-        router.push('/login')
+        try {
+          await api.post('/auth/logout')
+        } catch (e) {
+          if (e && e.friendlyMessage) ElMessageBox.alert(e.friendlyMessage, '退出失败')
+        } finally {
+          clearSession()
+          router.push('/login')
+        }
       })
-      .catch((e) => {
-        if (e && e.friendlyMessage) ElMessageBox.alert(e.friendlyMessage, '退出失败')
-      })
+      .catch(() => {})
   }
 }
 

@@ -23,7 +23,7 @@ const routes = [
       { path: 'settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', admin: true } }
     ]
   },
-  { path: '/:pathMatch(.*)*', redirect: '/cockpit' }
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFound.vue'), meta: { title: '页面不存在' } }
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
@@ -32,7 +32,7 @@ router.beforeEach((to) => {
   const authenticated = Boolean(getSession().user)
   if (!to.meta.public && !authenticated) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.name === 'login' && authenticated) return { name: 'cockpit' }
-  if (authenticated && getSession().user?.role === 'admin' && !getSession().user?.mfa_enrolled && to.name !== 'mfa-setup') {
+  if (authenticated && getSession().user?.mfa_required && !getSession().user?.mfa_enrolled && to.name !== 'mfa-setup') {
     return { name: 'mfa-setup' }
   }
   if (to.name === 'mfa-setup' && getSession().user?.mfa_enrolled) return { name: 'cockpit' }

@@ -37,7 +37,7 @@
 
     <!-- grid -->
     <div v-if="sorted.length" class="gm-grid">
-      <div v-for="(g, i) in sorted" :key="g.key" class="gm-card cockpit-panel"
+      <div v-for="(g, i) in visibleGpus" :key="g.key" class="gm-card cockpit-panel"
         :class="cellClass(g)" role="link" tabindex="0"
         :aria-label="`查看 ${g.server_name} 的 GPU ${g.index} 详情`"
         @click="$router.push(`/servers/${g.server_id}`)"
@@ -80,6 +80,10 @@
     </div>
 
     <el-empty v-else-if="!loading" description="没有符合条件的 GPU" :image-size="80" />
+
+    <div v-if="hiddenCount > 0" class="gm-more">
+      <el-button size="small" @click="visibleCount += 200">显示更多（剩余 {{ hiddenCount }}）</el-button>
+    </div>
   </div>
 </template>
 
@@ -97,6 +101,7 @@ const serverFilter = ref(null)
 const stateFilter = ref('all')
 const sortBy = ref('util')
 const asc = ref(false)
+const visibleCount = ref(200)
 
 const sortOptions = [
   { value: 'util', label: '利用率' },
@@ -152,6 +157,9 @@ const sorted = computed(() => {
   })
 })
 
+const visibleGpus = computed(() => sorted.value.slice(0, visibleCount.value))
+const hiddenCount = computed(() => Math.max(0, sorted.value.length - visibleCount.value))
+
 function shortName(n) {
   return (n || '').replace(/^NVIDIA\s+/, '').replace(/^GeForce\s+/, '')
 }
@@ -195,6 +203,8 @@ function ringStyle(u) {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
+
+.gm-more { display: flex; justify-content: center; }
 
 .gm-card {
   position: relative; padding: 14px 16px; cursor: pointer;

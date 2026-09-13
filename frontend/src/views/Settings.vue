@@ -49,7 +49,7 @@
               <el-input v-model="webhookTemplate" type="textarea" :rows="4" class="mono"
                 placeholder='{"text": "[{{level}}] {{server_name}}: {{metric}}={{value}} {{op}} {{threshold}}"}' />
               <div class="settings-hint settings-template-hint">
-                变量: {{level}} {{server_name}} {{metric}} {{value}} {{op}} {{threshold}} {{rule_name}} {{time}}<br>
+                <span v-pre>变量: {{level}} {{server_name}} {{metric}} {{value}} {{op}} {{threshold}} {{rule_name}} {{time}}</span><br>
                 默认发 JSON，可直接填企业微信/钉钉/飞书机器人兼容模板
               </div>
             </el-form-item>
@@ -362,7 +362,11 @@ function openChannelDialog() {
 }
 
 async function saveChannel() {
-  await channelFormRef.value.validate().catch(() => Promise.reject())
+  try {
+    await channelFormRef.value.validate()
+  } catch {
+    return
+  }
   savingChannel.value = true
   try {
     await api.post('/alerts/channels', { ...channelForm })

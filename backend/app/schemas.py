@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 MIN_PASSWORD_LENGTH = 15
@@ -37,6 +37,15 @@ class UserOut(BaseModel):
     is_active: bool
     mfa_enrolled: bool = False
     created_at: datetime
+
+    @computed_field
+    @property
+    def mfa_required(self) -> bool:
+        """Mirror of the server-side gate in security.require_admin, so the SPA
+        does not force MFA enrollment on deployments that disabled it."""
+        from .config import get_settings
+
+        return self.role == "admin" and get_settings().require_admin_mfa
 
 
 class UserCreate(BaseModel):

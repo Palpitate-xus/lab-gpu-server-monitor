@@ -144,7 +144,7 @@
             <b style="cursor:pointer" @click="$router.push(`/servers/${srv.server_id}`)">{{ srv.server_name }}</b>
             <span style="color:var(--csub);font-size:11px">{{ srv.hostname }}</span>
             <span v-if="!srv.enabled" style="color:var(--csub);font-size:11px">(已禁用)</span>
-            <span v-if="!srv.online && srv.error" style="color:var(--cred);font-size:11px">{{ srv.error.slice(0, 60) }}</span>
+            <span v-if="!srv.online && srv.error" style="color:var(--cred);font-size:11px">{{ faultLabel(srv.error_code || srv.error).slice(0, 60) }}</span>
           </div>
           <div class="gpu-matrix" v-if="srv.gpus.length">
             <div v-for="g in srv.gpus" :key="srv.server_id + '-' + g.index"

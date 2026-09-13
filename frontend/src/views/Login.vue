@@ -90,7 +90,7 @@ async function submit() {
     const { data } = await api.post('/auth/login', new URLSearchParams(form))
     setSession(data.user)
     ElMessage.success(`欢迎，${data.user.display_name || data.user.username}`)
-    if (data.user.role === 'admin' && !data.user.mfa_enrolled) {
+    if (data.user.mfa_required && !data.user.mfa_enrolled) {
       await router.push({ name: 'mfa-setup' })
       return
     }

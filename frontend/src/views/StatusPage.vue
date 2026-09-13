@@ -5,7 +5,7 @@
       <header class="sp-header">
         <div class="sp-eyebrow"><span class="sp-live-dot" :class="data?.overall?.all_operational ? 'ok' : 'bad'"></span> SERVICE STATUS</div>
         <h1>{{ data?.title || '服务状态' }}</h1>
-        <p>集群可用性与 GPU 资源状态</p>
+        <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
       </header>
 
       <div v-if="!loaded" class="sp-card sp-loading" aria-live="polite">
@@ -109,7 +109,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
-import api from '../api'
 import { fmtTime } from '../format'
 
 const route = useRoute()
@@ -152,10 +151,18 @@ async function load() {
   try {
     // preview mode hits the admin endpoint (ignores the published flag);
     // the public endpoint stays auth-free
-    const { data: d } = preview.value
-      ? await api.get('/status-page/preview')
-      : await axios.get('/api/status-public')
-    data.value = d
+    let res
+    if (preview.value) {
+      try {
+        res = await axios.get('/api/status-page/preview', { withCredentials: true })
+      } catch (e) {
+        if (e?.response?.status === 401 || e?.response?.status === 403) res = await axios.get('/api/status-public')
+        else throw e
+      }
+    } else {
+      res = await axios.get('/api/status-public')
+    }
+    data.value = res.data
   } catch {
     data.value = null
     loadError.value = true
@@ -166,7 +173,10 @@ async function load() {
 
 onMounted(() => {
   load()
-  timer = setInterval(load, 60000)
+  timer = setInterval(() => {
+    if (document.hidden) return
+    load()
+  }, 60000)
 })
 onUnmounted(() => clearInterval(timer))
 </script>
