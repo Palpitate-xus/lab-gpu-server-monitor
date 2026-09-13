@@ -28,3 +28,9 @@ MFA, and Webhook values with the new primary key.
 - High/Critical image findings require remediation or a documented,
   time-bounded exception approved by the system owner.
 - Backup restore and SSH host-key persistence are exercised in staging.
+
+## Audit history
+
+- `AUDIT_2026-09-13.md` — security and interaction audit: findings, dispositions,
+  verification evidence, and the items intentionally left for a human decision.
+- `CODE_REVIEW.md` — 2026-08-29 full-stack code review.
