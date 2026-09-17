@@ -13,6 +13,7 @@ import {
   LayoutSider as AntLayoutSider,
   Menu as AntMenu,
   MenuItem as AntMenuItem,
+  Result as AntResult,
   Tooltip as AntTooltip,
 } from 'ant-design-vue'
 import {
@@ -92,6 +93,7 @@ app.use(AntLayoutHeader)
 app.use(AntLayoutSider)
 app.use(AntMenu)
 app.use(AntMenuItem)
+app.use(AntResult)
 app.use(AntTooltip)
 for (const component of [
   ElAlert,
