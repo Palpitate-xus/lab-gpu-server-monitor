@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import { App as AntApp, ConfigProvider } from 'ant-design-vue'
 import {
   ElAlert,
   ElAside,
@@ -50,6 +51,7 @@ import {
   ElTag,
   ElTooltip,
 } from 'element-plus'
+import 'ant-design-vue/dist/reset.css'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
@@ -62,6 +64,8 @@ import './theme'
 const app = createApp(App)
 
 app.use(router)
+app.use(AntApp)
+app.use(ConfigProvider)
 for (const component of [
   ElAlert,
   ElAside,

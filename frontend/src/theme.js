@@ -1,11 +1,12 @@
 import { computed, ref, watchEffect } from 'vue'
+import { theme as antTheme } from 'ant-design-vue'
 
 /**
  * Global theme store: 'auto' (follow system) | 'light' | 'dark'.
  * Module-level singleton — state shared across all components.
  *
  * - resolved: what is actually rendered ('light' | 'dark')
- * - toggles `html.dark` for Element Plus dark css-vars + our cockpit palette
+ * - toggles `html.dark` for application-level layout and chart styles
  * - persists the chosen mode in localStorage
  * - reacts live to OS theme changes while in auto mode
  */
@@ -50,22 +51,27 @@ function setMode(m) {
 export const chartTheme = computed(() =>
   resolved.value === 'dark'
     ? {
-        tooltipBg: '#101a2e', tooltipBorder: '#1e2d47', tooltipText: '#dce7f5',
-        label: '#7d90ad', axisLine: '#1e2d47', splitLine: 'rgba(30,45,71,.5)',
-        cyan: '#22d3ee', purple: '#a78bfa', green: '#34d399', yellow: '#fbbf24', red: '#f87171',
+        tooltipBg: '#1f1f1f', tooltipBorder: '#424242', tooltipText: 'rgba(255,255,255,.85)',
+        label: 'rgba(255,255,255,.65)', axisLine: '#424242', splitLine: 'rgba(255,255,255,.12)',
+        cyan: '#13c2c2', purple: '#722ed1', green: '#52c41a', yellow: '#faad14', red: '#ff4d4f',
       }
     : {
-        tooltipBg: '#ffffff', tooltipBorder: '#d8e2ef', tooltipText: '#1f2d3d',
-        label: '#64748b', axisLine: '#d8e2ef', splitLine: 'rgba(120,143,174,.22)',
-        cyan: '#0891b2', purple: '#7c3aed', green: '#059669', yellow: '#d97706', red: '#dc2626',
+        tooltipBg: '#ffffff', tooltipBorder: '#d9d9d9', tooltipText: 'rgba(0,0,0,.88)',
+        label: 'rgba(0,0,0,.45)', axisLine: '#d9d9d9', splitLine: 'rgba(5,5,5,.06)',
+        cyan: '#13c2c2', purple: '#722ed1', green: '#52c41a', yellow: '#faad14', red: '#ff4d4f',
       }
 )
 
-/** Menu/label colors for el-menu prop binding. */
+/** Ant Design's default theme algorithms, switched with the application mode. */
+export const antThemeConfig = computed(() => ({
+  algorithm: resolved.value === 'dark' ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
+}))
+
+/** Temporary menu bindings while the shell is migrated to Ant Design. */
 export const uiTheme = computed(() =>
   resolved.value === 'dark'
-    ? { menuText: '#7d90ad', menuActive: '#22d3ee' }
-    : { menuText: '#64748b', menuActive: '#0891b2' }
+    ? { menuText: 'rgba(255,255,255,.65)', menuActive: '#1677ff' }
+    : { menuText: 'rgba(0,0,0,.65)', menuActive: '#1677ff' }
 )
 
 export function useTheme() {

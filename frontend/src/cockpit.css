@@ -1,56 +1,56 @@
 /* ======================================================================
-   Theme system: CSS variables switch on html.dark (dark) / default (light).
-   Dark = sci-fi cockpit palette; Light = clean lab-white with same layout.
+   Shared non-component tokens. Values mirror Ant Design's default palette;
+   actual component tokens are provided by ConfigProvider in App.vue.
    ====================================================================== */
 
 /* ---- light (default) ---- */
 :root {
-  --cbg: #f2f5fa;
-  --cbg-accent1: rgba(8, 145, 178, 0.05);
-  --cbg-accent2: rgba(124, 58, 237, 0.04);
+  --cbg: #f5f5f5;
+  --cbg-accent1: rgba(22, 119, 255, 0.04);
+  --cbg-accent2: rgba(22, 119, 255, 0.02);
   --cpanel: #ffffff;
-  --cpanel2: #f7f9fc;
-  --cborder: #dde5f0;
-  --ctext: #1f2d3d;
-  --csub: #64748b;
-  --cprimary: #0891b2;
-  --cgreen: #059669;
-  --cyellow: #d97706;
-  --cred: #dc2626;
-  --cpurple: #7c3aed;
+  --cpanel2: #fafafa;
+  --cborder: #d9d9d9;
+  --ctext: rgba(0, 0, 0, 0.88);
+  --csub: rgba(0, 0, 0, 0.45);
+  --cprimary: #1677ff;
+  --cgreen: #52c41a;
+  --cyellow: #faad14;
+  --cred: #ff4d4f;
+  --cpurple: #722ed1;
   --ctooltip-bg: #ffffff;
-  --ctooltip-border: #d8e2ef;
-  --ctooltip-text: #1f2d3d;
+  --ctooltip-border: #d9d9d9;
+  --ctooltip-text: rgba(0, 0, 0, 0.88);
   --cinput-bg: #ffffff;
-  --cinput-border: #d8e2ef;
-  --ctable-head: #f0f4f9;
-  --ctable-hover: rgba(8, 145, 178, 0.06);
-  --cgrid-line: rgba(120, 143, 174, 0.22);
+  --cinput-border: #d9d9d9;
+  --ctable-head: #fafafa;
+  --ctable-hover: #fafafa;
+  --cgrid-line: rgba(5, 5, 5, 0.06);
 }
 
-/* ---- dark (sci-fi cockpit) ---- */
+/* ---- Ant Design dark algorithm companion values ---- */
 html.dark {
-  --cbg: #0b1220;
-  --cbg-accent1: rgba(34, 211, 238, 0.08);
-  --cbg-accent2: rgba(167, 139, 250, 0.07);
-  --cpanel: #101a2e;
-  --cpanel2: #0d1526;
-  --cborder: #1e2d47;
-  --ctext: #dce7f5;
-  --csub: #7d90ad;
-  --cprimary: #22d3ee;
-  --cgreen: #34d399;
-  --cyellow: #fbbf24;
-  --cred: #f87171;
-  --cpurple: #a78bfa;
-  --ctooltip-bg: #101a2e;
-  --ctooltip-border: #1e2d47;
-  --ctooltip-text: #dce7f5;
-  --cinput-bg: rgba(11, 18, 32, 0.8);
-  --cinput-border: #1e2d47;
-  --ctable-head: rgba(16, 26, 46, 0.6);
-  --ctable-hover: rgba(34, 211, 238, 0.05);
-  --cgrid-line: rgba(30, 45, 71, 0.5);
+  --cbg: #141414;
+  --cbg-accent1: transparent;
+  --cbg-accent2: transparent;
+  --cpanel: #1f1f1f;
+  --cpanel2: #262626;
+  --cborder: #424242;
+  --ctext: rgba(255, 255, 255, 0.85);
+  --csub: rgba(255, 255, 255, 0.45);
+  --cprimary: #1677ff;
+  --cgreen: #52c41a;
+  --cyellow: #faad14;
+  --cred: #ff4d4f;
+  --cpurple: #722ed1;
+  --ctooltip-bg: #1f1f1f;
+  --ctooltip-border: #424242;
+  --ctooltip-text: rgba(255, 255, 255, 0.85);
+  --cinput-bg: #1f1f1f;
+  --cinput-border: #424242;
+  --ctable-head: #262626;
+  --ctable-hover: #262626;
+  --cgrid-line: rgba(255, 255, 255, 0.12);
 }
 
 /* ===== cockpit shell ===== */

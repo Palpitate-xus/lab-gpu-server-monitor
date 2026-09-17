@@ -1,3 +1,6 @@
 allowBuilds:
+  # core-js only prints a funding notice in postinstall; the application does
+  # not need it to execute code during dependency installation.
+  core-js: false
   esbuild: true
   vue-demi: true
