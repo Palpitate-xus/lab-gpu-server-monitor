@@ -37,6 +37,7 @@ import {
   Result as AntResult,
   Row as AntRow,
   Skeleton as AntSkeleton,
+  Slider as AntSlider,
   Select as AntSelect,
   SelectOption as AntSelectOption,
   Spin as AntSpin,
@@ -149,6 +150,7 @@ app.use(AntRadioGroup)
 app.use(AntResult)
 app.use(AntRow)
 app.use(AntSkeleton)
+app.use(AntSlider)
 app.use(AntSelect)
 app.use(AntSelectOption)
 app.use(AntSpin)
