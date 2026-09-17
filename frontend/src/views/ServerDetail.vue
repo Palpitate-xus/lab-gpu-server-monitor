@@ -595,9 +595,9 @@
           <a-tab-pane tab="台账" key="notes">
             <div v-if="isAdmin" style="display:flex;gap:8px;margin-bottom:12px">
               <a-select v-model:value="noteKind" size="small" style="width:110px">
-                <a-option value="note" label="备注" />
-                <a-option value="maintenance" label="维护" />
-                <a-option value="repair" label="维修" />
+                <a-select-option value="note" label="备注" />
+                <a-select-option value="maintenance" label="维护" />
+                <a-select-option value="repair" label="维修" />
               </a-select>
               <a-input v-model:value="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
               <a-button size="small" type="primary" :loading="noteSaving" @click="addNote">记录</a-button>
