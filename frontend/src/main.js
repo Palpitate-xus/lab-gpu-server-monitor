@@ -1,5 +1,13 @@
 import { createApp } from 'vue'
-import { App as AntApp, ConfigProvider } from 'ant-design-vue'
+import {
+  App as AntApp,
+  Button as AntButton,
+  ConfigProvider,
+  Dropdown as AntDropdown,
+  Menu as AntMenu,
+  MenuItem as AntMenuItem,
+  Tooltip as AntTooltip,
+} from 'ant-design-vue'
 import {
   ElAlert,
   ElAside,
@@ -65,7 +73,12 @@ const app = createApp(App)
 
 app.use(router)
 app.use(AntApp)
+app.use(AntButton)
 app.use(ConfigProvider)
+app.use(AntDropdown)
+app.use(AntMenu)
+app.use(AntMenuItem)
+app.use(AntTooltip)
 for (const component of [
   ElAlert,
   ElAside,
