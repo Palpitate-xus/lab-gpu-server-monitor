@@ -13,6 +13,7 @@ import {
   Form as AntForm,
   FormItem as AntFormItem,
   Input as AntInput,
+  InputNumber as AntInputNumber,
   InputPassword as AntInputPassword,
   Layout as AntLayout,
   LayoutContent as AntLayoutContent,
@@ -20,14 +21,21 @@ import {
   LayoutSider as AntLayoutSider,
   Menu as AntMenu,
   MenuItem as AntMenuItem,
+  Modal as AntModal,
   Empty as AntEmpty,
+  Popconfirm as AntPopconfirm,
   Progress as AntProgress,
+  Radio as AntRadio,
+  RadioGroup as AntRadioGroup,
   Result as AntResult,
   Row as AntRow,
   Skeleton as AntSkeleton,
+  Select as AntSelect,
+  SelectOption as AntSelectOption,
   Spin as AntSpin,
   Statistic as AntStatistic,
   Steps as AntSteps,
+  Switch as AntSwitch,
   Table as AntTable,
   TableColumn as AntTableColumn,
   Tag as AntTag,
@@ -110,6 +118,7 @@ app.use(AntDropdown)
 app.use(AntForm)
 app.use(AntFormItem)
 app.use(AntInput)
+app.use(AntInputNumber)
 app.use(AntInputPassword)
 app.use(AntLayout)
 app.use(AntLayoutContent)
@@ -117,17 +126,24 @@ app.use(AntLayoutHeader)
 app.use(AntLayoutSider)
 app.use(AntMenu)
 app.use(AntMenuItem)
+app.use(AntModal)
 app.use(AntEmpty)
+app.use(AntPopconfirm)
 app.use(AntProgress)
+app.use(AntRadio)
+app.use(AntRadioGroup)
 app.use(AntResult)
 app.use(AntRow)
 app.use(AntSkeleton)
+app.use(AntSelect)
+app.use(AntSelectOption)
 app.use(AntSpin)
 app.use(AntStatistic)
 app.use(AntSteps)
 app.use(AntTable)
 app.use(AntTableColumn)
 app.use(AntTag)
+app.use(AntSwitch)
 app.use(AntTooltip)
 for (const component of [
   ElAlert,
