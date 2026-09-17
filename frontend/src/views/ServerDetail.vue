@@ -1,28 +1,33 @@
 <template>
-  <div class="cockpit" v-loading="loading">
-    <el-alert v-if="invalidId" title="无效的服务器 ID" type="warning" show-icon :closable="false" style="margin-bottom:14px">
-      <template #default>请返回 <el-link type="primary" @click="$router.push('/servers')">服务器列表</el-link> 重新进入。</template>
-    </el-alert>
+  <a-spin :spinning="loading" tip="正在加载服务器数据…">
+  <div class="cockpit">
+    <a-alert v-if="invalidId" type="warning" show-icon :closable="false" style="margin-bottom:14px">
+      <template #message>
+        无效的服务器 ID，请返回
+        <a-button type="link" size="small" class="inline-link" @click="$router.push('/servers')">服务器列表</a-button>
+        重新进入。
+      </template>
+    </a-alert>
     <div class="toolbar detail-toolbar">
-      <el-page-header @back="$router.push('/servers')" :content="server?.name || '...'" />
+      <a-page-header :title="server?.name || '服务器详情'" @back="$router.push('/servers')" />
       <div class="detail-toolbar-actions">
-        <el-tag v-if="metric?.status === 'ok'" type="success">正常</el-tag>
-        <el-tag v-else-if="metric" type="danger">采集异常</el-tag>
-        <el-tag v-if="server?.status && server.status !== 'active'" type="warning" effect="dark">
+        <a-tag v-if="metric?.status === 'ok'" color="success">正常</a-tag>
+        <a-tag v-else-if="metric" color="error">采集异常</a-tag>
+        <a-tag v-if="server?.status && server.status !== 'active'" color="warning">
           {{ statusCn[server.status] }}<span v-if="server.status_reason">：{{ server.status_reason }}</span>
-        </el-tag>
-        <el-dropdown v-if="isAdmin" @command="setStatus">
-          <el-button size="small">状态切换</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="active">运行中</el-dropdown-item>
-              <el-dropdown-item command="maintenance">维护中</el-dropdown-item>
-              <el-dropdown-item command="drained">已排空</el-dropdown-item>
-              <el-dropdown-item command="rma">返修中</el-dropdown-item>
-            </el-dropdown-menu>
+        </a-tag>
+        <a-dropdown v-if="isAdmin" :trigger="['click']">
+          <a-button size="small">状态切换</a-button>
+          <template #overlay>
+            <a-menu @click="onStatusMenu">
+              <a-menu-item key="active">运行中</a-menu-item>
+              <a-menu-item key="maintenance">维护中</a-menu-item>
+              <a-menu-item key="drained">已排空</a-menu-item>
+              <a-menu-item key="rma">返修中</a-menu-item>
+            </a-menu>
           </template>
-        </el-dropdown>
-        <el-button size="small" :icon="Refresh" @click="load">刷新</el-button>
+        </a-dropdown>
+        <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
       </div>
     </div>
 
@@ -35,14 +40,14 @@
     </nav>
 
     <template v-if="metric">
-      <el-alert v-if="metric.status !== 'ok'" :title="`采集失败: ${metricErrorText}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
+      <a-alert v-if="metric.status !== 'ok'" :message="`采集失败: ${metricErrorText}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
 
       <!-- ===== health model tree ===== -->
-      <el-card id="detail-health" v-if="health && health.categories" class="page-card detail-section" style="margin-top:14px">
-        <template #header>
+      <a-card id="detail-health" v-if="health && health.categories" class="page-card detail-section" style="margin-top:14px">
+        <template #title>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span>健康模型</span>
-            <el-tag :type="overallTag(health.overall)" effect="dark" size="small">{{ overallLabel(health.overall) }}</el-tag>
+            <a-tag :color="overallTag(health.overall)">{{ overallLabel(health.overall) }}</a-tag>
           </div>
         </template>
         <div class="health-grid">
@@ -61,35 +66,35 @@
             </div>
           </div>
         </div>
-      </el-card>
+      </a-card>
 
       <!-- ===== btop-style overview stats ===== -->
-      <el-row id="detail-resources" :gutter="14" class="detail-kpis detail-section">
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+      <a-row id="detail-resources" :gutter="14" class="detail-kpis detail-section">
+        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value" :style="{color: utilColor(metric.cpu_percent)}">{{ metric.cpu_percent }}%</div>
           <div class="stat-label">CPU ({{ metric.cpu_count }} 核 {{ fmtFreq(metric.cpu_freq_avg) }})</div>
           <div class="stat-sub">{{ metric.cpu_model || '—' }}</div>
-        </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+        </a-card></a-col>
+        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value detail-capacity-value">{{ fmtSizeMB(metric.mem_used_mb) }} <i>/</i> {{ fmtSizeMB(metric.mem_total_mb) }}</div>
           <div class="stat-label">内存 ({{ memPct }}%)</div>
           <div class="stat-sub">可用 {{ fmtSizeMB(metric.mem_available_mb) }} · 缓存 {{ fmtSizeMB(metric.mem_cached_mb) }} · Swap {{ fmtSizeMB(metric.swap_used_mb) }}/{{ fmtSizeMB(metric.swap_total_mb) }}</div>
-        </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+        </a-card></a-col>
+        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value detail-capacity-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} <i>/</i> {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
           <div class="stat-label">磁盘 ({{ diskPct }}%)</div>
           <div class="stat-sub">{{ (metric.disks||[]).length }} 个挂载点</div>
-        </el-card></el-col>
-        <el-col :span="6" :xs="{ span: 12 }"><el-card class="stat-card detail-kpi-card">
+        </a-card></a-col>
+        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value">{{ fmtUptime(metric.uptime_seconds) }}</div>
           <div class="stat-label">运行时长</div>
           <div class="stat-sub">{{ metric.os }} · {{ metric.kernel }}</div>
-        </el-card></el-col>
-      </el-row>
+        </a-card></a-col>
+      </a-row>
 
       <!-- ===== per-core grid (btop style) ===== -->
-      <el-card class="page-card" style="margin-top:14px">
-        <template #header>
+      <a-card class="page-card" style="margin-top:14px">
+        <template #title>
           <div class="detail-card-head">
             <span>CPU 核心 ({{ cores.length }})</span>
             <div style="display:flex;gap:16px;font-size:12px;color:var(--csub);align-items:center">
@@ -100,72 +105,72 @@
           </div>
         </template>
         <div class="core-grid">
-          <el-tooltip v-for="c in cores" :key="c.id" :placement="'top'">
-            <template #content>
+          <a-tooltip v-for="c in cores" :key="c.id" :placement="'top'">
+            <template #title>
               核心 {{ c.id }}: {{ c.util }}% · {{ fmtFreq(c.freq_mhz) }}<span v-if="c.temp"> · {{ c.temp }}°C</span>
             </template>
             <div class="core-block" :class="coreClass(c.util)">
               <div class="core-fill" :style="{height: c.util + '%'}"></div>
               <span class="core-text">{{ c.util > 60 ? c.util : (c.util > 25 ? c.util : '') }}</span>
             </div>
-          </el-tooltip>
+          </a-tooltip>
         </div>
-      </el-card>
+      </a-card>
 
       <!-- ===== GPU cards (GPU servers only) ===== -->
-      <el-card id="detail-gpus" v-if="isGpuServer" class="page-card detail-section">
-        <template #header>
+      <a-card id="detail-gpus" v-if="isGpuServer" class="page-card detail-section">
+        <template #title>
           <div class="detail-card-head">
             <span>GPU ({{ gpus.length }})</span>
             <span style="color:var(--csub);font-size:13px">驱动 {{ metric.gpu_driver || '—' }}</span>
           </div>
         </template>
-        <el-empty v-if="!gpus.length" description="未检测到 GPU（nvidia-smi 不可用）" :image-size="60" />
-        <el-row :gutter="14" v-else>
-          <el-col :span="12" :xs="{ span: 24 }" v-for="g in gpus" :key="g.uuid + g.index">
-            <el-card class="gpu-card" shadow="hover">
+        <a-empty v-if="!gpus.length" description="未检测到 GPU（nvidia-smi 不可用）" />
+        <a-row :gutter="14" v-else>
+          <a-col :span="12" :xs="{ span: 24 }" v-for="g in gpus" :key="g.uuid + g.index">
+            <a-card class="gpu-card">
               <div class="gpu-card-head">
                 <b>GPU {{ g.index }} · {{ g.name }}</b>
                 <div class="gpu-card-tags">
-                  <el-tag v-if="gpuRisk(g.uuid)?.risk >= 30" size="small" :type="gpuRisk(g.uuid).risk >= 60 ? 'danger' : 'warning'" effect="dark">风险 {{ gpuRisk(g.uuid).risk }}</el-tag>
-                  <el-tag v-if="g.throttle_reasons?.length" size="small" type="warning" effect="plain">降频: {{ throttleShort(g.throttle_reasons) }}</el-tag>
-                  <el-tag v-if="g.pstate" size="small" type="info">{{ g.pstate }}</el-tag>
-                  <el-tag v-if="g.compute_mode && g.compute_mode !== 'Default'" size="small" type="warning">{{ g.compute_mode }}</el-tag>
+                  <a-tag v-if="gpuRisk(g.uuid)?.risk >= 30" :color="gpuRisk(g.uuid).risk >= 60 ? 'error' : 'warning'">风险 {{ gpuRisk(g.uuid).risk }}</a-tag>
+                  <a-tag v-if="g.throttle_reasons?.length" color="warning">降频: {{ throttleShort(g.throttle_reasons) }}</a-tag>
+                  <a-tag v-if="g.pstate" color="default">{{ g.pstate }}</a-tag>
+                  <a-tag v-if="g.compute_mode && g.compute_mode !== 'Default'" color="warning">{{ g.compute_mode }}</a-tag>
                 </div>
               </div>
-              <el-descriptions :column="2" size="small" border>
-                <el-descriptions-item label="利用率">
-                  <el-progress :percentage="pct(g.utilization)" :color="utilColor(g.utilization)" :stroke-width="12" style="width:130px" />
-                </el-descriptions-item>
-                <el-descriptions-item label="显存">
-                  <el-progress :percentage="gpuMemPct(g)" :color="utilColor(gpuMemPct(g))" :stroke-width="12" style="width:130px" />
+              <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                <a-descriptions-item label="利用率">
+                  <a-progress :percent="pct(g.utilization)" :stroke-color="utilColor(g.utilization)" :stroke-width="12" style="width:130px" />
+                </a-descriptions-item>
+                <a-descriptions-item label="显存">
+                  <a-progress :percent="gpuMemPct(g)" :stroke-color="utilColor(gpuMemPct(g))" :stroke-width="12" style="width:130px" />
                   <div class="mono" style="font-size:12px">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</div>
-                </el-descriptions-item>
-                <el-descriptions-item label="温度">
+                </a-descriptions-item>
+                <a-descriptions-item label="温度">
                   <span :style="{ color: tempColor(g.temperature) }">{{ g.temperature }}°C</span>
                   <span v-if="g.mem_temperature" style="margin-left:6px;color:var(--csub)">显存 {{ g.mem_temperature }}°C</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="功耗">{{ g.power_draw }} / {{ g.power_limit }} W</el-descriptions-item>
-                <el-descriptions-item label="核心频率">{{ g.clock_graphics ? (g.clock_graphics + ' MHz') : '—' }}<span v-if="g.clock_graphics_max" style="color:var(--csub)"> / {{ g.clock_graphics_max }}</span></el-descriptions-item>
-                <el-descriptions-item label="显存频率">{{ g.clock_memory ? (g.clock_memory + ' MHz') : '—' }}<span v-if="g.clock_memory_max" style="color:var(--csub)"> / {{ g.clock_memory_max }}</span></el-descriptions-item>
-                <el-descriptions-item label="PCIe">Gen{{ g.pcie_gen_current }} x{{ g.pcie_width_current }}<span v-if="g.pcie_gen_max && (g.pcie_gen_current < g.pcie_gen_max || g.pcie_width_current < g.pcie_width_max)" style="color:var(--cyellow)">（应为 Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}，降级!）</span><span v-else-if="g.pcie_gen_max" style="color:var(--csub)"> / Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}</span></el-descriptions-item>
-                <el-descriptions-item label="ECC">
+                </a-descriptions-item>
+                <a-descriptions-item label="功耗">{{ g.power_draw }} / {{ g.power_limit }} W</a-descriptions-item>
+                <a-descriptions-item label="核心频率">{{ g.clock_graphics ? (g.clock_graphics + ' MHz') : '—' }}<span v-if="g.clock_graphics_max" style="color:var(--csub)"> / {{ g.clock_graphics_max }}</span></a-descriptions-item>
+                <a-descriptions-item label="显存频率">{{ g.clock_memory ? (g.clock_memory + ' MHz') : '—' }}<span v-if="g.clock_memory_max" style="color:var(--csub)"> / {{ g.clock_memory_max }}</span></a-descriptions-item>
+                <a-descriptions-item label="PCIe">Gen{{ g.pcie_gen_current }} x{{ g.pcie_width_current }}<span v-if="g.pcie_gen_max && (g.pcie_gen_current < g.pcie_gen_max || g.pcie_width_current < g.pcie_width_max)" style="color:var(--cyellow)">（应为 Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}，降级!）</span><span v-else-if="g.pcie_gen_max" style="color:var(--csub)"> / Gen{{ g.pcie_gen_max }} x{{ g.pcie_width_max }}</span></a-descriptions-item>
+                <a-descriptions-item label="ECC">
                   <span v-if="g.ecc_supported">{{ g.ecc_mode }} · 不可纠正 {{ g.ecc_uncorrected_volatile ?? 0 }}</span>
                   <span v-else style="color:var(--csub)">不支持（消费卡）</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="风扇">{{ g.fan_speed }}%</el-descriptions-item>
-                <el-descriptions-item label="编解码">编码 {{ g.encoder_sessions ?? 0 }} · 解码 {{ g.decoder_sessions ?? 0 }}</el-descriptions-item>
-              </el-descriptions>
+                </a-descriptions-item>
+                <a-descriptions-item label="风扇">{{ g.fan_speed }}%</a-descriptions-item>
+                <a-descriptions-item label="编解码">编码 {{ g.encoder_sessions ?? 0 }} · 解码 {{ g.decoder_sessions ?? 0 }}</a-descriptions-item>
+              </a-descriptions>
               <div v-if="g.processes?.length" style="margin-top:8px">
                 <div style="font-size:12px;color:var(--csub);margin-bottom:4px">GPU 进程</div>
-                <el-table class="desktop-only" :data="g.processes" size="small" max-height="220">
-                  <el-table-column prop="pid" label="PID" width="80" />
-                  <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip />
-                  <el-table-column label="显存" width="100">
-                    <template #default="{ row }">{{ fmtSizeMB(row.mem_mb) }}</template>
-                  </el-table-column>
-                  <el-table-column prop="command" label="进程" min-width="140" show-overflow-tooltip />
-                </el-table>
+                <a-table class="desktop-only" :data-source="g.processes" size="small" :scroll="{ y: 220 }" :pagination="false">
+                  <a-table-column data-index="pid" title="PID" width="80" />
+                  <a-table-column data-index="user" title="用户" width="100" :ellipsis="true" />
+                  <a-table-column title="显存" width="100">
+                    <template #default="{ record: row }">{{ fmtSizeMB(row.mem_mb) }}</template>
+                  </a-table-column>
+                  <a-table-column data-index="command" title="进程" width="140" :ellipsis="true" />
+                </a-table>
                 <div class="mobile-only gpu-process-list">
                   <div v-for="row in g.processes" :key="row.pid" class="gpu-process-item">
                     <div>
@@ -177,198 +182,195 @@
                   </div>
                 </div>
               </div>
-            </el-card>
-          </el-col>
-        </el-row>
-      </el-card>
+            </a-card>
+          </a-col>
+        </a-row>
+      </a-card>
 
       <!-- ===== network & disk IO rates ===== -->
-      <el-row :gutter="14">
-        <el-col :span="12" :xs="{ span: 24 }">
-          <el-card class="page-card">
-            <template #header><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
-            <el-table :data="metric.net_ifaces || []" size="small" max-height="260">
-              <el-table-column prop="iface" label="接口" min-width="110" />
-              <el-table-column label="↓ 接收" width="120">
-                <template #default="{ row }"><span class="mono">{{ fmtNetRate(row.rx_bps) }}</span></template>
-              </el-table-column>
-              <el-table-column label="↑ 发送" width="120">
-                <template #default="{ row }"><span class="mono">{{ fmtNetRate(row.tx_bps) }}</span></template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!(metric.net_ifaces||[]).length" description="暂无活动接口" :image-size="40" />
-          </el-card>
-        </el-col>
-        <el-col :span="12" :xs="{ span: 24 }">
-          <el-card class="page-card">
-            <template #header><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
-            <el-table :data="metric.disk_io || []" size="small" max-height="260">
-              <el-table-column prop="device" label="设备" min-width="90" />
-              <el-table-column label="读" width="110">
-                <template #default="{ row }"><span class="mono">{{ fmtDiskRate(row.read_bps) }}</span></template>
-              </el-table-column>
-              <el-table-column label="写" width="110">
-                <template #default="{ row }"><span class="mono">{{ fmtDiskRate(row.write_bps) }}</span></template>
-              </el-table-column>
-              <el-table-column label="IOPS r/w" width="110">
-                <template #default="{ row }"><span class="mono">{{ row.read_iops }}/{{ row.write_iops }}</span></template>
-              </el-table-column>
-              <el-table-column label="繁忙" width="90">
-                <template #default="{ row }">{{ row.busy_percent }}%</template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!(metric.disk_io||[]).length" description="暂无活动 IO" :image-size="40" />
-          </el-card>
-        </el-col>
-      </el-row>
+      <a-row :gutter="14">
+        <a-col :span="12" :xs="{ span: 24 }">
+          <a-card class="page-card">
+            <template #title><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
+            <a-table :data-source="metric.net_ifaces || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+              <a-table-column data-index="iface" title="接口" width="110" />
+              <a-table-column title="↓ 接收" width="120">
+                <template #default="{ record: row }"><span class="mono">{{ fmtNetRate(row.rx_bps) }}</span></template>
+              </a-table-column>
+              <a-table-column title="↑ 发送" width="120">
+                <template #default="{ record: row }"><span class="mono">{{ fmtNetRate(row.tx_bps) }}</span></template>
+              </a-table-column>
+            </a-table>
+            <a-empty v-if="!(metric.net_ifaces||[]).length" description="暂无活动接口" />
+          </a-card>
+        </a-col>
+        <a-col :span="12" :xs="{ span: 24 }">
+          <a-card class="page-card">
+            <template #title><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
+            <a-table :data-source="metric.disk_io || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+              <a-table-column data-index="device" title="设备" width="90" />
+              <a-table-column title="读" width="110">
+                <template #default="{ record: row }"><span class="mono">{{ fmtDiskRate(row.read_bps) }}</span></template>
+              </a-table-column>
+              <a-table-column title="写" width="110">
+                <template #default="{ record: row }"><span class="mono">{{ fmtDiskRate(row.write_bps) }}</span></template>
+              </a-table-column>
+              <a-table-column title="IOPS r/w" width="110">
+                <template #default="{ record: row }"><span class="mono">{{ row.read_iops }}/{{ row.write_iops }}</span></template>
+              </a-table-column>
+              <a-table-column title="繁忙" width="90">
+                <template #default="{ record: row }">{{ row.busy_percent }}%</template>
+              </a-table-column>
+            </a-table>
+            <a-empty v-if="!(metric.disk_io||[]).length" description="暂无活动 IO" />
+          </a-card>
+        </a-col>
+      </a-row>
 
       <!-- ===== disks + logged users ===== -->
-      <el-row :gutter="14">
-        <el-col :span="16" :xs="{ span: 24 }">
-          <el-card class="page-card">
-            <template #header>磁盘分区</template>
-            <el-table :data="metric.disks || []" size="small" max-height="300">
-              <el-table-column prop="mount" label="挂载点" min-width="130" show-overflow-tooltip />
-              <el-table-column prop="device" label="设备" min-width="110" show-overflow-tooltip class-name="mono" />
-              <el-table-column label="用量" width="200">
-                <template #default="{ row }">
-                  <el-progress :percentage="pct(row.percent)" :color="utilColor(row.percent)" :stroke-width="10" />
+      <a-row :gutter="14">
+        <a-col :span="16" :xs="{ span: 24 }">
+          <a-card class="page-card">
+            <template #title>磁盘分区</template>
+            <a-table :data-source="metric.disks || []" size="small" :scroll="{ y: 300 }" :pagination="false">
+              <a-table-column data-index="mount" title="挂载点" width="130" :ellipsis="true" />
+              <a-table-column data-index="device" title="设备" width="110" :ellipsis="true" class-name="mono" />
+              <a-table-column title="用量" width="200">
+                <template #default="{ record: row }">
+                  <a-progress :percent="pct(row.percent)" :stroke-color="utilColor(row.percent)" :stroke-width="10" />
                 </template>
-              </el-table-column>
-              <el-table-column label="已用/总量" width="140">
-                <template #default="{ row }"><span class="mono">{{ row.used_gb.toFixed(0) }}/{{ row.total_gb.toFixed(0) }} GB</span></template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-        </el-col>
-        <el-col :span="8" :xs="{ span: 24 }">
-          <el-card class="page-card">
-            <template #header>登录用户</template>
-            <el-table :data="metric.users || []" size="small" max-height="260">
-              <el-table-column prop="user" label="用户" width="90" />
-              <el-table-column prop="from" label="来源" min-width="110" show-overflow-tooltip />
-              <el-table-column prop="login" label="登录时间" min-width="110" show-overflow-tooltip />
-            </el-table>
-            <el-empty v-if="!(metric.users||[]).length" description="无登录用户" :image-size="40" />
-          </el-card>
-        </el-col>
-      </el-row>
+              </a-table-column>
+              <a-table-column title="已用/总量" width="140">
+                <template #default="{ record: row }"><span class="mono">{{ row.used_gb.toFixed(0) }}/{{ row.total_gb.toFixed(0) }} GB</span></template>
+              </a-table-column>
+            </a-table>
+          </a-card>
+        </a-col>
+        <a-col :span="8" :xs="{ span: 24 }">
+          <a-card class="page-card">
+            <template #title>登录用户</template>
+            <a-table :data-source="metric.users || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+              <a-table-column data-index="user" title="用户" width="90" />
+              <a-table-column data-index="from" title="来源" width="110" :ellipsis="true" />
+              <a-table-column data-index="login" title="登录时间" width="110" :ellipsis="true" />
+            </a-table>
+            <a-empty v-if="!(metric.users||[]).length" description="无登录用户" />
+          </a-card>
+        </a-col>
+      </a-row>
 
       <!-- ===== live process table (btop parity: sort/kill/renice) ===== -->
-      <el-card v-if="isAdmin" class="page-card">
-        <template #header>
+      <a-card v-if="isAdmin" class="page-card">
+        <template #title>
           <div class="detail-card-head process-card-head">
             <span>进程 (实时 SSH · {{ procs.length }})</span>
             <div class="process-card-actions">
-              <el-radio-group v-model="procSort" size="small" @change="loadProcs">
-                <el-radio-button value="cpu">CPU</el-radio-button>
-                <el-radio-button value="mem">内存</el-radio-button>
-                <el-radio-button value="time">时长</el-radio-button>
-              </el-radio-group>
-              <el-input v-model="procFilter" placeholder="过滤..." size="small" style="width:150px" clearable />
-              <el-button size="small" :icon="Refresh" @click="loadProcs">刷新</el-button>
+              <a-radio-group v-model:value="procSort" size="small" @change="loadProcs">
+                <a-radio-button value="cpu">CPU</a-radio-button>
+                <a-radio-button value="mem">内存</a-radio-button>
+                <a-radio-button value="time">时长</a-radio-button>
+              </a-radio-group>
+              <a-input v-model:value="procFilter" placeholder="过滤..." size="small" style="width:150px" allow-clear />
+              <a-button size="small" @click="loadProcs"><ReloadOutlined />刷新</a-button>
             </div>
           </div>
         </template>
-        <el-table :data="filteredProcs" size="small" max-height="420" v-loading="procsLoading"
-                  :default-sort="{ prop: procSort === 'mem' ? 'rss_mb' : 'cpu', order: 'descending' }">
-          <el-table-column prop="pid" label="PID" width="80" sortable />
-          <el-table-column prop="user" label="用户" width="100" show-overflow-tooltip sortable />
-          <el-table-column prop="cpu" label="CPU%" width="85" sortable>
-            <template #default="{ row }">{{ row.cpu.toFixed(1) }}</template>
-          </el-table-column>
-          <el-table-column prop="rss_mb" label="内存 MB" width="95" sortable>
-            <template #default="{ row }">{{ row.rss_mb.toFixed(0) }}</template>
-          </el-table-column>
-          <el-table-column prop="mem" label="mem%" width="80" sortable>
-            <template #default="{ row }">{{ row.mem.toFixed(1) }}</template>
-          </el-table-column>
-          <el-table-column prop="stat" label="状态" width="70" />
-          <el-table-column label="运行时长" width="95" sortable :sort-method="(a,b)=>a.etimes-b.etimes">
-            <template #default="{ row }">{{ fmtDuration(row.etimes) }}</template>
-          </el-table-column>
-          <el-table-column prop="command" label="命令" min-width="240" show-overflow-tooltip class-name="mono" />
-          <el-table-column v-if="isAdmin" label="操作" width="130" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" type="warning" :disabled="!row.start_ticks" @click="renice(row)">renice</el-button>
-              <el-popconfirm :title="`确定 kill 进程 ${row.pid} (${(row.command || '').slice(0,30)})？`" @confirm="kill(row, 'TERM')">
-                <template #reference>
-                  <el-button size="small" type="danger" :disabled="!row.start_ticks">kill</el-button>
-                </template>
-              </el-popconfirm>
+        <a-table :data-source="filteredProcs" size="small" :scroll="{ y: 420 }" :loading="procsLoading" :pagination="false">
+          <a-table-column data-index="pid" title="PID" width="80" :sorter="(a, b) => a.pid - b.pid" />
+          <a-table-column data-index="user" title="用户" width="100" :ellipsis="true" :sorter="(a, b) => (a.user || '').localeCompare(b.user || '')" />
+          <a-table-column data-index="cpu" title="CPU%" width="85" :sorter="(a, b) => a.cpu - b.cpu">
+            <template #default="{ record: row }">{{ row.cpu.toFixed(1) }}</template>
+          </a-table-column>
+          <a-table-column data-index="rss_mb" title="内存 MB" width="95" :sorter="(a, b) => a.rss_mb - b.rss_mb">
+            <template #default="{ record: row }">{{ row.rss_mb.toFixed(0) }}</template>
+          </a-table-column>
+          <a-table-column data-index="mem" title="mem%" width="80" :sorter="(a, b) => a.mem - b.mem">
+            <template #default="{ record: row }">{{ row.mem.toFixed(1) }}</template>
+          </a-table-column>
+          <a-table-column data-index="stat" title="状态" width="70" />
+          <a-table-column title="运行时长" width="95" :sorter="(a, b) => a.etimes - b.etimes">
+            <template #default="{ record: row }">{{ fmtDuration(row.etimes) }}</template>
+          </a-table-column>
+          <a-table-column data-index="command" title="命令" width="240" :ellipsis="true" class-name="mono" />
+          <a-table-column v-if="isAdmin" title="操作" width="130" fixed="right">
+            <template #default="{ record: row }">
+              <a-button size="small" :disabled="!row.start_ticks" @click="openRenice(row)">renice</a-button>
+              <a-popconfirm :title="`确定 kill 进程 ${row.pid} (${(row.command || '').slice(0,30)})？`" ok-text="继续" cancel-text="取消" @confirm="openKill(row, 'TERM')">
+                <a-button size="small" danger :disabled="!row.start_ticks">kill</a-button>
+              </a-popconfirm>
             </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
+          </a-table-column>
+        </a-table>
+      </a-card>
 
       <!-- ===== history charts (cockpit style, multi-panel) ===== -->
-      <el-card id="detail-trends" class="page-card detail-section">
-        <template #header>
+      <a-card id="detail-trends" class="page-card detail-section">
+        <template #title>
           <div class="detail-card-head trend-card-head">
             <span>资源消耗趋势</span>
-            <el-radio-group v-model="hours" size="small" @change="loadHistory">
-              <el-radio-button :value="1">1小时</el-radio-button>
-              <el-radio-button :value="3">3小时</el-radio-button>
-              <el-radio-button :value="6">6小时</el-radio-button>
-              <el-radio-button :value="24">24小时</el-radio-button>
-              <el-radio-button :value="168">7天</el-radio-button>
-            </el-radio-group>
+            <a-radio-group v-model:value="hours" size="small" @change="loadHistory">
+              <a-radio-button :value="1">1小时</a-radio-button>
+              <a-radio-button :value="3">3小时</a-radio-button>
+              <a-radio-button :value="6">6小时</a-radio-button>
+              <a-radio-button :value="24">24小时</a-radio-button>
+              <a-radio-button :value="168">7天</a-radio-button>
+            </a-radio-group>
           </div>
         </template>
-        <el-row :gutter="14">
-          <el-col v-if="isGpuServer" :span="12" :xs="{ span: 24 }">
+        <a-row :gutter="14">
+          <a-col v-if="isGpuServer" :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
             <v-chart v-if="history.length" :option="gpuChartOption" class="chart-box" autoresize />
-            <el-empty v-else description="暂无历史数据" :image-size="50" />
-          </el-col>
-          <el-col :span="isGpuServer ? 12 : 24" :xs="{ span: 24 }">
+            <a-empty v-else description="暂无历史数据" />
+          </a-col>
+          <a-col :span="isGpuServer ? 12 : 24" :xs="{ span: 24 }">
             <div class="chart-sub-title">CPU / 内存 / Swap / 每核负载</div>
             <v-chart v-if="history.length" :option="sysChartOption" class="chart-box" autoresize />
-            <el-empty v-else description="暂无历史数据" :image-size="50" />
-          </el-col>
-        </el-row>
-        <el-row :gutter="14" style="margin-top:8px">
-          <el-col :span="12" :xs="{ span: 24 }">
+            <a-empty v-else description="暂无历史数据" />
+          </a-col>
+        </a-row>
+        <a-row :gutter="14" style="margin-top:8px">
+          <a-col :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">网络吞吐 (接收 / 发送)<RateUnitPicker kind="net" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="netChartOption" class="chart-box-sm" autoresize />
-          </el-col>
-          <el-col :span="12" :xs="{ span: 24 }">
+          </a-col>
+          <a-col :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (读 / 写)<RateUnitPicker kind="disk" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="diskChartOption" class="chart-box-sm" autoresize />
-          </el-col>
-        </el-row>
-      </el-card>
+          </a-col>
+        </a-row>
+      </a-card>
 
       <!-- ===== enterprise: events / nvme / services / inventory ===== -->
-      <el-card id="detail-enterprise" class="page-card detail-section enterprise-card">
-        <el-tabs v-model="entTab">
-          <el-tab-pane label="内核事件" name="events">
+      <a-card id="detail-enterprise" class="page-card detail-section enterprise-card">
+        <a-tabs v-model:activeKey="entTab">
+          <a-tab-pane tab="内核事件" key="events">
             <div class="enterprise-toolbar">
-              <el-radio-group v-model="evSev" size="small" @change="loadEvents">
-                <el-radio-button value="">全部</el-radio-button>
-                <el-radio-button value="critical">严重</el-radio-button>
-                <el-radio-button value="warning">警告</el-radio-button>
-              </el-radio-group>
-              <el-button size="small" :icon="Refresh" @click="loadEvents">刷新</el-button>
+              <a-radio-group v-model:value="evSev" size="small" @change="loadEvents">
+                <a-radio-button value="">全部</a-radio-button>
+                <a-radio-button value="critical">严重</a-radio-button>
+                <a-radio-button value="warning">警告</a-radio-button>
+              </a-radio-group>
+              <a-button size="small" @click="loadEvents"><ReloadOutlined />刷新</a-button>
               <span class="enterprise-toolbar__hint">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
             </div>
-            <el-table class="desktop-only" :data="events" size="small" max-height="320">
-              <el-table-column label="时间" width="160">
-                <template #default="{ row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
-              </el-table-column>
-              <el-table-column label="级别" width="80">
-                <template #default="{ row }">
-                  <el-tag :type="row.severity === 'critical' ? 'danger' : row.severity === 'warning' ? 'warning' : 'info'" size="small">{{ row.severity }}</el-tag>
+            <a-table class="desktop-only" :data-source="events" size="small" :scroll="{ y: 320 }" :pagination="false">
+              <a-table-column title="时间" width="160">
+                <template #default="{ record: row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
+              </a-table-column>
+              <a-table-column title="级别" width="80">
+                <template #default="{ record: row }">
+                  <a-tag :color="row.severity === 'critical' ? 'error' : row.severity === 'warning' ? 'warning' : 'default'">{{ row.severity }}</a-tag>
                 </template>
-              </el-table-column>
-              <el-table-column prop="event_type" label="类型" width="170">
-                <template #default="{ row }"><b class="mono">{{ row.event_type }}</b><span v-if="row.xid" class="mono" style="margin-left:6px;color:var(--cred)">Xid {{ row.xid }}</span></template>
-              </el-table-column>
-              <el-table-column prop="gpu_uuid" label="GPU" width="130" show-overflow-tooltip>
-                <template #default="{ row }"><span class="mono" style="font-size:11px">{{ row.gpu_uuid ? row.gpu_uuid.slice(0, 16) : '' }}</span></template>
-              </el-table-column>
-              <el-table-column prop="message" label="消息" min-width="400" show-overflow-tooltip />
-            </el-table>
+              </a-table-column>
+              <a-table-column data-index="event_type" title="类型" width="170">
+                <template #default="{ record: row }"><b class="mono">{{ row.event_type }}</b><span v-if="row.xid" class="mono" style="margin-left:6px;color:var(--cred)">Xid {{ row.xid }}</span></template>
+              </a-table-column>
+              <a-table-column data-index="gpu_uuid" title="GPU" width="130" :ellipsis="true">
+                <template #default="{ record: row }"><span class="mono" style="font-size:11px">{{ row.gpu_uuid ? row.gpu_uuid.slice(0, 16) : '' }}</span></template>
+              </a-table-column>
+              <a-table-column data-index="message" title="消息" width="400" :ellipsis="true" />
+            </a-table>
             <div v-if="events.length" class="mobile-only enterprise-event-list">
               <article
                 v-for="row in events"
@@ -381,9 +383,9 @@
                     {{ row.event_type }}
                     <span v-if="row.xid">Xid {{ row.xid }}</span>
                   </div>
-                  <el-tag :type="row.severity === 'critical' ? 'danger' : row.severity === 'warning' ? 'warning' : 'info'" size="small">
+                  <a-tag :color="row.severity === 'critical' ? 'error' : row.severity === 'warning' ? 'warning' : 'default'">
                     {{ row.severity }}
-                  </el-tag>
+                  </a-tag>
                 </div>
                 <p>{{ row.message }}</p>
                 <div class="mobile-data-card__meta">
@@ -392,276 +394,344 @@
                 </div>
               </article>
             </div>
-            <el-empty v-if="!events.length" description="24 小时内无内核异常事件" :image-size="50" />
-          </el-tab-pane>
+            <a-empty v-if="!events.length" description="24 小时内无内核异常事件" />
+          </a-tab-pane>
 
-          <el-tab-pane label="NVMe / 存储" name="nvme">
-            <el-table :data="slowHealth.nvme_smart || []" size="small" max-height="260">
-              <el-table-column prop="device" label="设备" width="110" />
-              <el-table-column label="温度" width="80">
-                <template #default="{ row }">{{ row.temperature ? row.temperature + '°C' : '—' }}</template>
-              </el-table-column>
-              <el-table-column label="健康" width="90">
-                <template #default="{ row }">
-                  <el-tag size="small" :type="row.critical_warning ? 'danger' : (row.available_spare !== undefined && row.available_spare <= (row.available_spare_threshold ?? 10) ? 'warning' : 'success')">
+          <a-tab-pane tab="NVMe / 存储" key="nvme">
+            <a-table :data-source="slowHealth.nvme_smart || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+              <a-table-column data-index="device" title="设备" width="110" />
+              <a-table-column title="温度" width="80">
+                <template #default="{ record: row }">{{ row.temperature ? row.temperature + '°C' : '—' }}</template>
+              </a-table-column>
+              <a-table-column title="健康" width="90">
+                <template #default="{ record: row }">
+                  <a-tag :color="row.critical_warning ? 'error' : (row.available_spare !== undefined && row.available_spare <= (row.available_spare_threshold ?? 10) ? 'warning' : 'success')">
                     {{ row.critical_warning ? '异常' : '正常' }}
-                  </el-tag>
+                  </a-tag>
                 </template>
-              </el-table-column>
-              <el-table-column label="寿命已用" width="100">
-                <template #default="{ row }">{{ row.percentage_used !== undefined ? row.percentage_used + '%' : '—' }}</template>
-              </el-table-column>
-              <el-table-column label="介质错误" width="90">
-                <template #default="{ row }"><span :style="row.media_errors ? 'color:var(--cred)' : ''">{{ row.media_errors ?? '—' }}</span></template>
-              </el-table-column>
-              <el-table-column label="意外断电" width="90">
-                <template #default="{ row }">{{ row.unsafe_shutdowns ?? '—' }}</template>
-              </el-table-column>
-              <el-table-column label="读/写单元" min-width="150">
-                <template #default="{ row }"><span class="mono" style="font-size:11px">{{ fmtUnits(row.data_units_read) }} / {{ fmtUnits(row.data_units_written) }}</span></template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!(slowHealth.nvme_smart||[]).length" description="未检测到 NVMe 设备（或无 nvme-cli 权限）" :image-size="50" />
+              </a-table-column>
+              <a-table-column title="寿命已用" width="100">
+                <template #default="{ record: row }">{{ row.percentage_used !== undefined ? row.percentage_used + '%' : '—' }}</template>
+              </a-table-column>
+              <a-table-column title="介质错误" width="90">
+                <template #default="{ record: row }"><span :style="row.media_errors ? 'color:var(--cred)' : ''">{{ row.media_errors ?? '—' }}</span></template>
+              </a-table-column>
+              <a-table-column title="意外断电" width="90">
+                <template #default="{ record: row }">{{ row.unsafe_shutdowns ?? '—' }}</template>
+              </a-table-column>
+              <a-table-column title="读/写单元" width="150">
+                <template #default="{ record: row }"><span class="mono" style="font-size:11px">{{ fmtUnits(row.data_units_read) }} / {{ fmtUnits(row.data_units_written) }}</span></template>
+              </a-table-column>
+            </a-table>
+            <a-empty v-if="!(slowHealth.nvme_smart||[]).length" description="未检测到 NVMe 设备（或无 nvme-cli 权限）" />
             <template v-if="(slowHealth.mdraid?.arrays||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">RAID 阵列</div>
-              <el-table :data="slowHealth.mdraid.arrays" size="small" max-height="240">
-                <el-table-column prop="name" label="阵列" width="100" />
-                <el-table-column prop="level" label="级别" width="80" />
-                <el-table-column label="状态" width="120">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="row.degraded ? 'danger' : 'success'">{{ row.state }} ({{ row.active_disks }}/{{ row.total_disks }})</el-tag>
+              <a-table :data-source="slowHealth.mdraid.arrays" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table-column data-index="name" title="阵列" width="100" />
+                <a-table-column data-index="level" title="级别" width="80" />
+                <a-table-column title="状态" width="120">
+                  <template #default="{ record: row }">
+                    <a-tag :color="row.degraded ? 'error' : 'success'">{{ row.state }} ({{ row.active_disks }}/{{ row.total_disks }})</a-tag>
                   </template>
-                </el-table-column>
-                <el-table-column label="重建进度" width="120">
-                  <template #default="{ row }">{{ row.recovery_percent !== undefined ? row.recovery_percent + '%' : '—' }}</template>
-                </el-table-column>
-              </el-table>
+                </a-table-column>
+                <a-table-column title="重建进度" width="120">
+                  <template #default="{ record: row }">{{ row.recovery_percent !== undefined ? row.recovery_percent + '%' : '—' }}</template>
+                </a-table-column>
+              </a-table>
             </template>
             <template v-if="(slowHealth.nfs_mounts||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">NFS / 共享存储挂载</div>
-              <el-table :data="slowHealth.nfs_mounts" size="small" max-height="240">
-                <el-table-column prop="server" label="服务器" width="140" />
-                <el-table-column prop="export" label="导出路径" min-width="160" show-overflow-tooltip />
-                <el-table-column prop="mount" label="挂载点" min-width="140" show-overflow-tooltip />
-                <el-table-column prop="type" label="类型" width="90" />
-              </el-table>
+              <a-table :data-source="slowHealth.nfs_mounts" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table-column data-index="server" title="服务器" width="140" />
+                <a-table-column data-index="export" title="导出路径" width="160" :ellipsis="true" />
+                <a-table-column data-index="mount" title="挂载点" width="140" :ellipsis="true" />
+                <a-table-column data-index="type" title="类型" width="90" />
+              </a-table>
             </template>
-          </el-tab-pane>
+          </a-tab-pane>
 
-          <el-tab-pane label="服务 / MIG" name="services">
-            <el-row :gutter="14">
-              <el-col :span="12" :xs="{ span: 24 }">
+          <a-tab-pane tab="服务 / MIG" key="services">
+            <a-row :gutter="14">
+              <a-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">关键服务状态</div>
-                <el-table :data="serviceRows" size="small" max-height="240">
-                  <el-table-column prop="name" label="服务" width="180" />
-                  <el-table-column label="状态" width="110">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="row.state === 'active' ? 'success' : row.state === 'inactive' ? 'info' : 'danger'">{{ row.state }}</el-tag>
+                <a-table :data-source="serviceRows" size="small" :scroll="{ y: 240 }" :pagination="false">
+                  <a-table-column data-index="name" title="服务" width="180" />
+                  <a-table-column title="状态" width="110">
+                    <template #default="{ record: row }">
+                      <a-tag :color="row.state === 'active' ? 'success' : row.state === 'inactive' ? 'default' : 'error'">{{ row.state }}</a-tag>
                     </template>
-                  </el-table-column>
-                </el-table>
+                  </a-table-column>
+                </a-table>
                 <template v-if="(slowHealth.systemd_failed||[]).length">
                   <div class="chart-sub-title" style="color:var(--cred)">失败的 systemd 单元</div>
-                  <el-table :data="slowHealth.systemd_failed" size="small" max-height="240">
-                    <el-table-column prop="unit" label="单元" min-width="200" />
-                    <el-table-column prop="active" label="状态" width="90" />
-                  </el-table>
+                  <a-table :data-source="slowHealth.systemd_failed" size="small" :scroll="{ y: 240 }" :pagination="false">
+                    <a-table-column data-index="unit" title="单元" width="200" />
+                    <a-table-column data-index="active" title="状态" width="90" />
+                  </a-table>
                 </template>
-              </el-col>
-              <el-col :span="12" :xs="{ span: 24 }">
+              </a-col>
+              <a-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">MIG（多实例 GPU）</div>
-                <el-table :data="slowHealth.mig || []" size="small" max-height="240">
-                  <el-table-column prop="gpu_index" label="GPU" width="70" />
-                  <el-table-column label="MIG 模式" width="120">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="row.mode === 'Enabled' ? 'success' : 'info'">{{ row.mode }}</el-tag>
+                <a-table :data-source="slowHealth.mig || []" size="small" :scroll="{ y: 240 }" :pagination="false">
+                  <a-table-column data-index="gpu_index" title="GPU" width="70" />
+                  <a-table-column title="MIG 模式" width="120">
+                    <template #default="{ record: row }">
+                      <a-tag :color="row.mode === 'Enabled' ? 'success' : 'default'">{{ row.mode }}</a-tag>
                     </template>
-                  </el-table-column>
-                </el-table>
-                <el-empty v-if="!(slowHealth.mig||[]).length" description="无 MIG 支持 / 未启用" :image-size="40" />
+                  </a-table-column>
+                </a-table>
+                <a-empty v-if="!(slowHealth.mig||[]).length" description="无 MIG 支持 / 未启用" />
                 <div class="chart-sub-title" style="margin-top:10px">IPMI / BMC 传感器</div>
-                <el-table :data="(slowHealth.ipmi||[]).slice(0, 8)" size="small" max-height="240">
-                  <el-table-column prop="name" label="传感器" min-width="140" show-overflow-tooltip />
-                  <el-table-column prop="value" label="值" width="90" />
-                  <el-table-column prop="unit" label="单位" width="80" />
-                </el-table>
-                <el-empty v-if="!(slowHealth.ipmi||[]).length" description="无 IPMI 数据（需要 ipmitool 权限）" :image-size="40" />
-              </el-col>
-            </el-row>
-          </el-tab-pane>
+                <a-table :data-source="(slowHealth.ipmi||[]).slice(0, 8)" size="small" :scroll="{ y: 240 }" :pagination="false">
+                  <a-table-column data-index="name" title="传感器" width="140" :ellipsis="true" />
+                  <a-table-column data-index="value" title="值" width="90" />
+                  <a-table-column data-index="unit" title="单位" width="80" />
+                </a-table>
+                <a-empty v-if="!(slowHealth.ipmi||[]).length" description="无 IPMI 数据（需要 ipmitool 权限）" />
+              </a-col>
+            </a-row>
+          </a-tab-pane>
 
-          <el-tab-pane label="资产 / 拓扑" name="inventory">
-            <el-descriptions v-if="inventory.machine_id" :column="3" border size="small">
-              <el-descriptions-item label="Machine ID"><span class="mono" style="font-size:11px">{{ inventory.machine_id }}</span></el-descriptions-item>
-              <el-descriptions-item label="厂商/型号">{{ (inventory.dmi||{}).sys_vendor }} {{ (inventory.dmi||{}).product_name }}</el-descriptions-item>
-              <el-descriptions-item label="序列号"><span class="mono" style="font-size:11px">{{ (inventory.dmi||{}).product_serial }}</span></el-descriptions-item>
-              <el-descriptions-item label="BIOS">{{ (inventory.dmi||{}).bios_version }} ({{ (inventory.dmi||{}).bios_date }})</el-descriptions-item>
-              <el-descriptions-item label="CPU">{{ (inventory.lscpu||{}).model_name }}</el-descriptions-item>
-              <el-descriptions-item label="插槽/核心">{{ (inventory.lscpu||{}).sockets }} 路 / {{ (inventory.lscpu||{}).cores_per_socket }} 核</el-descriptions-item>
-              <el-descriptions-item label="NUMA 节点">{{ ((inventory.numa||{}).nodes||[]).map(n => `node${n.id}: ${n.cpus} (${n.mem_gb}GB)`).join('；') || (inventory.lscpu||{}).numa_nodes }}</el-descriptions-item>
-              <el-descriptions-item label="时间同步">{{ (inventory.time_info||{}).system_clock_synchronized === 'yes' ? 'NTP 已同步' : '未同步' }}</el-descriptions-item>
-              <el-descriptions-item label="IP">{{ (inventory.ip_addrs||[]).join(' · ') }}</el-descriptions-item>
-            </el-descriptions>
+          <a-tab-pane tab="资产 / 拓扑" key="inventory">
+            <a-descriptions v-if="inventory.machine_id" :column="3" bordered size="small">
+              <a-descriptions-item label="Machine ID"><span class="mono" style="font-size:11px">{{ inventory.machine_id }}</span></a-descriptions-item>
+              <a-descriptions-item label="厂商/型号">{{ (inventory.dmi||{}).sys_vendor }} {{ (inventory.dmi||{}).product_name }}</a-descriptions-item>
+              <a-descriptions-item label="序列号"><span class="mono" style="font-size:11px">{{ (inventory.dmi||{}).product_serial }}</span></a-descriptions-item>
+              <a-descriptions-item label="BIOS">{{ (inventory.dmi||{}).bios_version }} ({{ (inventory.dmi||{}).bios_date }})</a-descriptions-item>
+              <a-descriptions-item label="CPU">{{ (inventory.lscpu||{}).model_name }}</a-descriptions-item>
+              <a-descriptions-item label="插槽/核心">{{ (inventory.lscpu||{}).sockets }} 路 / {{ (inventory.lscpu||{}).cores_per_socket }} 核</a-descriptions-item>
+              <a-descriptions-item label="NUMA 节点">{{ ((inventory.numa||{}).nodes||[]).map(n => `node${n.id}: ${n.cpus} (${n.mem_gb}GB)`).join('；') || (inventory.lscpu||{}).numa_nodes }}</a-descriptions-item>
+              <a-descriptions-item label="时间同步">{{ (inventory.time_info||{}).system_clock_synchronized === 'yes' ? 'NTP 已同步' : '未同步' }}</a-descriptions-item>
+              <a-descriptions-item label="IP">{{ (inventory.ip_addrs||[]).join(' · ') }}</a-descriptions-item>
+            </a-descriptions>
             <div v-if="inventory.gpu_topology" class="chart-sub-title" style="margin-top:14px">GPU 拓扑（nvidia-smi topo -m）</div>
             <pre v-if="inventory.gpu_topology" class="topo-pre">{{ inventory.gpu_topology }}</pre>
             <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
-            <el-row :gutter="14">
-              <el-col :span="12" :xs="{ span: 24 }">
-                <el-table :data="(inventory.disks||[]).slice(0, 12)" size="small" max-height="300">
-                  <el-table-column prop="name" label="磁盘" width="90" />
-                  <el-table-column prop="size" label="容量" width="90" />
-                  <el-table-column prop="type" label="类型" width="80" />
-                  <el-table-column prop="model" label="型号" min-width="140" show-overflow-tooltip />
-                </el-table>
-              </el-col>
-              <el-col :span="12" :xs="{ span: 24 }">
-                <el-table :data="physicalNics" size="small" max-height="240">
-                  <el-table-column prop="name" label="网卡" width="110" />
-                  <el-table-column prop="mac" label="MAC" min-width="140">
-                    <template #default="{ row }"><span class="mono" style="font-size:11px">{{ row.mac }}</span></template>
-                  </el-table-column>
-                  <el-table-column prop="state" label="状态" width="80" />
-                  <el-table-column prop="speed" label="速率" width="80" />
-                </el-table>
-              </el-col>
-            </el-row>
-          </el-tab-pane>
+            <a-row :gutter="14">
+              <a-col :span="12" :xs="{ span: 24 }">
+                <a-table :data-source="(inventory.disks||[]).slice(0, 12)" size="small" :scroll="{ y: 300 }" :pagination="false">
+                  <a-table-column data-index="name" title="磁盘" width="90" />
+                  <a-table-column data-index="size" title="容量" width="90" />
+                  <a-table-column data-index="type" title="类型" width="80" />
+                  <a-table-column data-index="model" title="型号" width="140" :ellipsis="true" />
+                </a-table>
+              </a-col>
+              <a-col :span="12" :xs="{ span: 24 }">
+                <a-table :data-source="physicalNics" size="small" :scroll="{ y: 240 }" :pagination="false">
+                  <a-table-column data-index="name" title="网卡" width="110" />
+                  <a-table-column data-index="mac" title="MAC" width="140">
+                    <template #default="{ record: row }"><span class="mono" style="font-size:11px">{{ row.mac }}</span></template>
+                  </a-table-column>
+                  <a-table-column data-index="state" title="状态" width="80" />
+                  <a-table-column data-index="speed" title="速率" width="80" />
+                </a-table>
+              </a-col>
+            </a-row>
+          </a-tab-pane>
 
-          <el-tab-pane label="带外 IPMI" name="ipmi">
+          <a-tab-pane tab="带外 IPMI" key="ipmi">
             <div v-if="!server?.has_bmc" style="padding:20px;text-align:center;color:var(--csub)">
               未配置带外管理。请在「编辑服务器」中填写 BMC 地址 / 账号，即可从监控主机直连 IPMI（关机 / 宕机也能监控）。
             </div>
             <template v-else-if="ipmi?.snapshot">
-              <el-alert v-if="!ipmi.snapshot.ok" type="error" :closable="false" show-icon
-                :title="`BMC 连接失败：${ipmi.snapshot.error}`" style="margin-bottom:12px" />
-              <el-row :gutter="12" style="margin-bottom:12px">
-                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></el-col>
-              </el-row>
-              <el-row :gutter="12">
-                <el-col :span="12" :xs="24">
+              <a-alert v-if="!ipmi.snapshot.ok" type="error" :closable="false" show-icon
+                :message="`BMC 连接失败：${ipmi.snapshot.error}`" style="margin-bottom:12px" />
+              <a-row :gutter="12" style="margin-bottom:12px">
+                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></a-col>
+              </a-row>
+              <a-row :gutter="12">
+                <a-col :span="12" :xs="24">
                   <div class="chart-sub-title">BMC 信息（mc info）</div>
-                  <el-descriptions :column="1" border size="small">
-                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.mc_info" :key="k" :label="k">{{ v }}</el-descriptions-item>
-                  </el-descriptions>
+                  <a-descriptions :column="1" bordered size="small">
+                    <a-descriptions-item v-for="(v, k) in ipmi.snapshot.mc_info" :key="k" :label="k">{{ v }}</a-descriptions-item>
+                  </a-descriptions>
                   <div class="chart-sub-title" style="margin-top:10px">机箱状态（chassis）</div>
-                  <el-descriptions :column="1" border size="small">
-                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.chassis" :key="k" :label="k">{{ v }}</el-descriptions-item>
-                  </el-descriptions>
+                  <a-descriptions :column="1" bordered size="small">
+                    <a-descriptions-item v-for="(v, k) in ipmi.snapshot.chassis" :key="k" :label="k">{{ v }}</a-descriptions-item>
+                  </a-descriptions>
                   <div class="chart-sub-title" style="margin-top:10px">功耗统计（dcmi power）</div>
-                  <el-descriptions :column="1" border size="small">
-                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.power" :key="k" :label="k">{{ v }}</el-descriptions-item>
-                  </el-descriptions>
+                  <a-descriptions :column="1" bordered size="small">
+                    <a-descriptions-item v-for="(v, k) in ipmi.snapshot.power" :key="k" :label="k">{{ v }}</a-descriptions-item>
+                  </a-descriptions>
                   <div class="chart-sub-title" style="margin-top:10px">BMC 网络（lan）</div>
-                  <el-descriptions :column="1" border size="small">
-                    <el-descriptions-item v-for="(v, k) in ipmi.snapshot.lan" :key="k" :label="k">{{ v }}</el-descriptions-item>
-                  </el-descriptions>
-                </el-col>
-                <el-col :span="12" :xs="24">
+                  <a-descriptions :column="1" bordered size="small">
+                    <a-descriptions-item v-for="(v, k) in ipmi.snapshot.lan" :key="k" :label="k">{{ v }}</a-descriptions-item>
+                  </a-descriptions>
+                </a-col>
+                <a-col :span="12" :xs="24">
                   <div class="chart-sub-title">全部传感器（sdr）</div>
-                  <el-table :data="ipmi.snapshot.sensors || []" size="small" max-height="300">
-                    <el-table-column prop="name" label="传感器" min-width="130" show-overflow-tooltip />
-                    <el-table-column prop="reading" label="读数" width="130" show-overflow-tooltip />
-                    <el-table-column label="状态" width="80">
-                      <template #default="{ row }">
-                        <el-tag size="small" :type="row.status === 'ok' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+                  <a-table :data-source="ipmi.snapshot.sensors || []" size="small" :scroll="{ y: 300 }" :pagination="false">
+                    <a-table-column data-index="name" title="传感器" width="130" :ellipsis="true" />
+                    <a-table-column data-index="reading" title="读数" width="130" :ellipsis="true" />
+                    <a-table-column title="状态" width="80">
+                      <template #default="{ record: row }">
+                        <a-tag :color="row.status === 'ok' ? 'success' : 'error'">{{ row.status }}</a-tag>
                       </template>
-                    </el-table-column>
-                  </el-table>
+                    </a-table-column>
+                  </a-table>
                   <div class="chart-sub-title" style="margin-top:10px">硬件事件日志（SEL，新→旧）</div>
-                  <el-table :data="(ipmi.snapshot.sel || []).slice().reverse()" size="small" max-height="260">
-                    <el-table-column prop="record" label="#" width="56" />
-                    <el-table-column label="时间" width="150">
-                      <template #default="{ row }"><span class="mono">{{ row.date }} {{ row.time }}</span></template>
-                    </el-table-column>
-                    <el-table-column prop="event" label="事件" min-width="180" show-overflow-tooltip />
-                  </el-table>
-                  <el-empty v-if="!(ipmi.snapshot.sel || []).length" description="无 SEL 事件" :image-size="40" />
+                  <a-table :data-source="(ipmi.snapshot.sel || []).slice().reverse()" size="small" :scroll="{ y: 260 }" :pagination="false">
+                    <a-table-column data-index="record" title="#" width="56" />
+                    <a-table-column title="时间" width="150">
+                      <template #default="{ record: row }"><span class="mono">{{ row.date }} {{ row.time }}</span></template>
+                    </a-table-column>
+                    <a-table-column data-index="event" title="事件" width="180" :ellipsis="true" />
+                  </a-table>
+                  <a-empty v-if="!(ipmi.snapshot.sel || []).length" description="无 SEL 事件" />
                   <div class="chart-sub-title" style="margin-top:10px">FRU 资产信息</div>
-                  <el-descriptions v-for="(f, i) in ipmi.snapshot.fru" :key="i" :column="1" border size="small" style="margin-bottom:8px">
-                    <el-descriptions-item v-for="(v, k) in f" :key="k" :label="k">{{ v }}</el-descriptions-item>
-                  </el-descriptions>
-                  <el-empty v-if="!(ipmi.snapshot.fru || []).length" description="无 FRU 信息" :image-size="40" />
-                </el-col>
-              </el-row>
+                  <a-descriptions v-for="(f, i) in ipmi.snapshot.fru" :key="i" :column="1" bordered size="small" style="margin-bottom:8px">
+                    <a-descriptions-item v-for="(v, k) in f" :key="k" :label="k">{{ v }}</a-descriptions-item>
+                  </a-descriptions>
+                  <a-empty v-if="!(ipmi.snapshot.fru || []).length" description="无 FRU 信息" />
+                </a-col>
+              </a-row>
             </template>
-            <el-empty v-else description="等待首次 IPMI 采集（每 5 分钟一次）" :image-size="60" />
-          </el-tab-pane>
+            <a-empty v-else description="等待首次 IPMI 采集（每 5 分钟一次）" />
+          </a-tab-pane>
 
-          <el-tab-pane label="台账" name="notes">
+          <a-tab-pane tab="台账" key="notes">
             <div v-if="isAdmin" style="display:flex;gap:8px;margin-bottom:12px">
-              <el-select v-model="noteKind" size="small" style="width:110px">
-                <el-option value="note" label="备注" />
-                <el-option value="maintenance" label="维护" />
-                <el-option value="repair" label="维修" />
-              </el-select>
-              <el-input v-model="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
-              <el-button size="small" type="primary" :loading="noteSaving" @click="addNote">记录</el-button>
+              <a-select v-model:value="noteKind" size="small" style="width:110px">
+                <a-option value="note" label="备注" />
+                <a-option value="maintenance" label="维护" />
+                <a-option value="repair" label="维修" />
+              </a-select>
+              <a-input v-model:value="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
+              <a-button size="small" type="primary" :loading="noteSaving" @click="addNote">记录</a-button>
             </div>
-            <el-table :data="notes" size="small" max-height="320">
-              <el-table-column label="时间" width="160">
-                <template #default="{ row }"><span class="mono">{{ fmtTime(row.ts) }}</span></template>
-              </el-table-column>
-              <el-table-column label="类型" width="80">
-                <template #default="{ row }">
-                  <el-tag size="small" :type="row.kind === 'repair' ? 'danger' : row.kind === 'maintenance' ? 'warning' : 'info'">
+            <a-table :data-source="notes" size="small" :scroll="{ y: 320 }" :pagination="false">
+              <a-table-column title="时间" width="160">
+                <template #default="{ record: row }"><span class="mono">{{ fmtTime(row.ts) }}</span></template>
+              </a-table-column>
+              <a-table-column title="类型" width="80">
+                <template #default="{ record: row }">
+                  <a-tag :color="row.kind === 'repair' ? 'error' : row.kind === 'maintenance' ? 'warning' : 'default'">
                     {{ { note: '备注', maintenance: '维护', repair: '维修' }[row.kind] || row.kind }}
-                  </el-tag>
+                  </a-tag>
                 </template>
-              </el-table-column>
-              <el-table-column prop="username" label="操作人" width="100" />
-              <el-table-column prop="content" label="内容" min-width="300" show-overflow-tooltip />
-            </el-table>
-            <el-empty v-if="!notes.length" description="暂无记录" :image-size="50" />
-          </el-tab-pane>
+              </a-table-column>
+              <a-table-column data-index="username" title="操作人" width="100" />
+              <a-table-column data-index="content" title="内容" width="300" :ellipsis="true" />
+            </a-table>
+            <a-empty v-if="!notes.length" description="暂无记录" />
+          </a-tab-pane>
 
-          <el-tab-pane label="采集健康" name="collect">
+          <a-tab-pane tab="采集健康" key="collect">
             <template v-if="collectHealth">
-              <el-row :gutter="14">
-                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+              <a-row :gutter="14">
+                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value" :style="{ color: collectHealth.success_rate >= 95 ? 'var(--cgreen)' : 'var(--cred)' }">{{ collectHealth.success_rate }}%</div>
                   <div class="stat-label">24h 采集成功率</div>
-                </div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                </div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.ok }}/{{ collectHealth.total }}</div>
                   <div class="stat-label">成功/总次数</div>
-                </div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                </div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_ssh_latency }}s</div>
                   <div class="stat-label">平均 SSH 延迟</div>
-                </div></el-col>
-                <el-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                </div></a-col>
+                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_duration }}s</div>
                   <div class="stat-label">平均采集耗时</div>
-                </div></el-col>
-              </el-row>
+                </div></a-col>
+              </a-row>
               <template v-if="Object.keys(collectHealth.errors || {}).length">
                 <div class="chart-sub-title" style="margin-top:14px;color:var(--cyellow)">错误分布</div>
-                <el-table :data="Object.entries(collectHealth.errors).map(([code, n]) => ({ code, n }))" size="small" max-height="200">
-                  <el-table-column prop="code" label="错误码" width="220" class-name="mono" />
-                  <el-table-column prop="n" label="次数" width="120" />
-                </el-table>
+                <a-table :data-source="Object.entries(collectHealth.errors).map(([code, n]) => ({ code, n }))" size="small" :scroll="{ y: 200 }" :pagination="false">
+                  <a-table-column data-index="code" title="错误码" width="220" class-name="mono" />
+                  <a-table-column data-index="n" title="次数" width="120" />
+                </a-table>
               </template>
               <div v-else style="margin-top:12px;color:var(--csub);font-size:12px">24 小时内无采集错误</div>
             </template>
-            <el-empty v-else description="暂无数据" :image-size="50" />
-          </el-tab-pane>
-        </el-tabs>
-      </el-card>
+            <a-empty v-else description="暂无数据" />
+          </a-tab-pane>
+        </a-tabs>
+      </a-card>
     </template>
-    <el-alert v-else-if="loadError" type="error" show-icon :closable="false" style="margin-bottom:14px"
-              :title="`数据加载失败：${loadError}`" />
-    <el-empty v-else-if="!loading" description="暂无采集数据，请等待采集周期或点击「立即采集」" />
+    <a-alert v-else-if="loadError" type="error" show-icon :closable="false" style="margin-bottom:14px"
+              :message="`数据加载失败：${loadError}`" />
+    <a-empty v-else-if="!loading" description="暂无采集数据，请等待采集周期或点击「立即采集」" />
   </div>
+  </a-spin>
+
+  <a-modal
+    v-model:open="statusModalOpen"
+    title="变更服务器状态"
+    :confirm-loading="actionSaving"
+    ok-text="确认变更"
+    cancel-text="取消"
+    @ok="submitStatus"
+  >
+    <a-alert
+      :message="`将服务器状态切换为「${statusCn[pendingStatus] || pendingStatus}」`"
+      type="info"
+      show-icon
+      style="margin-bottom:16px"
+    />
+    <a-form layout="vertical">
+      <a-form-item label="变更原因" required>
+        <a-textarea
+          v-model:value="statusReason"
+          :rows="3"
+          :maxlength="500"
+          show-count
+          placeholder="例如：更换 3 号 GPU / 系统重装"
+        />
+      </a-form-item>
+    </a-form>
+  </a-modal>
+
+  <a-modal
+    v-model:open="killModalOpen"
+    title="敏感操作再次认证"
+    :confirm-loading="actionSaving"
+    :ok-button-props="{ danger: true }"
+    ok-text="发送信号"
+    cancel-text="取消"
+    @ok="submitKill"
+  >
+    <a-alert
+      :message="`将向进程 ${pendingProcess?.pid || '—'} 发送 ${pendingSignal}`"
+      type="warning"
+      show-icon
+      style="margin-bottom:16px"
+    />
+    <a-form layout="vertical">
+      <a-form-item label="当前管理员密码" required>
+        <a-input-password v-model:value="reauthPassword" placeholder="请输入当前密码" @keyup.enter="submitKill" />
+      </a-form-item>
+    </a-form>
+  </a-modal>
+
+  <a-modal
+    v-model:open="reniceModalOpen"
+    title="调整进程优先级"
+    :confirm-loading="actionSaving"
+    ok-text="确认调整"
+    cancel-text="取消"
+    @ok="submitRenice"
+  >
+    <a-form layout="vertical">
+      <a-form-item :label="`进程 ${pendingProcess?.pid || '—'} 的 nice 值`" required>
+        <a-input-number v-model:value="reniceValue" :min="-20" :max="19" style="width:100%" />
+      </a-form-item>
+      <a-form-item label="当前管理员密码" required>
+        <a-input-password v-model:value="reauthPassword" placeholder="请输入当前密码" @keyup.enter="submitRenice" />
+      </a-form-item>
+    </a-form>
+  </a-modal>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { App as AntApp } from 'ant-design-vue'
+import { ReloadOutlined } from '@ant-design/icons-vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -675,6 +745,7 @@ import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
+const { message } = AntApp.useApp()
 const route = useRoute()
 // reactive: the router reuses this component when navigating between servers
 const serverId = computed(() => Number(route.params.id))
@@ -693,7 +764,7 @@ function loadFail(e) {
   if (now - _lastFailToast < 30000) return
   _lastFailToast = now
   if (e?.response?.status === 401) return  // global interceptor handles logout
-  ElMessage.warning(e?.friendlyMessage || '部分数据加载失败')
+  message.warning(e?.friendlyMessage || '部分数据加载失败')
 }
 
 const unitEpoch = ref(0)
@@ -731,6 +802,16 @@ const notes = ref([])
 const noteInput = ref('')
 const noteKind = ref('note')
 const collectHealth = ref(null)
+const statusModalOpen = ref(false)
+const killModalOpen = ref(false)
+const reniceModalOpen = ref(false)
+const actionSaving = ref(false)
+const pendingStatus = ref('')
+const statusReason = ref('')
+const pendingProcess = ref(null)
+const pendingSignal = ref('TERM')
+const reauthPassword = ref('')
+const reniceValue = ref(10)
 
 async function loadOverview() {
   try {
@@ -802,22 +883,40 @@ function loadEnterprise() {
   loadOverview(); ensureEnterpriseTab(entTab.value)
 }
 
-async function setStatus(status) {
+async function updateStatus(status, reason = '') {
+  actionSaving.value = true
   try {
-    let reason = ''
-    if (status !== 'active') {
-      const { value } = await ElMessageBox.prompt('请填写原因（将记入台账）', '状态变更', {
-        inputPlaceholder: '例如：更换 3 号 GPU / 系统重装', inputValidator: v => !!v?.trim() || '原因不能为空'
-      })
-      reason = value.trim()
-    }
     const { data } = await api.post(`/servers/${serverId.value}/status`, { status, reason })
     server.value = data
-    ElMessage.success(`已切换为「${statusCn[status]}」`)
+    statusModalOpen.value = false
+    statusReason.value = ''
+    message.success(`已切换为「${statusCn[status]}」`)
     loadNotes()
+    return true
   } catch (e) {
-    if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
+    message.error(e?.friendlyMessage || '状态变更失败')
+    return false
+  } finally {
+    actionSaving.value = false
   }
+}
+
+function onStatusMenu({ key }) {
+  if (key === 'active') {
+    updateStatus(key)
+    return
+  }
+  pendingStatus.value = key
+  statusReason.value = ''
+  statusModalOpen.value = true
+}
+
+function submitStatus() {
+  if (!statusReason.value.trim()) {
+    message.warning('请填写变更原因')
+    return
+  }
+  updateStatus(pendingStatus.value, statusReason.value.trim())
 }
 
 const noteSaving = ref(false)
@@ -829,7 +928,7 @@ async function addNote() {
     noteInput.value = ''
     loadNotes()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '记录失败')
+    message.error(e.friendlyMessage || '记录失败')
   } finally {
     noteSaving.value = false
   }
@@ -860,7 +959,7 @@ function throttleShort(reasons) {
   }
   return [...new Set(reasons.map(r => map[r] || r))].join('/')
 }
-function overallTag(s) { return s === 'critical' ? 'danger' : s === 'warning' ? 'warning' : s === 'ok' ? 'success' : 'info' }
+function overallTag(s) { return s === 'critical' ? 'error' : s === 'warning' ? 'warning' : s === 'ok' ? 'success' : 'default' }
 function overallLabel(s) { return { critical: '危急', warning: '警告', ok: '健康', unknown: '未知' }[s] || s }
 function statusLabel(s) { return { critical: '危急', warning: '警告', ok: '正常' }[s] || s }
 
@@ -898,15 +997,15 @@ function gpuMemPct(g) {
 }
 
 function utilColor(v) {
-  if (v >= 90) return '#f56c6c'
-  if (v >= 70) return '#e6a23c'
-  return '#67c23a'
+  if (v >= 90) return '#ff4d4f'
+  if (v >= 70) return '#faad14'
+  return '#52c41a'
 }
 
 function tempColor(t) {
-  if (t >= 80) return '#f56c6c'
-  if (t >= 70) return '#e6a23c'
-  return '#67c23a'
+  if (t >= 80) return '#ff4d4f'
+  if (t >= 70) return '#faad14'
+  return '#52c41a'
 }
 
 function coreClass(util) {
@@ -1013,7 +1112,7 @@ async function load() {
       loadError.value = latest.reason?.friendlyMessage || '加载失败'
     }
   } catch (e) {
-    if (!metric.value) ElMessage.error(e.friendlyMessage || '加载失败')
+    if (!metric.value) message.error(e.friendlyMessage || '加载失败')
   } finally {
     loading.value = false
   }
@@ -1040,47 +1139,84 @@ async function loadProcs() {
       (data) => { procs.value = data.processes }
     )
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '获取进程失败')
+    message.error(e.friendlyMessage || '获取进程失败')
   } finally {
     procsLoading.value = false
   }
 }
 
-async function kill(row, signal) {
+function openKill(row, signal) {
+  pendingProcess.value = row
+  pendingSignal.value = signal
+  reauthPassword.value = ''
+  killModalOpen.value = true
+}
+
+async function submitKill() {
+  if (!reauthPassword.value) {
+    message.warning('请输入当前管理员密码')
+    return
+  }
+  const row = pendingProcess.value
+  if (!row?.start_ticks) {
+    message.error('进程信息已失效，请刷新后重试')
+    return
+  }
+  actionSaving.value = true
   try {
-    const { value: reauth_password } = await ElMessageBox.prompt(
-      `请输入当前管理员密码以确认向进程 ${row.pid} 发送 ${signal}`,
-      '敏感操作再次认证',
-      { inputType: 'password', inputPattern: /.+/, inputErrorMessage: '请输入当前密码' }
-    )
     const { data } = await api.post(`/metrics/server/${serverId.value}/processes/action`, {
-      action: 'kill', pid: row.pid, start_ticks: row.start_ticks, signal, reauth_password
+      action: 'kill',
+      pid: row.pid,
+      start_ticks: row.start_ticks,
+      signal: pendingSignal.value,
+      reauth_password: reauthPassword.value,
     })
-    ElMessage.success(`已发送 ${signal} 到 ${row.pid}: ${data.message}`)
+    killModalOpen.value = false
+    reauthPassword.value = ''
+    message.success(`已发送 ${pendingSignal.value} 到 ${row.pid}: ${data.message}`)
     clearTimeout(killTimer)
     killTimer = setTimeout(loadProcs, 800)
   } catch (e) {
-    if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
+    message.error(e?.friendlyMessage || '进程操作失败')
+  } finally {
+    actionSaving.value = false
   }
 }
 
-async function renice(row) {
+function openRenice(row) {
+  pendingProcess.value = row
+  reniceValue.value = 10
+  reauthPassword.value = ''
+  reniceModalOpen.value = true
+}
+
+async function submitRenice() {
+  if (!reauthPassword.value) {
+    message.warning('请输入当前管理员密码')
+    return
+  }
+  const row = pendingProcess.value
+  if (!row?.start_ticks) {
+    message.error('进程信息已失效，请刷新后重试')
+    return
+  }
+  const nice = Math.max(-20, Math.min(19, Number(reniceValue.value)))
+  actionSaving.value = true
   try {
-    const { value } = await ElMessageBox.prompt(`调整进程 ${row.pid} 的 nice 值 (-20 最高优先级 ~ 19 最低)`, 'Renice', {
-      inputValue: '10', inputPattern: /^-?\d+$/, inputErrorMessage: '请输入 -20 到 19 之间的整数'
-    })
-    const nice = Math.max(-20, Math.min(19, parseInt(value)))
-    const { value: reauth_password } = await ElMessageBox.prompt(
-      `请输入当前管理员密码以确认调整进程 ${row.pid}`,
-      '敏感操作再次认证',
-      { inputType: 'password', inputPattern: /.+/, inputErrorMessage: '请输入当前密码' }
-    )
     await api.post(`/metrics/server/${serverId.value}/processes/action`, {
-      action: 'renice', pid: row.pid, start_ticks: row.start_ticks, nice, reauth_password
+      action: 'renice',
+      pid: row.pid,
+      start_ticks: row.start_ticks,
+      nice,
+      reauth_password: reauthPassword.value,
     })
-    ElMessage.success(`已 renice ${row.pid} -> ${nice}`)
+    reniceModalOpen.value = false
+    reauthPassword.value = ''
+    message.success(`已 renice ${row.pid} -> ${nice}`)
   } catch (e) {
-    if (e !== 'cancel' && e?.friendlyMessage) ElMessage.error(e.friendlyMessage)
+    message.error(e?.friendlyMessage || '进程操作失败')
+  } finally {
+    actionSaving.value = false
   }
 }
 
@@ -1127,6 +1263,7 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 }
 .detail-toolbar { justify-content: space-between; }
 .detail-toolbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.inline-link { height: auto; padding: 0 3px; }
 .detail-jump-nav {
   position: sticky;
   top: 0;
@@ -1187,7 +1324,7 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 }
 .st-ok .health-dot { background: var(--cgreen); }
 .st-warning .health-dot { background: var(--cyellow); }
-.st-critical .health-dot { background: var(--cred); animation: pulse 2s infinite; }
+.st-critical .health-dot { background: var(--cred); }
 .health-status { margin-left: auto; font-size: 11px; color: var(--csub); }
 .health-detail { font-size: 11px; color: var(--csub); margin-top: 4px; line-height: 1.5; }
 .health-children { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -1308,7 +1445,7 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 .ipmi-kpi span { font-size: 11px; color: var(--csub, #64748b); }
 @media (max-width: 768px) {
   .detail-toolbar { align-items: flex-start; }
-  .detail-toolbar :deep(.el-page-header) { flex-basis: 100%; }
+  .detail-toolbar :deep(.ant-page-header) { flex-basis: 100%; }
   .detail-toolbar-actions { width: 100%; }
   .detail-jump-nav { width: 100%; }
   .detail-jump-nav button { flex: 1 0 auto; }
@@ -1317,38 +1454,25 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   .detail-capacity-value { font-size: 16px; line-height: 1.35; }
   .detail-card-head { align-items: flex-start; flex-direction: column; }
   .process-card-actions { width: 100%; justify-content: flex-start; }
-  .process-card-actions :deep(.el-input) { flex: 1 1 130px; width: auto !important; }
-  .trend-card-head :deep(.el-radio-group) { max-width: 100%; overflow-x: auto; }
+  .process-card-actions :deep(.ant-input-affix-wrapper) { flex: 1 1 130px; width: auto !important; }
+  .trend-card-head :deep(.ant-radio-group) { max-width: 100%; overflow-x: auto; white-space: nowrap; }
   .gpu-card-head { flex-direction: column; }
   .gpu-card-tags { justify-content: flex-start; }
-  .gpu-card :deep(.el-card__body) { padding: 14px; }
-  .gpu-card :deep(.el-progress) { max-width: 95px; }
-  .gpu-card :deep(.el-descriptions__table) { width: 100%; table-layout: fixed; }
-  .gpu-card :deep(.el-descriptions__table tbody) { display: block; width: 100%; }
-  .gpu-card :deep(.el-descriptions__table tr) {
-    display: grid;
-    grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
-    width: 100%;
-  }
-  .gpu-card :deep(.el-descriptions__cell) {
-    display: block;
-    width: auto !important;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
+  .gpu-card :deep(.ant-card-body) { padding: 14px; }
+  .gpu-card :deep(.ant-progress) { max-width: 95px; }
+  .gpu-card :deep(.ant-descriptions-item-content) { min-width: 0; overflow-wrap: anywhere; }
   .chart-box { height: 250px; }
   .chart-box-sm { height: 220px; }
-  .enterprise-card :deep(.el-tabs__nav-wrap) { padding: 0 24px; }
-  .enterprise-card :deep(.el-tabs__item) { padding: 0 12px; }
+  .enterprise-card :deep(.ant-tabs-nav-wrap) { padding: 0 24px; }
+  .enterprise-card :deep(.ant-tabs-tab) { padding-inline: 12px; }
   .enterprise-toolbar { align-items: stretch; flex-wrap: wrap; }
-  .enterprise-toolbar :deep(.el-radio-group) { min-width: 220px; flex: 1; flex-wrap: nowrap; }
-  .enterprise-toolbar :deep(.el-radio-button) { flex: 1; }
-  .enterprise-toolbar :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }
+  .enterprise-toolbar :deep(.ant-radio-group) { min-width: 220px; flex: 1; display: flex; flex-wrap: nowrap; }
+  .enterprise-toolbar :deep(.ant-radio-button-wrapper) { flex: 1; padding-inline: 8px; text-align: center; }
   .enterprise-toolbar__hint { width: 100%; }
   .topo-pre { max-height: 260px; }
 }
 @media (max-width: 420px) {
-  .detail-kpi-card :deep(.el-card__body) { padding: 15px 10px; }
+  .detail-kpi-card :deep(.ant-card-body) { padding: 15px 10px; }
   .detail-kpi-card .stat-sub { white-space: normal; overflow-wrap: anywhere; }
   .core-grid { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
   .core-block { height: 52px; }

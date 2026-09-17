@@ -28,6 +28,7 @@ import {
   MenuItem as AntMenuItem,
   Modal as AntModal,
   Empty as AntEmpty,
+  PageHeader as AntPageHeader,
   Popconfirm as AntPopconfirm,
   Pagination as AntPagination,
   Progress as AntProgress,
@@ -46,6 +47,7 @@ import {
   Switch as AntSwitch,
   Table as AntTable,
   TableColumn as AntTableColumn,
+  Tabs as AntTabs,
   Tag as AntTag,
   Tooltip as AntTooltip,
 } from 'ant-design-vue'
@@ -141,6 +143,7 @@ app.use(AntMenu)
 app.use(AntMenuItem)
 app.use(AntModal)
 app.use(AntEmpty)
+app.use(AntPageHeader)
 app.use(AntPopconfirm)
 app.use(AntPagination)
 app.use(AntProgress)
@@ -158,6 +161,7 @@ app.use(AntStatistic)
 app.use(AntSteps)
 app.use(AntTable)
 app.use(AntTableColumn)
+app.use(AntTabs)
 app.use(AntTag)
 app.use(AntSwitch)
 app.use(AntTooltip)
