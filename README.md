@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-基于 **Vue 3 + Element Plus + ECharts + FastAPI + SSH** 的多服务器监控 Docker 应用，
+基于 **Vue 3 + Ant Design Vue + ECharts + FastAPI + SSH** 的多服务器监控 Docker 应用，
 **Agentless 架构**（服务器端零常驻 Agent、零监听端口），指标覆盖对标 **btop** 并扩展
 GPU 数据中心级健康监控（XID / ECC / PCIe / NVMe / RAID / 内核事件 / 风险预测）。
 

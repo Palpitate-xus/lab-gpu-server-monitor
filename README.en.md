@@ -2,7 +2,7 @@
 
 [English](README.en.md) | [中文](README.md)
 
-A multi-server monitoring Docker app built on **Vue 3 + Element Plus + ECharts + FastAPI + SSH**,
+A multi-server monitoring Docker app built on **Vue 3 + Ant Design Vue + ECharts + FastAPI + SSH**,
 with an **agentless architecture** (zero resident agents, zero listening ports on monitored servers).
 Metric coverage is benchmarked against **btop** and extended with data-center-grade GPU health
 monitoring (XID / ECC / PCIe / NVMe / RAID / kernel events / failure prediction).

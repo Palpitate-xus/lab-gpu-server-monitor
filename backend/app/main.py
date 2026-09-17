@@ -420,7 +420,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         # SPA: no inline <script> is used by the Vite build; style-src needs
-        # 'unsafe-inline' for ECharts/Element Plus runtime styles.
+        # 'unsafe-inline' for ECharts/Ant Design Vue runtime styles.
         resp.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
