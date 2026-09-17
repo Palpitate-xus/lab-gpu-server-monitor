@@ -1,95 +1,89 @@
 <template>
   <div class="cockpit">
     <div class="toolbar report-toolbar">
-      <el-radio-group v-model="hours" size="small" @change="load">
-        <el-radio-button :value="24">24小时</el-radio-button>
-        <el-radio-button :value="72">3天</el-radio-button>
-        <el-radio-button :value="168">7天</el-radio-button>
-      </el-radio-group>
-      <el-select v-model="tag" class="report-tag-filter" placeholder="按标签筛选" clearable size="small" aria-label="按服务器标签筛选" @change="load">
-        <el-option v-for="t in allTags" :key="t" :value="t" :label="t" />
-      </el-select>
-      <el-button size="small" :icon="Refresh" @click="load">刷新</el-button>
-      <el-button size="small" :icon="Download" @click="exportCsv">导出 CSV</el-button>
+      <a-radio-group v-model:value="hours" size="small" @change="load">
+        <a-radio-button :value="24">24小时</a-radio-button>
+        <a-radio-button :value="72">3天</a-radio-button>
+        <a-radio-button :value="168">7天</a-radio-button>
+      </a-radio-group>
+      <a-select v-model:value="tag" class="report-tag-filter" placeholder="按标签筛选" allow-clear size="small" aria-label="按服务器标签筛选" @change="load">
+        <a-select-option v-for="t in allTags" :key="t" :value="t">{{ t }}</a-select-option>
+      </a-select>
+      <a-button size="small" @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
+      <a-button size="small" @click="exportCsv"><template #icon><DownloadOutlined /></template>导出 CSV</a-button>
     </div>
 
-    <el-alert v-if="loadError" type="error" show-icon :closable="false" style="margin-top:12px"
-              :title="`数据加载失败：${loadError}`">
-      <el-button size="small" type="primary" plain @click="load">重试</el-button>
-    </el-alert>
+    <a-alert v-if="loadError" type="error" show-icon class="load-alert" :message="`数据加载失败：${loadError}`">
+      <template #action><a-button size="small" danger @click="load">重试</a-button></template>
+    </a-alert>
 
-    <el-row :gutter="14" class="report-kpis">
-      <el-col :span="8" :xs="{ span: 12 }"><el-card class="stat-card report-kpi-card">
-        <div class="stat-value">{{ report?.total_gpu_hours ?? 0 }}</div>
-        <div class="stat-label" title="窗口内">GPU 运行卡时</div>
-      </el-card></el-col>
-      <el-col :span="8" :xs="{ span: 12 }"><el-card class="stat-card report-kpi-card">
-        <div class="stat-value" style="color:var(--cyellow)">{{ report?.total_idle_gpu_hours ?? 0 }}</div>
-        <div class="stat-label" title="显存≥30% 且利用率≈0">空占卡时</div>
-      </el-card></el-col>
-      <el-col :span="8" :xs="{ span: 24 }"><el-card class="stat-card report-kpi-card report-kpi-card--ratio">
-        <div class="stat-value">{{ idleRatio }}%</div>
-        <div class="stat-label" title="空占卡时 / 总卡时">空占占比</div>
-      </el-card></el-col>
-    </el-row>
+    <a-row :gutter="14" class="report-kpis">
+      <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
+        <a-statistic title="GPU 运行卡时" :value="report?.total_gpu_hours ?? 0" />
+      </a-card></a-col>
+      <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
+        <a-statistic title="空占卡时" :value="report?.total_idle_gpu_hours ?? 0" />
+      </a-card></a-col>
+      <a-col :span="8" :xs="24"><a-card class="report-kpi-card report-kpi-card--ratio">
+        <a-statistic title="空占占比" :value="idleRatio" suffix="%" />
+      </a-card></a-col>
+    </a-row>
 
-    <el-card class="page-card report-data-card">
-      <template #header>
+    <a-card class="page-card report-data-card">
+      <template #title>
         <div class="report-card-head">
           <span>按服务器利用率</span>
           <span>{{ hours }}h 窗口 · 每小时聚合数据</span>
         </div>
       </template>
-      <el-table class="desktop-only" :data="report?.servers || []" v-loading="loading" size="small" max-height="560"
-                :default-sort="{ prop: 'idle_held_minutes', order: 'descending' }">
-        <el-table-column label="服务器" min-width="150">
-          <template #default="{ row }">
-            <el-link type="primary" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>
+      <a-table class="desktop-only" :data-source="report?.servers || []" :loading="loading" :pagination="false" size="small" :scroll="{ x: 1000, y: 560 }" row-key="server_id">
+        <a-table-column title="服务器" :width="180" ellipsis>
+          <template #default="{ record: row }">
+            <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
           </template>
-        </el-table-column>
-        <el-table-column label="标签" min-width="120">
-          <template #default="{ row }">
-            <el-tag v-for="t in row.tags" :key="t" size="small" style="margin-right:4px">{{ t }}</el-tag>
+        </a-table-column>
+        <a-table-column title="标签" :width="150">
+          <template #default="{ record: row }">
+            <a-tag v-for="t in row.tags" :key="t">{{ t }}</a-tag>
           </template>
-        </el-table-column>
-        <el-table-column prop="hours_covered" label="覆盖小时" width="100" sortable />
-        <el-table-column label="GPU 平均利用率" width="150" sortable prop="gpu_util_avg">
-          <template #default="{ row }">
-            <el-progress :percentage="Math.min(100, row.gpu_util_avg)" :stroke-width="10"
-                         :color="row.gpu_util_avg >= 60 ? '#67c23a' : row.gpu_util_avg >= 30 ? '#e6a23c' : '#f56c6c'" />
+        </a-table-column>
+        <a-table-column data-index="hours_covered" title="覆盖小时" :width="110" :sorter="numberSorter('hours_covered')" />
+        <a-table-column title="GPU 平均利用率" :width="170" data-index="gpu_util_avg" :sorter="numberSorter('gpu_util_avg')">
+          <template #default="{ record: row }">
+            <a-progress :percent="Math.min(100, row.gpu_util_avg)" :stroke-width="10" :stroke-color="utilColor(row.gpu_util_avg)" />
           </template>
-        </el-table-column>
-        <el-table-column prop="gpu_power_avg_w" label="平均功耗 W" width="110" sortable />
-        <el-table-column prop="idle_held_gpu_hours" label="空占卡时" width="110" sortable />
-        <el-table-column prop="idle_ratio_pct" label="空占占比 %" width="120" sortable>
-          <template #default="{ row }">
+        </a-table-column>
+        <a-table-column data-index="gpu_power_avg_w" title="平均功耗 W" :width="120" :sorter="numberSorter('gpu_power_avg_w')" />
+        <a-table-column data-index="idle_held_gpu_hours" title="空占卡时" :width="120" :sorter="numberSorter('idle_held_gpu_hours')" default-sort-order="descend" />
+        <a-table-column data-index="idle_ratio_pct" title="空占占比 %" :width="130" :sorter="numberSorter('idle_ratio_pct')">
+          <template #default="{ record: row }">
             <span :style="row.idle_ratio_pct > 30 ? 'color:var(--cred);font-weight:600' : ''">{{ row.idle_ratio_pct }}%</span>
           </template>
-        </el-table-column>
-        <el-table-column prop="success_rate" label="采集成功率 %" width="120" sortable />
-      </el-table>
+        </a-table-column>
+        <a-table-column data-index="success_rate" title="采集成功率 %" :width="130" :sorter="numberSorter('success_rate')" />
+      </a-table>
 
-      <div class="mobile-only" v-loading="loading">
+      <a-spin class="mobile-only" :spinning="loading">
         <div v-if="report?.servers?.length" class="mobile-card-list">
           <article v-for="row in report.servers" :key="row.server_id" class="mobile-data-card report-server-card">
             <div class="mobile-data-card__head">
               <div class="mobile-data-card__title">
-                <el-link type="primary" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>
+                <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
               </div>
-              <el-tag :type="row.idle_ratio_pct > 30 ? 'danger' : row.idle_ratio_pct > 10 ? 'warning' : 'success'" size="small">
+              <a-tag :color="row.idle_ratio_pct > 30 ? 'red' : row.idle_ratio_pct > 10 ? 'orange' : 'green'">
                 空占 {{ row.idle_ratio_pct }}%
-              </el-tag>
+              </a-tag>
             </div>
             <div v-if="row.tags?.length" class="report-server-tags">
-              <el-tag v-for="t in row.tags" :key="t" size="small" effect="plain">{{ t }}</el-tag>
+              <a-tag v-for="t in row.tags" :key="t">{{ t }}</a-tag>
             </div>
             <div class="report-util-block">
               <div><span>GPU 平均利用率</span><b>{{ row.gpu_util_avg }}%</b></div>
-              <el-progress
-                :percentage="Math.min(100, row.gpu_util_avg)"
+              <a-progress
+                :percent="Math.min(100, row.gpu_util_avg)"
                 :stroke-width="8"
-                :show-text="false"
-                :color="row.gpu_util_avg >= 60 ? '#67c23a' : row.gpu_util_avg >= 30 ? '#e6a23c' : '#f56c6c'"
+                :show-info="false"
+                :stroke-color="utilColor(row.gpu_util_avg)"
               />
             </div>
             <div class="mobile-data-card__meta">
@@ -100,20 +94,21 @@
             </div>
           </article>
         </div>
-      </div>
-      <el-empty v-if="!loading && !loadError && !(report?.servers?.length)" description="暂无聚合数据（小时级聚合在系统运行满 1 小时后开始产生）" :image-size="60" />
-    </el-card>
+      </a-spin>
+      <a-empty v-if="!loading && !loadError && !(report?.servers?.length)" description="暂无聚合数据（小时级聚合在系统运行满 1 小时后开始产生）" />
+    </a-card>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Download, Refresh } from '@element-plus/icons-vue'
+import { App as AntApp } from 'ant-design-vue'
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { csvRow } from '../csv'
 
 const hours = ref(24)
+const { message } = AntApp.useApp()
 const tag = ref('')
 const loading = ref(false)
 const loadError = ref('')
@@ -125,6 +120,14 @@ const idleRatio = computed(() => {
   if (!r || !r.total_gpu_hours) return 0
   return Math.round(r.total_idle_gpu_hours / r.total_gpu_hours * 1000) / 10
 })
+
+const numberSorter = key => (a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0)
+
+function utilColor(value) {
+  if (value >= 60) return 'var(--cgreen)'
+  if (value >= 30) return 'var(--cyellow)'
+  return 'var(--cred)'
+}
 
 async function load() {
   loading.value = true
@@ -148,7 +151,7 @@ async function loadTags() {
 
 function exportCsv() {
   const rows = report.value?.servers || []
-  if (!rows.length) return ElMessage.info('没有可导出的数据')
+  if (!rows.length) return message.info('没有可导出的数据')
   const head = ['服务器', '标签', '覆盖小时', 'GPU平均利用率%', '平均功耗W', '空占卡时', '空占占比%', '采集成功率%']
   const lines = [csvRow(head)]
   for (const r of rows) {
@@ -170,6 +173,8 @@ onMounted(() => { load(); loadTags() })
 
 <style scoped>
 .report-toolbar { margin-bottom: 0; }
+.load-alert { margin-top: 12px; }
+.table-link { height: auto; padding: 0; }
 .report-tag-filter { width: 160px; }
 .report-kpis { margin-top: 14px; margin-bottom: 14px; }
 .report-card-head {
@@ -204,22 +209,16 @@ onMounted(() => { load(); loadTags() })
 .report-util-block b { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 768px) {
-  .report-toolbar .el-radio-group { width: 100%; }
-  .report-toolbar :deep(.el-radio-button) { flex: 1; }
-  .report-toolbar :deep(.el-radio-button__inner) { width: 100%; }
+  .report-toolbar .ant-radio-group { width: 100%; display: flex; }
+  .report-toolbar :deep(.ant-radio-button-wrapper) { flex: 1; text-align: center; }
   .report-tag-filter { width: 100%; }
-  .report-toolbar > .el-button { flex: 1; margin-left: 0; }
-  .report-kpis .el-col { margin-bottom: 10px; }
+  .report-toolbar > .ant-btn { flex: 1; margin-left: 0; }
+  .report-kpis .ant-col { margin-bottom: 10px; }
   .report-kpis { margin-bottom: 4px; }
-  .report-kpi-card :deep(.el-card__body) { padding: 13px 8px; }
-  .report-kpi-card .stat-value { font-size: 20px; }
-  .report-kpi-card--ratio :deep(.el-card__body) {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 10px;
-  }
+  .report-kpi-card :deep(.ant-card-body) { padding: 13px 8px; }
+  .report-kpi-card :deep(.ant-statistic-title) { font-size: 12px; }
+  .report-kpi-card :deep(.ant-statistic-content) { font-size: 20px; }
   .report-card-head { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .report-data-card :deep(.el-card__body) { padding: 12px; }
+  .report-data-card :deep(.ant-card-body) { padding: 12px; }
 }
 </style>
