@@ -5,6 +5,7 @@ import {
   Avatar as AntAvatar,
   Badge as AntBadge,
   Button as AntButton,
+  ButtonGroup as AntButtonGroup,
   Card as AntCard,
   Col as AntCol,
   ConfigProvider,
@@ -114,6 +115,7 @@ app.use(AntApp)
 app.use(AntAvatar)
 app.use(AntBadge)
 app.use(AntButton)
+app.use(AntButtonGroup)
 app.use(AntCard)
 app.use(AntCol)
 app.use(ConfigProvider)

@@ -1,43 +1,47 @@
 <template>
-  <div class="gm-page" v-loading="loading && !matrix.length">
-    <el-alert v-if="error" type="error" :closable="false" show-icon style="margin-bottom:14px"
-      :title="`数据加载失败：${error}`" />
+  <a-spin :spinning="loading && !matrix.length">
+  <div class="gm-page">
+    <a-alert v-if="error" type="error" show-icon :message="`数据加载失败：${error}`" />
 
     <!-- toolbar -->
-    <div class="gm-toolbar cockpit-panel">
+    <a-card size="small" class="gm-toolbar-card">
+    <div class="gm-toolbar">
       <div class="gm-toolbar-left">
         <b class="gm-title">GPU 资源矩阵</b>
-        <el-tag size="small" effect="plain">共 {{ gpus.length }} 卡</el-tag>
-        <el-tag size="small" type="success" effect="plain">忙 {{ busyCount }}</el-tag>
-        <el-tag size="small" type="warning" effect="plain">闲 {{ idleCount }}</el-tag>
-        <el-tag size="small" type="danger" effect="plain" v-if="offlineServers.length">
+        <a-tag>共 {{ gpus.length }} 卡</a-tag>
+        <a-tag color="green">忙 {{ busyCount }}</a-tag>
+        <a-tag color="orange">闲 {{ idleCount }}</a-tag>
+        <a-tag v-if="offlineServers.length" color="red">
           离线 {{ offlineServers.length }} 台
-        </el-tag>
+        </a-tag>
       </div>
       <div class="gm-toolbar-right">
-        <el-input v-model="search" placeholder="搜索 GPU 型号 / 服务器" clearable size="small"
-          class="gm-filter gm-filter-search" aria-label="搜索 GPU 型号或服务器" :prefix-icon="Search" />
-        <el-select v-model="serverFilter" size="small" class="gm-filter gm-filter-server" placeholder="全部服务器" clearable aria-label="按服务器筛选">
-          <el-option v-for="s in servers" :key="s.server_id" :value="s.server_id" :label="s.server_name" />
-        </el-select>
-        <el-select v-model="stateFilter" size="small" class="gm-filter gm-filter-state" aria-label="按忙闲状态筛选">
-          <el-option value="all" label="全部状态" />
-          <el-option value="busy" label="繁忙" />
-          <el-option value="idle" label="空闲" />
-        </el-select>
-        <el-button-group size="small" class="gm-sort-group" aria-label="GPU 排序方式">
-          <el-button v-for="opt in sortOptions" :key="opt.value"
+        <a-input v-model:value="search" placeholder="搜索 GPU 型号 / 服务器" allow-clear size="small"
+          class="gm-filter gm-filter-search" aria-label="搜索 GPU 型号或服务器">
+          <template #prefix><SearchOutlined /></template>
+        </a-input>
+        <a-select v-model:value="serverFilter" size="small" class="gm-filter gm-filter-server" placeholder="全部服务器" allow-clear aria-label="按服务器筛选">
+          <a-select-option v-for="s in servers" :key="s.server_id" :value="s.server_id">{{ s.server_name }}</a-select-option>
+        </a-select>
+        <a-select v-model:value="stateFilter" size="small" class="gm-filter gm-filter-state" aria-label="按忙闲状态筛选">
+          <a-select-option value="all">全部状态</a-select-option>
+          <a-select-option value="busy">繁忙</a-select-option>
+          <a-select-option value="idle">空闲</a-select-option>
+        </a-select>
+        <a-button-group size="small" class="gm-sort-group" aria-label="GPU 排序方式">
+          <a-button v-for="opt in sortOptions" :key="opt.value"
             :type="sortBy === opt.value ? 'primary' : 'default'" @click="pickSort(opt.value)">
             {{ opt.label }}<span v-if="sortBy === opt.value" class="gm-dir">{{ asc ? ' ↑' : ' ↓' }}</span>
-          </el-button>
-        </el-button-group>
+          </a-button>
+        </a-button-group>
         <span v-if="lastUpdated" class="gm-updated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
       </div>
     </div>
+    </a-card>
 
     <!-- grid -->
     <div v-if="sorted.length" class="gm-grid">
-      <div v-for="(g, i) in visibleGpus" :key="g.key" class="gm-card cockpit-panel"
+      <a-card v-for="(g, i) in visibleGpus" :key="g.key" size="small" hoverable class="gm-card"
         :class="cellClass(g)" role="link" tabindex="0"
         :aria-label="`查看 ${g.server_name} 的 GPU ${g.index} 详情`"
         @click="$router.push(`/servers/${g.server_id}`)"
@@ -53,13 +57,11 @@
         </div>
 
         <div class="gm-util-row">
-          <div class="gm-ring" :style="ringStyle(g.utilization)">
-            <span>{{ g.utilization }}<i>%</i></span>
-          </div>
+          <a-progress type="circle" :percent="g.utilization" :size="54" :stroke-color="ringColor(g.utilization)" />
           <div class="gm-metrics">
             <div class="gm-metric">
               <span class="gm-m-label">显存</span>
-              <div class="gm-bar"><div :style="{ width: memPct(g) + '%', background: barColor(memPct(g)) }"></div></div>
+              <a-progress class="gm-memory-progress" :percent="Math.round(memPct(g))" :show-info="false" size="small" :stroke-color="barColor(memPct(g))" />
               <span class="gm-m-val mono">{{ fmtSizeMB(g.mem_used_mb) }}/{{ fmtSizeMB(g.mem_total_mb) }}</span>
             </div>
             <div class="gm-metric-cols">
@@ -76,24 +78,24 @@
           </span>
         </div>
         <div class="gm-procs gm-procs-none" v-else>无占用进程</div>
-      </div>
+      </a-card>
     </div>
 
-    <el-empty v-else-if="!loading" description="没有符合条件的 GPU" :image-size="80" />
+    <a-empty v-else-if="!loading" description="没有符合条件的 GPU" />
 
     <div v-if="hiddenCount > 0" class="gm-more">
-      <el-button size="small" @click="visibleCount += 200">显示更多（剩余 {{ hiddenCount }}）</el-button>
+      <a-button size="small" @click="visibleCount += 200">显示更多（剩余 {{ hiddenCount }}）</a-button>
     </div>
   </div>
+  </a-spin>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { SearchOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { fmtSizeMB } from '../format'
 import { usePoll } from '../composables'
-import '../cockpit.css'
 
 const matrix = ref([])
 const search = ref('')
@@ -172,14 +174,13 @@ function cellClass(g) {
 }
 
 function barColor(p) {
-  if (p >= 90) return '#f87171'
-  if (p >= 70) return '#fbbf24'
-  return '#34d399'
+  if (p >= 90) return '#ff4d4f'
+  if (p >= 70) return '#faad14'
+  return '#52c41a'
 }
 
-function ringStyle(u) {
-  const color = u >= 90 ? '#f87171' : u >= 30 ? '#22d3ee' : '#34d399'
-  return { background: `conic-gradient(${color} ${u * 3.6}deg, var(--cpanel2) 0)` }
+function ringColor(u) {
+  return u >= 90 ? '#ff4d4f' : u >= 30 ? '#1677ff' : '#52c41a'
 }
 </script>
 
@@ -188,7 +189,7 @@ function ringStyle(u) {
 
 .gm-toolbar {
   display: flex; justify-content: space-between; align-items: center;
-  flex-wrap: wrap; gap: 10px; padding: 12px 16px;
+  flex-wrap: wrap; gap: 10px;
 }
 .gm-toolbar-left, .gm-toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gm-title { font-size: 15px; }
@@ -207,20 +208,23 @@ function ringStyle(u) {
 .gm-more { display: flex; justify-content: center; }
 
 .gm-card {
-  position: relative; padding: 14px 16px; cursor: pointer;
-  border: 1px solid var(--cborder); border-radius: 10px;
-  transition: transform .15s, box-shadow .15s;
+  position: relative;
+  cursor: pointer;
+  transition: transform .15s;
+}
+.gm-card :deep(.ant-card-body) {
+  padding: 14px 16px;
   display: flex; flex-direction: column; gap: 10px;
 }
-.gm-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(8, 145, 178, .12); }
+.gm-card:hover { transform: translateY(-2px); }
 .gm-card:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--cprimary) 40%, transparent);
   outline-offset: 2px;
   transform: translateY(-2px);
 }
-.gm-idle  { border-left: 3px solid #34d399; }
-.gm-busy  { border-left: 3px solid #22d3ee; }
-.gm-full  { border-left: 3px solid #f87171; }
+.gm-idle  { border-left: 3px solid #52c41a; }
+.gm-busy  { border-left: 3px solid #1677ff; }
+.gm-full  { border-left: 3px solid #ff4d4f; }
 .gm-offline { opacity: .55; border-left: 3px solid var(--csub); }
 
 .gm-rank {
@@ -238,24 +242,11 @@ function ringStyle(u) {
 }
 
 .gm-util-row { display: flex; align-items: center; gap: 14px; }
-.gm-ring {
-  width: 54px; height: 54px; border-radius: 50%; flex-shrink: 0;
-  position: relative;
-  display: flex; align-items: center; justify-content: center;
-}
-.gm-ring span {
-  width: 42px; height: 42px; border-radius: 50%; background: var(--cpanel);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
-}
-.gm-ring i { font-style: normal; font-size: 9px; opacity: .6; }
-
 .gm-metrics { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .gm-metric { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .gm-m-label { color: var(--csub); flex-shrink: 0; }
 .gm-m-val { color: var(--csub); white-space: nowrap; }
-.gm-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--cpanel2); overflow: hidden; }
-.gm-bar div { height: 100%; border-radius: 3px; transition: width .5s; }
+.gm-memory-progress { flex: 1; min-width: 40px; margin: 0; }
 .gm-metric-cols { display: flex; gap: 12px; font-size: 12px; color: var(--csub); }
 .gm-pstate { font-size: 10px; border: 1px solid var(--cborder); border-radius: 6px; padding: 0 5px; }
 
@@ -288,9 +279,9 @@ function ringStyle(u) {
     overflow-x: auto;
     padding-bottom: 2px;
   }
-  .gm-sort-group :deep(.el-button) { min-width: max-content; flex: 1; padding-inline: 10px; }
+  .gm-sort-group :deep(.ant-btn) { min-width: max-content; flex: 1; padding-inline: 10px; }
   .gm-updated { grid-column: 1 / -1; text-align: right; }
   .gm-grid { grid-template-columns: minmax(0, 1fr); }
-  .gm-card { padding: 14px; }
+  .gm-card :deep(.ant-card-body) { padding: 14px; }
 }
 </style>
