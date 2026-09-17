@@ -24,8 +24,10 @@ import {
   Modal as AntModal,
   Empty as AntEmpty,
   Popconfirm as AntPopconfirm,
+  Pagination as AntPagination,
   Progress as AntProgress,
   Radio as AntRadio,
+  RadioButton as AntRadioButton,
   RadioGroup as AntRadioGroup,
   Result as AntResult,
   Row as AntRow,
@@ -129,8 +131,10 @@ app.use(AntMenuItem)
 app.use(AntModal)
 app.use(AntEmpty)
 app.use(AntPopconfirm)
+app.use(AntPagination)
 app.use(AntProgress)
 app.use(AntRadio)
+app.use(AntRadioButton)
 app.use(AntRadioGroup)
 app.use(AntResult)
 app.use(AntRow)

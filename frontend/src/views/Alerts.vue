@@ -1,54 +1,55 @@
 <template>
   <div class="cockpit">
     <div class="toolbar alerts-toolbar">
-      <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
-      <el-button :icon="Refresh" @click="loadAll()">刷新</el-button>
+      <a-button v-if="isAdmin" type="primary" @click="openCreate"><template #icon><PlusOutlined /></template>新建规则</a-button>
+      <a-button @click="loadAll()"><template #icon><ReloadOutlined /></template>刷新</a-button>
       <span class="alerts-toolbar__spacer"></span>
-      <el-radio-group v-model="eventFilter" size="small" @change="onFilterChange">
-        <el-radio-button :value="false">全部事件</el-radio-button>
-        <el-radio-button :value="true">未恢复</el-radio-button>
-      </el-radio-group>
+      <a-radio-group v-model:value="eventFilter" size="small" @change="onFilterChange">
+        <a-radio-button :value="false">全部事件</a-radio-button>
+        <a-radio-button :value="true">未恢复</a-radio-button>
+      </a-radio-group>
     </div>
 
-    <el-alert v-if="pollError" type="error" show-icon :closable="false" style="margin-bottom:12px"
-      :title="`刷新失败：${pollError}（30 秒后自动重试）`" />
+    <a-alert v-if="pollError" type="error" show-icon class="poll-alert"
+      :message="`刷新失败：${pollError}（30 秒后自动重试）`" />
 
-    <el-row :gutter="14" class="alerts-grid">
-      <el-col :span="24">
-        <el-card class="page-card">
-          <template #header>告警规则 ({{ rules.length }})</template>
-          <el-table class="desktop-only" :data="rules" size="small" v-loading="loadingRules" max-height="300">
-            <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
-            <el-table-column label="条件" min-width="150">
-              <template #default="{ row }">
+    <a-row :gutter="14" class="alerts-grid">
+      <a-col :span="24">
+        <a-card class="page-card" :title="`告警规则 (${rules.length})`">
+          <a-table class="desktop-only" :data-source="rules" size="small" :loading="loadingRules" :pagination="false" :scroll="{ x: 720, y: 300 }" row-key="id">
+            <a-table-column data-index="name" title="名称" :width="150" ellipsis />
+            <a-table-column title="条件" :width="230">
+              <template #default="{ record: row }">
                 {{ metricLabel(row.metric) }} {{ row.op }} {{ row.threshold }}{{ unit(row.metric) }}
                 <div v-if="row.duration_minutes" style="font-size:11px;color:var(--csub)">持续 {{ row.duration_minutes }} 分钟</div>
               </template>
-            </el-table-column>
-            <el-table-column label="范围" width="90">
-              <template #default="{ row }">{{ row.server_id ? serverName(row.server_id) : '全部' }}</template>
-            </el-table-column>
-            <el-table-column label="启用" width="60">
-              <template #default="{ row }">
-                <el-switch v-model="row.enabled" size="small" :disabled="!isAdmin" @change="toggleRule(row)" />
+            </a-table-column>
+            <a-table-column title="范围" :width="120">
+              <template #default="{ record: row }">{{ row.server_id ? serverName(row.server_id) : '全部' }}</template>
+            </a-table-column>
+            <a-table-column title="启用" :width="80">
+              <template #default="{ record: row }">
+                <a-switch v-model:checked="row.enabled" size="small" :disabled="!isAdmin" @change="toggleRule(row)" />
               </template>
-            </el-table-column>
-            <el-table-column v-if="isAdmin" label="操作" width="110">
-              <template #default="{ row }">
-                <el-button size="small" @click="openEdit(row)">编辑</el-button>
-                <el-popconfirm title="删除该规则？" @confirm="removeRule(row)">
-                  <template #reference><el-button size="small" type="danger">删</el-button></template>
-                </el-popconfirm>
+            </a-table-column>
+            <a-table-column v-if="isAdmin" title="操作" :width="150">
+              <template #default="{ record: row }">
+                <div class="table-actions">
+                  <a-button size="small" @click="openEdit(row)">编辑</a-button>
+                  <a-popconfirm title="删除该规则？" ok-text="删除" cancel-text="取消" @confirm="removeRule(row)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
+                </div>
               </template>
-            </el-table-column>
-          </el-table>
+            </a-table-column>
+          </a-table>
 
-          <div class="mobile-only" v-loading="loadingRules">
+          <a-spin class="mobile-only" :spinning="loadingRules">
             <div v-if="rules.length" class="mobile-card-list">
               <article v-for="row in rules" :key="row.id" class="mobile-data-card">
                 <div class="mobile-data-card__head">
                   <div class="mobile-data-card__title">{{ row.name }}</div>
-                  <el-switch v-model="row.enabled" size="small" :disabled="!isAdmin" @change="toggleRule(row)" />
+                  <a-switch v-model:checked="row.enabled" size="small" :disabled="!isAdmin" @change="toggleRule(row)" />
                 </div>
                 <div class="mobile-data-card__meta">
                   <span>触发条件</span>
@@ -59,60 +60,61 @@
                   <span>{{ row.server_id ? serverName(row.server_id) : '全部服务器' }}</span>
                 </div>
                 <div v-if="isAdmin" class="mobile-data-card__actions">
-                  <el-button size="small" @click="openEdit(row)">编辑规则</el-button>
-                  <el-popconfirm title="删除该规则？" @confirm="removeRule(row)">
-                    <template #reference><el-button size="small" type="danger" plain>删除</el-button></template>
-                  </el-popconfirm>
+                  <a-button size="small" @click="openEdit(row)">编辑规则</a-button>
+                  <a-popconfirm title="删除该规则？" ok-text="删除" cancel-text="取消" @confirm="removeRule(row)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
                 </div>
               </article>
             </div>
-            <el-empty v-else-if="!loadingRules" description="暂无告警规则" :image-size="72" />
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="24">
-        <el-card class="page-card">
-          <template #header>告警事件</template>
-          <el-table class="desktop-only" :data="events" size="small" v-loading="loadingEvents" :row-class-name="eventRowClass" max-height="520">
-            <el-table-column label="状态" width="110">
-              <template #default="{ row }">
-                <el-tag v-if="row.recovered_at" type="success" size="small">已恢复</el-tag>
-                <el-tag v-else-if="row.acked_at" type="warning" size="small">已确认({{ row.acked_by || '—' }})</el-tag>
-                <el-tag v-else type="danger" size="small">未恢复</el-tag>
+            <a-empty v-else-if="!loadingRules" description="暂无告警规则" />
+          </a-spin>
+        </a-card>
+      </a-col>
+      <a-col :span="24">
+        <a-card class="page-card" title="告警事件">
+          <a-table class="desktop-only" :data-source="events" size="small" :loading="loadingEvents" :pagination="false" :row-class-name="eventRowClass" :scroll="{ x: 1080, y: 520 }" row-key="id">
+            <a-table-column title="状态" :width="130">
+              <template #default="{ record: row }">
+                <a-tag v-if="row.recovered_at" color="green">已恢复</a-tag>
+                <a-tag v-else-if="row.acked_at" color="orange">已确认({{ row.acked_by || '—' }})</a-tag>
+                <a-tag v-else color="red">未恢复</a-tag>
                 <div v-if="row.assignee" style="font-size:11px;color:var(--csub);margin-top:2px">认领：{{ row.assignee }}</div>
               </template>
-            </el-table-column>
-            <el-table-column prop="server_name" label="服务器" width="120" show-overflow-tooltip />
-            <el-table-column label="来源" width="100">
-              <template #default="{ row }">
-                <el-tag v-if="!row.rule_id" size="small" type="warning" effect="plain">内置检测</el-tag>
-                <el-tag v-else size="small" type="info" effect="plain">自定义规则</el-tag>
+            </a-table-column>
+            <a-table-column data-index="server_name" title="服务器" :width="140" ellipsis />
+            <a-table-column title="来源" :width="110">
+              <template #default="{ record: row }">
+                <a-tag v-if="!row.rule_id" color="orange">内置检测</a-tag>
+                <a-tag v-else>自定义规则</a-tag>
               </template>
-            </el-table-column>
-            <el-table-column label="内容" min-width="200" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.message }}</template>
-            </el-table-column>
-            <el-table-column label="触发时间" width="150">
-              <template #default="{ row }">{{ fmtTime(row.triggered_at) }}</template>
-            </el-table-column>
-            <el-table-column label="恢复时间" width="150">
-              <template #default="{ row }">{{ row.recovered_at ? fmtTime(row.recovered_at) : '—' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="185">
-              <template #default="{ row }">
+            </a-table-column>
+            <a-table-column title="内容" :width="280" ellipsis>
+              <template #default="{ record: row }">{{ row.message }}</template>
+            </a-table-column>
+            <a-table-column title="触发时间" :width="170">
+              <template #default="{ record: row }">{{ fmtTime(row.triggered_at) }}</template>
+            </a-table-column>
+            <a-table-column title="恢复时间" :width="170">
+              <template #default="{ record: row }">{{ row.recovered_at ? fmtTime(row.recovered_at) : '—' }}</template>
+            </a-table-column>
+            <a-table-column title="操作" :width="210" fixed="right">
+              <template #default="{ record: row }">
                 <template v-if="!row.recovered_at">
-                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</el-button>
-                  <el-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" @confirm="resolveEvent(row)">
-                    <template #reference><el-button size="small" type="danger" :loading="resolvingId === row.id">关闭</el-button></template>
-                  </el-popconfirm>
-                  <el-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</el-button>
+                  <div class="table-actions">
+                    <a-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</a-button>
+                    <a-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" ok-text="关闭" cancel-text="取消" @confirm="resolveEvent(row)">
+                      <a-button size="small" danger :loading="resolvingId === row.id">关闭</a-button>
+                    </a-popconfirm>
+                    <a-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</a-button>
+                  </div>
                 </template>
                 <span v-else style="color:var(--csub)">—</span>
               </template>
-            </el-table-column>
-          </el-table>
+            </a-table-column>
+          </a-table>
 
-          <div class="mobile-only" v-loading="loadingEvents">
+          <a-spin class="mobile-only" :spinning="loadingEvents">
             <div v-if="events.length" class="mobile-card-list">
               <article
                 v-for="row in events"
@@ -122,9 +124,9 @@
               >
                 <div class="mobile-data-card__head">
                   <div class="mobile-data-card__title">{{ row.server_name || '未知服务器' }}</div>
-                  <el-tag v-if="row.recovered_at" type="success" size="small">已恢复</el-tag>
-                  <el-tag v-else-if="row.acked_at" type="warning" size="small">已确认</el-tag>
-                  <el-tag v-else type="danger" size="small">未恢复</el-tag>
+                  <a-tag v-if="row.recovered_at" color="green">已恢复</a-tag>
+                  <a-tag v-else-if="row.acked_at" color="orange">已确认</a-tag>
+                  <a-tag v-else color="red">未恢复</a-tag>
                 </div>
                 <p class="alert-event-card__message">{{ row.message }}</p>
                 <div class="mobile-data-card__meta">
@@ -144,81 +146,82 @@
                   </template>
                 </div>
                 <div v-if="!row.recovered_at" class="mobile-data-card__actions">
-                  <el-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</el-button>
-                  <el-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</el-button>
-                  <el-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" @confirm="resolveEvent(row)">
-                    <template #reference><el-button size="small" type="danger" plain :loading="resolvingId === row.id">关闭事件</el-button></template>
-                  </el-popconfirm>
+                  <a-button v-if="isAdmin" size="small" :disabled="!!row.acked_at" :loading="ackingId === row.id" @click="ack(row)">确认</a-button>
+                  <a-button size="small" :disabled="!!row.assignee" :loading="assigningId === row.id" @click="assign(row)">认领</a-button>
+                  <a-popconfirm v-if="isAdmin" title="确定关闭该未恢复告警？" ok-text="关闭" cancel-text="取消" @confirm="resolveEvent(row)">
+                    <a-button size="small" danger :loading="resolvingId === row.id">关闭事件</a-button>
+                  </a-popconfirm>
                 </div>
               </article>
             </div>
-            <el-empty v-else-if="!loadingEvents" description="当前筛选下暂无告警事件" :image-size="72" />
-          </div>
-          <el-pagination
+            <a-empty v-else-if="!loadingEvents" description="当前筛选下暂无告警事件" />
+          </a-spin>
+          <a-pagination
             class="alerts-pagination"
-            background
-            layout="prev, pager, next, jumper"
-            :current-page="page"
+            v-model:current="page"
             :page-size="PAGE_SIZE"
-            :page-count="hasMore ? page + 1 : page"
-            @current-change="onPageChange"
+            :total="paginationTotal"
+            :show-size-changer="false"
+            show-quick-jumper
+            @change="onPageChange"
           />
-        </el-card>
-      </el-col>
-    </el-row>
+        </a-card>
+      </a-col>
+    </a-row>
 
-    <el-dialog v-model="dlg" class="responsive-dialog" :title="editId ? '编辑规则' : '新建规则'" width="480px">
-      <el-form ref="formRef" class="responsive-form" :model="form" :rules="rules2" label-width="100px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="如 GPU 温度过高" />
-        </el-form-item>
-        <el-form-item label="指标" prop="metric">
-          <el-select v-model="form.metric" style="width:100%">
-            <el-option v-for="(label, key) in METRICS" :key="key" :value="key" :label="label" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="条件">
+    <a-modal v-model:open="dlg" class="responsive-dialog" :title="editId ? '编辑规则' : '新建规则'" :width="520">
+      <a-form ref="formRef" class="responsive-form" :model="form" :rules="rules2" :label-col="{ style: { width: '104px' } }">
+        <a-form-item label="名称" name="name">
+          <a-input v-model:value="form.name" placeholder="如 GPU 温度过高" />
+        </a-form-item>
+        <a-form-item label="指标" name="metric">
+          <a-select v-model:value="form.metric" style="width:100%">
+            <a-select-option v-for="(label, key) in METRICS" :key="key" :value="key">{{ label }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="条件">
           <div class="rule-condition-fields">
-          <el-select v-model="form.op" class="rule-condition-op">
-            <el-option value=">" label=">" /><el-option value=">=" label=">=" />
-            <el-option value="<" label="<" /><el-option value="<=" label="<=" />
-          </el-select>
-          <el-input-number v-model="form.threshold" :min="0" :max="100000" class="rule-condition-value" />
+          <a-select v-model:value="form.op" class="rule-condition-op">
+            <a-select-option value=">">&gt;</a-select-option><a-select-option value=">=">&gt;=</a-select-option>
+            <a-select-option value="<">&lt;</a-select-option><a-select-option value="<=">&lt;=</a-select-option>
+          </a-select>
+          <a-input-number v-model:value="form.threshold" :min="0" :max="100000" class="rule-condition-value" />
           <span class="rule-condition-unit">{{ unit(form.metric) }}</span>
           </div>
-        </el-form-item>
-        <el-form-item label="持续时间">
+        </a-form-item>
+        <a-form-item label="持续时间">
           <div class="rule-duration-fields">
-            <el-input-number v-model="form.duration_minutes" :min="0" :max="1440" />
+            <a-input-number v-model:value="form.duration_minutes" :min="0" :max="1440" />
             <span>分钟（0 = 立即触发）</span>
           </div>
-        </el-form-item>
-        <el-form-item label="作用范围">
-          <el-select v-model="form.server_id" clearable placeholder="全部服务器" style="width:100%">
-            <el-option v-for="s in servers" :key="s.id" :value="s.id" :label="s.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
-      </el-form>
+        </a-form-item>
+        <a-form-item label="作用范围">
+          <a-select v-model:value="form.server_id" allow-clear placeholder="全部服务器" style="width:100%">
+            <a-select-option v-for="s in servers" :key="s.id" :value="s.id">{{ s.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="启用">
+          <a-switch v-model:checked="form.enabled" />
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { App as AntApp } from 'ant-design-vue'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { isAdminSession } from '../composables'
 import { fmtTime } from '../format'
 
 const isAdmin = computed(() => isAdminSession())
+const { message } = AntApp.useApp()
 
 const METRICS = {
   cpu_percent: 'CPU 使用率',
@@ -245,6 +248,9 @@ const eventFilter = ref(false)
 const PAGE_SIZE = 50
 const page = ref(1)
 const hasMore = ref(false)
+const paginationTotal = computed(() => hasMore.value
+  ? page.value * PAGE_SIZE + 1
+  : (page.value - 1) * PAGE_SIZE + events.value.length)
 const pollError = ref(null)
 const dlg = ref(false)
 const editId = ref(null)
@@ -263,7 +269,7 @@ const rules2 = {
 
 const serverName = (id) => servers.value.find(s => s.id === id)?.name || `#${id}`
 
-function eventRowClass({ row }) {
+function eventRowClass(row) {
   return row.recovered_at ? '' : 'alert-row'
 }
 
@@ -287,7 +293,7 @@ async function loadEvents(silent = false) {
     pollError.value = null
   } catch (err) {
     if (silent) pollError.value = err.friendlyMessage || '加载失败'
-    else ElMessage.error(err.friendlyMessage || '加载失败')
+    else message.error(err.friendlyMessage || '加载失败')
   } finally {
     loadingEvents.value = false
   }
@@ -302,7 +308,7 @@ async function loadAll(opts = {}) {
     if (s.status === 'fulfilled') servers.value = s.value.data
   } catch (err) {
     if (silent) pollError.value = err.friendlyMessage || '加载失败'
-    else ElMessage.error(err.friendlyMessage || '加载失败')
+    else message.error(err.friendlyMessage || '加载失败')
   } finally {
     loadingRules.value = false
   }
@@ -335,11 +341,11 @@ async function save() {
     const payload = { ...form, server_id: form.server_id || null }
     if (editId.value) await api.put(`/alerts/rules/${editId.value}`, payload)
     else await api.post('/alerts/rules', payload)
-    ElMessage.success('已保存')
+    message.success('已保存')
     dlg.value = false
     loadAll()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '保存失败')
+    message.error(e.friendlyMessage || '保存失败')
   } finally {
     saving.value = false
   }
@@ -348,20 +354,20 @@ async function save() {
 async function toggleRule(row) {
   try {
     await api.put(`/alerts/rules/${row.id}`, { enabled: row.enabled })
-    ElMessage.success(row.enabled ? '已启用' : '已停用')
+    message.success(row.enabled ? '已启用' : '已停用')
   } catch (e) {
     row.enabled = !row.enabled
-    ElMessage.error(e.friendlyMessage || '操作失败')
+    message.error(e.friendlyMessage || '操作失败')
   }
 }
 
 async function removeRule(row) {
   try {
     await api.delete(`/alerts/rules/${row.id}`)
-    ElMessage.success('已删除')
+    message.success('已删除')
     loadAll()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '删除失败')
+    message.error(e.friendlyMessage || '删除失败')
   }
 }
 
@@ -369,10 +375,10 @@ async function ack(row) {
   ackingId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/ack`)
-    ElMessage.success('已确认')
+    message.success('已确认')
     loadEvents()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '操作失败')
+    message.error(e.friendlyMessage || '操作失败')
   } finally {
     ackingId.value = null
   }
@@ -382,10 +388,10 @@ async function resolveEvent(row) {
   resolvingId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/resolve`)
-    ElMessage.success('已关闭')
+    message.success('已关闭')
     loadEvents()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '操作失败')
+    message.error(e.friendlyMessage || '操作失败')
   } finally {
     resolvingId.value = null
   }
@@ -395,10 +401,10 @@ async function assign(row) {
   assigningId.value = row.id
   try {
     await api.post(`/alerts/events/${row.id}/assign`, {})
-    ElMessage.success('已认领')
+    message.success('已认领')
     loadEvents()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '操作失败')
+    message.error(e.friendlyMessage || '操作失败')
   } finally {
     assigningId.value = null
   }
@@ -418,11 +424,13 @@ defineExpose({ eventFilter, loadAll })
 </script>
 
 <style>
-.el-table .alert-row {
+.ant-table .alert-row {
   background: color-mix(in srgb, var(--cred) 10%, transparent) !important;
 }
 
 .alerts-toolbar__spacer { flex: 1; }
+.poll-alert { margin-bottom: 12px; }
+.table-actions { display: flex; gap: 8px; }
 .alerts-pagination {
   margin-top: 10px;
   justify-content: flex-end;
@@ -456,19 +464,18 @@ defineExpose({ eventFilter, loadAll })
 }
 
 @media (max-width: 768px) {
-  .alerts-toolbar > .el-button { flex: 1; }
+  .alerts-toolbar > .ant-btn { flex: 1; }
   .alerts-toolbar__spacer { display: none; }
-  .alerts-toolbar .el-radio-group { width: 100%; }
-  .alerts-toolbar .el-radio-button { flex: 1; }
-  .alerts-toolbar .el-radio-button__inner { width: 100%; }
-  .alerts-grid > .el-col { max-width: 100%; }
-  .alerts-grid .el-card__body { padding: 12px; }
+  .alerts-toolbar .ant-radio-group { width: 100%; display: flex; }
+  .alerts-toolbar .ant-radio-button-wrapper { flex: 1; text-align: center; }
+  .alerts-grid > .ant-col { max-width: 100%; }
+  .alerts-grid .ant-card-body { padding: 12px; }
   .alerts-pagination {
     justify-content: center;
     overflow-x: auto;
     padding-bottom: 2px;
   }
-  .mobile-data-card__actions .el-button + .el-button { margin-left: 0; }
+  .mobile-data-card__actions .ant-btn + .ant-btn { margin-left: 0; }
   .rule-condition-fields { align-items: stretch; }
   .rule-condition-op { width: 82px; }
   .rule-condition-value { min-width: 0; flex: 1; }
