@@ -1,13 +1,6 @@
-/* ======================================================================
-   Shared non-component tokens. Values mirror Ant Design's default palette;
-   actual component tokens are provided by ConfigProvider in App.vue.
-   ====================================================================== */
-
-/* ---- light (default) ---- */
+/* Shared visualization tokens follow Ant Design's default and dark algorithms. */
 :root {
   --cbg: #f5f5f5;
-  --cbg-accent1: rgba(22, 119, 255, 0.04);
-  --cbg-accent2: rgba(22, 119, 255, 0.02);
   --cpanel: #ffffff;
   --cpanel2: #fafafa;
   --cborder: #d9d9d9;
@@ -18,21 +11,11 @@
   --cyellow: #faad14;
   --cred: #ff4d4f;
   --cpurple: #722ed1;
-  --ctooltip-bg: #ffffff;
-  --ctooltip-border: #d9d9d9;
-  --ctooltip-text: rgba(0, 0, 0, 0.88);
-  --cinput-bg: #ffffff;
-  --cinput-border: #d9d9d9;
-  --ctable-head: #fafafa;
   --ctable-hover: #fafafa;
-  --cgrid-line: rgba(5, 5, 5, 0.06);
 }
 
-/* ---- Ant Design dark algorithm companion values ---- */
 html.dark {
   --cbg: #141414;
-  --cbg-accent1: transparent;
-  --cbg-accent2: transparent;
   --cpanel: #1f1f1f;
   --cpanel2: #262626;
   --cborder: #424242;
@@ -43,181 +26,164 @@ html.dark {
   --cyellow: #faad14;
   --cred: #ff4d4f;
   --cpurple: #722ed1;
-  --ctooltip-bg: #1f1f1f;
-  --ctooltip-border: #424242;
-  --ctooltip-text: rgba(255, 255, 255, 0.85);
-  --cinput-bg: #1f1f1f;
-  --cinput-border: #424242;
-  --ctable-head: #262626;
   --ctable-hover: #262626;
-  --cgrid-line: rgba(255, 255, 255, 0.12);
 }
-
-/* ===== cockpit shell ===== */
 
 .cockpit {
-  background:
-    radial-gradient(1200px 500px at 15% -10%, var(--cbg-accent1), transparent 60%),
-    radial-gradient(1000px 480px at 90% 0%, var(--cbg-accent2), transparent 55%),
-    var(--cbg);
-  color: var(--ctext);
   min-height: 100%;
-  padding: 18px 22px 30px;
+  color: var(--ctext);
 }
 
-/* plain page (no side padding inside layout main) */
 .cockpit.page {
-  padding: 0;
   min-height: auto;
 }
 
-.cockpit-panel {
-  background: var(--cpanel);
-  border: 1px solid var(--cborder);
-  border-radius: 10px;
-  padding: 14px 16px;
-  position: relative;
-  overflow: hidden;
-}
-.cockpit-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--cprimary), transparent);
-  opacity: 0.55;
-}
-.cockpit-panel-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  color: var(--csub);
-  margin-bottom: 10px;
-  text-transform: uppercase;
-}
-.cockpit-panel-title b {
-  color: var(--ctext);
-  font-size: 14px;
-  letter-spacing: 0.05em;
-}
-
-.cockpit-panel.stack {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ===== KPI ===== */
-
-.kpi-value {
-  font-size: 34px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  background: linear-gradient(180deg, var(--ctext), var(--cprimary));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.kpi-unit { font-size: 14px; font-weight: 500; color: var(--csub); margin-left: 3px; }
-.kpi-label { font-size: 12px; color: var(--csub); margin-top: 2px; letter-spacing: 0.06em; }
-.kpi-accent-cyan .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cprimary)); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-green .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cgreen)); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-purple .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cpurple)); -webkit-background-clip: text; background-clip: text; }
-.kpi-accent-yellow .kpi-value { background: linear-gradient(180deg, var(--ctext), var(--cyellow)); -webkit-background-clip: text; background-clip: text; }
-
-/* ===== GPU matrix ===== */
-
+/* Ant cards and progress bars provide the GPU matrix component UI. */
 .gpu-matrix {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
 }
+
 .gpu-cell {
-  position: relative;
-  border: 1px solid var(--cborder);
-  border-radius: 8px;
-  padding: 8px 10px;
+  overflow: hidden;
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s;
-  background: var(--cpanel2);
-  overflow: hidden;
 }
-.gpu-cell:hover { transform: translateY(-2px); border-color: var(--cprimary); }
-.gpu-cell-idle { border-color: color-mix(in srgb, var(--cgreen) 45%, var(--cborder)); }
-.gpu-cell-busy { border-color: color-mix(in srgb, var(--cyellow) 55%, var(--cborder)); }
-.gpu-cell-full { border-color: color-mix(in srgb, var(--cred) 60%, var(--cborder)); }
-.gpu-cell-offline { opacity: 0.45; filter: grayscale(0.8); }
-.gpu-cell-head { display: flex; justify-content: space-between; align-items: baseline; }
-.gpu-cell-name { font-size: 12px; font-weight: 600; color: var(--ctext); }
-.gpu-cell-badge { font-size: 10px; color: var(--csub); }
-.gpu-meters { display: grid; gap: 6px; margin-top: 8px; }
-.gpu-meter-label {
+
+.gpu-cell-idle { border-color: var(--cgreen); }
+.gpu-cell-busy { border-color: var(--cyellow); }
+.gpu-cell-full { border-color: var(--cred); }
+.gpu-cell-offline { opacity: 0.45; }
+
+.gpu-cell-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 3px;
-  color: var(--csub);
-  font-size: 10px;
-  line-height: 1;
+  gap: 8px;
 }
-.gpu-meter-label .mono { color: var(--ctext); }
-.gpu-util-bar {
-  height: 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--csub) 18%, transparent);
+
+.gpu-cell-name {
+  min-width: 0;
   overflow: hidden;
+  color: var(--ctext);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.gpu-util-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+
+.gpu-cell-badge,
+.gpu-meter-label,
+.gpu-cell-meta {
+  color: var(--csub);
+  font-size: 11px;
+}
+
+.gpu-meters {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.gpu-meter-label,
 .gpu-cell-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 7px;
-  color: var(--csub);
-  font-size: 10px;
 }
+
+.gpu-meter-label { margin-bottom: 2px; }
+.gpu-meter-label .mono,
 .gpu-cell-meta .mono { color: var(--ctext); }
 .gpu-cell-memory { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ===== alert ticker ===== */
+/* Health cards use Ant semantic colors as a quiet left-edge status cue. */
+.health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
 
+.health-chip {
+  min-width: 180px;
+  cursor: pointer;
+}
+
+.health-chip.hs-ok { border-left: 3px solid var(--cgreen); }
+.health-chip.hs-warning { border-left: 3px solid var(--cyellow); }
+.health-chip.hs-critical { border-left: 3px solid var(--cred); }
+.health-chip.hs-unknown { border-left: 3px solid var(--csub); }
+.health-chip-detail { color: var(--csub); font-size: 11px; }
+
+/* Ranked and alert lists remain static and scroll when content is long. */
+.rank-scroll,
+.fill-list,
 .ticker {
-  position: relative;
-  overflow: hidden;
-  flex: 1;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.fill-list {
+  display: flex;
   min-height: 0;
-  mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
-  -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 90%, transparent);
+  flex: 1;
+  flex-direction: column;
 }
-.ticker-inner {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  animation: ticker-scroll 26s linear infinite;
-}
-.ticker:hover .ticker-inner { animation-play-state: paused; }
-@keyframes ticker-scroll {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50%); }
-}
-.ticker-row {
-  height: 34px;
+
+.rank-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--cborder);
+  font-size: 13px;
+}
+
+.rank-row:last-child { border-bottom: 0; }
+.rank-no {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cpanel2);
+  color: var(--csub);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rank-no.top1 { background: #e6f4ff; color: #1677ff; }
+.rank-no.top2 { background: #f6ffed; color: #389e0d; }
+.rank-no.top3 { background: #fffbe6; color: #d48806; }
+html.dark .rank-no.top1 { background: #111a2c; color: #69b1ff; }
+html.dark .rank-no.top2 { background: #162312; color: #95de64; }
+html.dark .rank-no.top3 { background: #2b2111; color: #ffd666; }
+
+.rank-main { min-width: 0; flex: 1; }
+.rank-sub { color: var(--csub); font-size: 11px; }
+.rank-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.ticker-inner { position: static; }
+.ticker-row {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--cborder);
   font-size: 13px;
   white-space: nowrap;
-  overflow: hidden;
-  white-space: nowrap;
 }
+
+.ticker-row:last-child { border-bottom: 0; }
+.ticker-row span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ticker-empty {
-  flex: 1;
-  min-height: 60px;
   display: flex;
+  min-height: 80px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -225,340 +191,55 @@ html.dark {
   font-size: 13px;
 }
 
-/* ===== rank list ===== */
-
-.rank-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 4px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--cborder) 80%, transparent);
-  font-size: 13px;
-}
-.rank-row:last-child { border-bottom: none; }
-.rank-no {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700;
-  background: color-mix(in srgb, var(--csub) 16%, transparent);
-  color: var(--csub);
-  flex-shrink: 0;
-}
-.rank-no.top1 { background: color-mix(in srgb, var(--cprimary) 20%, transparent); color: var(--cprimary); }
-.rank-no.top2 { background: color-mix(in srgb, var(--cgreen) 18%, transparent); color: var(--cgreen); }
-.rank-no.top3 { background: color-mix(in srgb, var(--cpurple) 18%, transparent); color: var(--cpurple); }
-.rank-main { flex: 1; min-width: 0; }
-.rank-sub { font-size: 11px; color: var(--csub); }
-.rank-val { font-weight: 600; font-variant-numeric: tabular-nums; }
-
-.fill-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.fill-list .rank-row { flex: 1; }
-
-/* ===== live dot ===== */
-
-.live-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--cgreen);
-  display: inline-block;
-}
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cgreen) 50%, transparent); }
-  50% { box-shadow: 0 0 0 5px transparent; }
-}
-
-/* ===== charts / misc ===== */
-
-.chart-box { height: 300px; width: 100%; }
-
-/* ===== element-plus overrides (vars switch with theme) ===== */
-
-.cockpit .el-table { background: transparent; color: var(--ctext); }
-.cockpit .el-table tr { background: transparent; }
-.cockpit .el-table td.el-table__cell, .cockpit .el-table th.el-table__cell { border-bottom: 1px solid color-mix(in srgb, var(--cborder) 70%, transparent); }
-.cockpit .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: var(--ctable-hover); }
-.cockpit .el-table::before { display: none; }
-.cockpit .el-progress__text { color: var(--ctext) !important; }
-.cockpit .el-table th.el-table__cell { background: var(--ctable-head) !important; color: var(--csub); }
-.cockpit .el-card { background: var(--cpanel); border: 1px solid var(--cborder); color: var(--ctext); }
-.cockpit .el-card__header { border-bottom: 1px solid var(--cborder); color: var(--ctext); }
-.cockpit .el-dialog { background: var(--cpanel); border: 1px solid var(--cborder); }
-.cockpit .el-dialog__title { color: var(--ctext); }
-.cockpit .el-form-item__label { color: var(--csub); }
-.cockpit .el-input__wrapper, .cockpit .el-textarea__inner { background: var(--cinput-bg) !important; border: 1px solid var(--cinput-border); box-shadow: none !important; }
-.cockpit .el-input__inner, .cockpit .el-textarea__inner { color: var(--ctext) !important; }
-.cockpit .el-input__inner::placeholder, .cockpit .el-textarea__inner::placeholder { color: color-mix(in srgb, var(--csub) 75%, transparent); }
-.cockpit .el-select__wrapper { background: var(--cinput-bg) !important; border: 1px solid var(--cinput-border) !important; box-shadow: none !important; }
-.cockpit .el-select__placeholder { color: color-mix(in srgb, var(--csub) 75%, transparent); }
-.cockpit .el-switch__core { background: color-mix(in srgb, var(--csub) 25%, transparent); border-color: var(--cinput-border); }
-.cockpit .el-descriptions { --el-descriptions-item-bordered-label-background: var(--ctable-head); }
-.cockpit .el-descriptions__body { background: transparent; color: var(--ctext); }
-.cockpit .el-descriptions__cell { border-color: var(--cborder) !important; }
-.cockpit .el-empty__description p { color: var(--csub); }
-.cockpit .el-pagination { --el-pagination-bg-color: transparent; color: var(--csub); }
-.cockpit .el-message-box { background: var(--cpanel); border: 1px solid var(--cborder); }
-.cockpit .el-message-box__title, .cockpit .el-message-box__message { color: var(--ctext); }
-.cockpit .el-message-box__input .el-input__inner { color: var(--ctext); }
-.cockpit .el-statistic__number { color: var(--ctext); }
-.cockpit .el-alert--error { background: color-mix(in srgb, var(--cred) 10%, transparent); border-color: color-mix(in srgb, var(--cred) 30%, transparent); }
-.cockpit .el-alert__title { color: var(--cred); }
-.cockpit .el-loading-mask { background-color: color-mix(in srgb, var(--cpanel) 70%, transparent); }
-.cockpit .el-page-header__content { color: var(--ctext); }
-.cockpit .el-radio-button__inner { background: transparent; color: var(--csub); border-color: var(--cinput-border); }
-.cockpit .el-radio-button__original-radio:checked + .el-radio-button__inner { background: color-mix(in srgb, var(--cprimary) 15%, transparent); border-color: var(--cprimary); color: var(--cprimary); }
-.cockpit .el-table__empty-block { background: transparent; }
-.cockpit .el-table__body tr.el-table__row { --el-table-tr-bg-color: transparent; }
-
-/* matrix legend tags */
-.tag-idle { background: color-mix(in srgb, var(--cgreen) 14%, transparent); border-color: color-mix(in srgb, var(--cgreen) 40%, transparent); color: var(--cgreen); }
-.tag-busy { background: color-mix(in srgb, var(--cyellow) 14%, transparent); border-color: color-mix(in srgb, var(--cyellow) 40%, transparent); color: var(--cyellow); margin-left: 4px; }
-.tag-full { background: color-mix(in srgb, var(--cred) 14%, transparent); border-color: color-mix(in srgb, var(--cred) 40%, transparent); color: var(--cred); margin-left: 4px; }
-
 .io-label { color: var(--csub); }
 .io-row b { color: var(--ctext); }
 
-/* cluster health strip (cockpit) */
-.health-strip {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.health-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--cborder);
-  background: var(--cpanel);
-  cursor: pointer;
-  font-size: 13px;
-  transition: transform 0.15s, border-color 0.15s;
-}
-.health-chip:hover { transform: translateY(-2px); }
-.health-chip.hs-ok { border-left: 3px solid var(--cgreen); }
-.health-chip.hs-warning { border-left: 3px solid var(--cyellow); }
-.health-chip.hs-critical { border-left: 3px solid var(--cred); }
-.health-chip.hs-unknown { border-left: 3px solid var(--csub); }
-.health-chip-detail { font-size: 11px; color: var(--csub); }
-
-/* ===== capped, scrollable list panels ===== */
-.rank-scroll { max-height: 220px; overflow-y: auto; }
-.fill-list { max-height: 300px; overflow-y: auto; }
-.rank-scroll::-webkit-scrollbar, .fill-list::-webkit-scrollbar { width: 6px; }
-.rank-scroll::-webkit-scrollbar-thumb, .fill-list::-webkit-scrollbar-thumb { background: var(--cborder); border-radius: 3px; }
-
-/* ===== style-fix batch: card padding unification ===== */
-.cockpit .el-card.cockpit-panel { border: none; background: transparent; box-shadow: none; }
-.cockpit .el-card.cockpit-panel :deep(.el-card__body),
-.cockpit .el-card.cockpit-panel .el-card__body {
-  padding: 0;          /* cockpit-panel already provides 14px 16px */
-}
-
-/* fix 9: equal-height stat/KPI cards */
-.cockpit .el-row { align-items: stretch; }
-.cockpit .el-row .el-col { display: flex; flex-direction: column; }
-.cockpit .el-row .el-col > .el-card { flex: 1; display: flex; flex-direction: column; }
-
-/* fix 7: tables scroll horizontally instead of squashing/overflowing */
-.cockpit .el-table { width: 100%; }
-
-/* fix 11: cap the per-core grid so 100+ core hosts stay tidy */
+/* Domain-specific charts retain simple geometry and Ant palette colors. */
 .core-grid {
   max-height: 320px;
   overflow-y: auto;
-  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   padding-right: 4px;
 }
-.core-grid::-webkit-scrollbar { width: 6px; }
-.core-grid::-webkit-scrollbar-thumb { background: var(--cborder); border-radius: 3px; }
 
-/* fix 10: popper (dropdown/tooltip) follows app theme, not just html.dark */
-.cockpit .el-popper.is-light { background: var(--cpanel); border: 1px solid var(--cborder); color: var(--ctext); }
-.cockpit .el-popper.is-light .el-popper__arrow::before { background: var(--cpanel); border-color: var(--cborder); }
-.cockpit .el-dropdown-menu { background: transparent; }
-.cockpit .el-dropdown-menu__item { color: var(--ctext); }
-.cockpit .el-dropdown-menu__item:not(.is-disabled):hover { background: var(--ctable-hover); color: var(--cprimary); }
-.cockpit .el-dropdown-menu__item.is-disabled { color: var(--csub); opacity: .6; }
-
-.ticker-row span:last-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-
-/* ================================================================
-   GLOBAL AESTHETIC LAYER — glow / depth / motion (both themes)
-   All effects respect prefers-reduced-motion and stay subtle in light.
-   ================================================================ */
-
-/* ---- 1. primary buttons: gradient + glow ---- */
-.cockpit .el-button--primary {
-  background: linear-gradient(135deg, var(--cprimary), color-mix(in srgb, var(--cpurple) 55%, var(--cprimary)));
-  border: none;
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--cprimary) 35%, transparent);
-  transition: box-shadow .25s, transform .15s, filter .2s;
-}
-.cockpit .el-button--primary:hover {
-  filter: brightness(1.12);
-  box-shadow: 0 4px 20px color-mix(in srgb, var(--cprimary) 55%, transparent);
-  transform: translateY(-1px);
-}
-.cockpit .el-button--primary:active { transform: translateY(0); }
-
-/* Plain primary actions are secondary actions: keep their text contrast and
-   outline instead of inheriting the filled-button gradient above. */
-.cockpit .el-button--primary.is-plain {
-  border: 1px solid color-mix(in srgb, var(--cprimary) 45%, var(--cborder));
-  background: color-mix(in srgb, var(--cprimary) 7%, var(--cpanel));
-  color: var(--cprimary);
-  box-shadow: none;
-  filter: none;
-}
-.cockpit .el-button--primary.is-plain:hover,
-.cockpit .el-button--primary.is-plain:focus-visible {
-  border-color: var(--cprimary);
-  background: color-mix(in srgb, var(--cprimary) 13%, var(--cpanel));
-  color: var(--cprimary);
-  box-shadow: 0 3px 12px color-mix(in srgb, var(--cprimary) 18%, transparent);
-  filter: none;
-}
-
-/* ---- 2. panels: hairline top-glow + hover lift ---- */
-.cockpit-panel {
-  transition: border-color .3s, box-shadow .3s, transform .3s;
-}
-.cockpit-panel::after {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 5%, color-mix(in srgb, var(--cprimary) 65%, transparent), transparent 95%);
-  opacity: .45;
-  pointer-events: none;
-}
-.cockpit-panel:hover {
-  border-color: color-mix(in srgb, var(--cprimary) 35%, var(--cborder));
-  box-shadow: 0 6px 24px -8px color-mix(in srgb, var(--cprimary) 30%, transparent);
-}
-html.dark .cockpit-panel:hover {
-  box-shadow: 0 6px 28px -6px color-mix(in srgb, var(--cprimary) 22%, transparent),
-              inset 0 0 0 1px color-mix(in srgb, var(--cprimary) 12%, transparent);
-}
-
-/* ---- 3. KPI values: neon gradient + soft halo ---- */
-.kpi-value {
-  text-shadow: 0 0 18px color-mix(in srgb, var(--cprimary) 35%, transparent);
-}
-html.dark .kpi-value {
-  text-shadow: 0 0 22px color-mix(in srgb, currentColor 45%, transparent), 0 0 46px color-mix(in srgb, currentColor 18%, transparent);
-}
-.stat-value { text-shadow: 0 0 14px color-mix(in srgb, var(--cprimary) 22%, transparent); }
-
-/* ---- 4. live dot: breathing pulse ---- */
-.live-dot { animation: ckt-breathe 2.4s ease-in-out infinite; }
-@keyframes ckt-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cgreen) 55%, transparent); }
-  50%      { box-shadow: 0 0 0 5px transparent; }
-}
-.live-dot.err { animation: ckt-alarm 1.1s ease-in-out infinite; }
-@keyframes ckt-alarm {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cred) 60%, transparent); opacity: 1; }
-  50%      { box-shadow: 0 0 0 6px transparent; opacity: .55; }
-}
-
-/* ---- 5. GPU matrix cells: static load state + hover affordance ---- */
-.gpu-cell { transition: transform .18s, box-shadow .25s, border-color .25s; }
-.gpu-cell:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--cprimary) 55%, transparent);
-  box-shadow: 0 5px 18px -4px color-mix(in srgb, var(--cprimary) 45%, transparent);
-  z-index: 2;
-}
-/* ---- 6. tables: row hover accent bar ---- */
-.cockpit .el-table__body tr:hover > td.el-table__cell:first-child {
-  box-shadow: inset 3px 0 0 var(--cprimary);
-}
-
-/* ---- 7. tabs & radio groups: pill glow on active ---- */
-.cockpit .el-radio-button__inner {
-  transition: all .2s;
-}
-.cockpit .el-radio-button__original-radio:checked + .el-radio-button__inner {
-  box-shadow: 0 0 12px color-mix(in srgb, var(--cprimary) 45%, transparent);
-}
-
-/* ---- 8. dialogs: neon border + deeper presence ---- */
-.cockpit .el-dialog {
-  border: 1px solid color-mix(in srgb, var(--cprimary) 25%, var(--cborder));
-  box-shadow: 0 24px 70px -12px rgba(0,0,0,.35), 0 0 40px -18px color-mix(in srgb, var(--cprimary) 55%, transparent);
-}
-.cockpit .el-dialog__header { border-bottom: 1px solid color-mix(in srgb, var(--cprimary) 18%, var(--cborder)); }
-
-/* ---- 9. scrollbar: slim themed ---- */
-.cockpit ::-webkit-scrollbar { width: 8px; height: 8px; }
-.cockpit ::-webkit-scrollbar-track { background: transparent; }
-.cockpit ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--csub) 35%, transparent);
-  border-radius: 4px;
-}
-.cockpit ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--cprimary) 55%, transparent); }
-
-/* ---- 10. page enter: subtle fade-slide on router-view mount ---- */
-.dark-main > :first-child { animation: ckt-page-in .35s ease-out; }
-@keyframes ckt-page-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
-
-/* ---- 11. tag emphasis ---- */
-.cockpit .el-tag--danger { box-shadow: 0 0 10px -2px color-mix(in srgb, var(--cred) 50%, transparent); }
-
-/* ---- 12. rank top-3 medals: glow ---- */
-.rank-no.top1 { box-shadow: 0 0 12px -2px color-mix(in srgb, #f59e0b 70%, transparent); }
-.rank-no.top2 { box-shadow: 0 0 10px -3px color-mix(in srgb, #94a3b8 60%, transparent); }
-.rank-no.top3 { box-shadow: 0 0 10px -3px color-mix(in srgb, #d97706 55%, transparent); }
-
-/* ---- reduced motion: strip animations, keep colors ---- */
-@media (prefers-reduced-motion: reduce) {
-  .live-dot, .live-dot.err { animation: none; }
-  .cockpit-panel, .gpu-cell, .dark-main > :first-child { transition: none; animation: none; }
-}
-
-
-/* ---- energy panel (cockpit) ---- */
 .energy-panel { margin-top: 4px; }
 .energy-summary {
-  display: flex; gap: 18px; flex-wrap: wrap;
-  font-size: 13px; color: var(--csub); margin: 6px 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 6px 0 10px;
+  color: var(--csub);
+  font-size: 13px;
 }
+
 .energy-summary b { color: var(--ctext); }
 .energy-bars {
-  display: flex; gap: 10px; align-items: flex-end;
-  height: 150px; padding: 4px 2px 0;
+  display: flex;
+  height: 150px;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 4px 2px 0;
 }
-.energy-col {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-end; gap: 4px;
-  height: 100%; min-width: 0;
-}
-.energy-col-bar {
-  width: 70%; max-width: 46px; border-radius: 4px 4px 2px 2px;
-  transition: height .4s ease;
-  box-shadow: 0 0 12px -4px color-mix(in srgb, var(--cprimary) 40%, transparent);
-}
-.energy-col:hover .energy-col-bar { filter: brightness(1.15); }
-.energy-col-val { font-size: 11px; color: var(--ctext); font-variant-numeric: tabular-nums; }
-.energy-col-date { font-size: 10px; color: var(--csub); font-variant-numeric: tabular-nums; }
-@media (max-width: 560px) { .energy-bars { height: 110px; } }
 
-/* responsive: keep KPI numbers on one line as cards narrow */
-@media (max-width: 1199px) {
-  .kpi-value { font-size: 28px; }
+.energy-col {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
+
+.energy-col-bar { width: 70%; max-width: 46px; border-radius: 4px 4px 0 0; }
+.energy-col-val { color: var(--ctext); font-size: 11px; font-variant-numeric: tabular-nums; }
+.energy-col-date { color: var(--csub); font-size: 10px; font-variant-numeric: tabular-nums; }
+
 @media (max-width: 768px) {
-  .kpi-value { font-size: 24px; }
-  .kpi-unit { font-size: 12px; }
+  .gpu-matrix { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .health-chip { min-width: 0; flex: 1 1 155px; }
+}
+
+@media (max-width: 560px) {
+  .energy-bars { height: 110px; }
 }

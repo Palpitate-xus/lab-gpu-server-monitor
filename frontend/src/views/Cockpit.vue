@@ -378,11 +378,7 @@ const gpuProcRank = computed(() =>
 )
 
 const alertTickerRows = computed(() => {
-  // enough rows to both fill the panel (~8+ rows) and keep the -50% scroll seamless
-  const rows = alerts.value.slice(0, 12)
-  if (!rows.length) return []
-  const repeats = Math.max(2, Math.ceil(12 / rows.length))
-  return Array.from({ length: repeats }).flatMap(() => rows)
+  return alerts.value.slice(0, 12)
 })
 
 const latestMetric = computed(() => latest.value[0] || null)
