@@ -8,36 +8,36 @@
           就能直接用自然语言查询 GPU 状态、趋势、进程、风险和告警（只读）。
         </p>
         <div class="hero-tags">
-          <el-tag type="success" effect="dark" round>只读工具</el-tag>
-          <el-tag effect="plain" round>stdio 本地传输</el-tag>
-          <el-tag type="warning" effect="plain" round>viewer 最小权限</el-tag>
+          <a-tag color="green">只读工具</a-tag>
+          <a-tag>stdio 本地传输</a-tag>
+          <a-tag color="orange">viewer 最小权限</a-tag>
         </div>
       </div>
       <div class="endpoint-card">
         <div class="endpoint-label">当前平台地址</div>
         <code>{{ monitorUrl }}</code>
-        <el-button type="primary" plain size="small" @click="copyText(monitorUrl, '平台地址')">
+        <a-button type="primary" size="small" @click="copyText(monitorUrl, '平台地址')">
           复制地址
-        </el-button>
+        </a-button>
         <div class="endpoint-note">MCP 与浏览器不在同一台机器时，请换成 MCP 进程可访问的地址。</div>
       </div>
     </section>
 
     <div class="help-layout">
       <aside class="help-toc" aria-label="帮助文档目录">
-        <el-card shadow="never">
+        <a-card size="small">
           <div class="toc-title">本页目录</div>
           <button v-for="item in toc" :key="item.id" type="button" @click="scrollTo(item.id)">
             <span class="toc-index">{{ item.index }}</span>
             <span>{{ item.label }}</span>
           </button>
-        </el-card>
+        </a-card>
       </aside>
 
       <main class="help-content">
         <section id="overview" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">01</span>
                 <div>
@@ -69,19 +69,18 @@
               </div>
             </div>
 
-            <el-alert
-              title="MCP Server 不直接连接 MySQL，也不会 SSH 到被监控服务器。"
+            <a-alert
+              message="MCP Server 不直接连接 MySQL，也不会 SSH 到被监控服务器。"
               description="它只调用本系统已有的只读 API，因此平台中的角色权限、缓存和数据口径保持一致。"
               type="success"
-              :closable="false"
               show-icon
             />
-          </el-card>
+          </a-card>
         </section>
 
         <section id="quick-start" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">02</span>
                 <div>
@@ -97,10 +96,10 @@
                 <div class="step-body">
                   <h3>创建最小权限账号</h3>
                   <p>进入「用户管理」，创建角色为 <code>viewer</code> 的用户，例如 <code>mcp_viewer</code>。不要使用管理员账号。</p>
-                  <el-button v-if="isAdmin" size="small" type="primary" plain @click="router.push('/users')">
+                  <a-button v-if="isAdmin" size="small" type="primary" @click="router.push('/users')">
                     前往用户管理
-                  </el-button>
-                  <el-tag v-else type="info" size="small">请联系管理员创建 viewer 用户</el-tag>
+                  </a-button>
+                  <a-tag v-else>请联系管理员创建 viewer 用户</a-tag>
                 </div>
               </article>
 
@@ -131,11 +130,10 @@
                     </div>
                     <pre><code>{{ hostConfig }}</code></pre>
                   </div>
-                  <el-alert
+                  <a-alert
                     class="inline-alert"
-                    title="密码只应写入 MCP 宿主的本地环境配置，不要提交到 Git。"
+                    message="密码只应写入 MCP 宿主的本地环境配置，不要提交到 Git。"
                     type="warning"
-                    :closable="false"
                     show-icon
                   />
                 </div>
@@ -155,12 +153,12 @@
                 </div>
               </article>
             </div>
-          </el-card>
+          </a-card>
         </section>
 
         <section id="tools" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">03</span>
                 <div>
@@ -170,13 +168,13 @@
               </div>
             </template>
 
-            <el-table :data="tools" class="tool-table desktop-only" stripe>
-              <el-table-column prop="name" label="工具" min-width="280">
-                <template #default="{ row }"><code class="tool-name">{{ row.name }}</code></template>
-              </el-table-column>
-              <el-table-column prop="purpose" label="用途" min-width="210" />
-              <el-table-column prop="returns" label="主要返回" min-width="260" />
-            </el-table>
+            <a-table :data-source="tools" :pagination="false" row-key="name" class="tool-table desktop-only" size="middle">
+              <a-table-column data-index="name" title="工具" :width="310">
+                <template #default="{ record: row }"><code class="tool-name">{{ row.name }}</code></template>
+              </a-table-column>
+              <a-table-column data-index="purpose" title="用途" :width="240" />
+              <a-table-column data-index="returns" title="主要返回" />
+            </a-table>
             <div class="mobile-only tool-card-list">
               <article v-for="tool in tools" :key="tool.name" class="tool-card">
                 <code class="tool-name">{{ tool.name }}</code>
@@ -184,12 +182,12 @@
                 <div><span>主要返回</span>{{ tool.returns }}</div>
               </article>
             </div>
-          </el-card>
+          </a-card>
         </section>
 
         <section id="configuration" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">04</span>
                 <div>
@@ -203,28 +201,27 @@
               <article v-for="item in envVars" :key="item.name" class="config-item">
                 <div class="config-key">
                   <code>{{ item.name }}</code>
-                  <el-tag v-if="item.required" type="danger" size="small" effect="plain">必填</el-tag>
-                  <el-tag v-else type="info" size="small" effect="plain">可选</el-tag>
+                  <a-tag v-if="item.required" color="red">必填</a-tag>
+                  <a-tag v-else>可选</a-tag>
                 </div>
                 <p>{{ item.description }}</p>
                 <div class="config-default">默认：<code>{{ item.default }}</code></div>
               </article>
             </div>
 
-            <el-alert
+            <a-alert
               class="inline-alert"
-              title="远程地址必须使用 HTTPS"
+              message="远程地址必须使用 HTTPS"
               description="只有解析后仍全部指向环回接口的地址可以使用 HTTP。远程明文 HTTP、关闭证书校验和 API 重定向都会被代码直接拒绝，没有绕过开关。"
               type="warning"
-              :closable="false"
               show-icon
             />
-          </el-card>
+          </a-card>
         </section>
 
         <section id="security" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">05</span>
                 <div>
@@ -255,12 +252,12 @@
                 </ul>
               </div>
             </div>
-          </el-card>
+          </a-card>
         </section>
 
         <section id="troubleshooting" class="doc-section">
-          <el-card class="doc-card" shadow="never">
-            <template #header>
+          <a-card class="doc-card">
+            <template #title>
               <div class="section-heading">
                 <span class="section-number">06</span>
                 <div>
@@ -278,13 +275,13 @@
               <pre><code>{{ testCommand }}</code></pre>
             </div>
 
-            <el-collapse class="faq" accordion>
-              <el-collapse-item v-for="item in troubleshooting" :key="item.title" :title="item.title">
+            <a-collapse class="faq" accordion>
+              <a-collapse-panel v-for="item in troubleshooting" :key="item.title" :header="item.title">
                 <p>{{ item.body }}</p>
                 <code v-if="item.code">{{ item.code }}</code>
-              </el-collapse-item>
-            </el-collapse>
-          </el-card>
+              </a-collapse-panel>
+            </a-collapse>
+          </a-card>
         </section>
 
         <div class="doc-footer">
@@ -299,10 +296,11 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { App as AntApp } from 'ant-design-vue'
 import { isAdminSession } from '../composables'
 
 const router = useRouter()
+const { message } = AntApp.useApp()
 const isAdmin = computed(() => isAdminSession())
 const monitorUrl = window.location.origin
 const projectRoot = '/path/to/gpu_monitor'
@@ -416,9 +414,9 @@ async function copyText(text, label) {
       document.execCommand('copy')
       textarea.remove()
     }
-    ElMessage.success(`${label}已复制`)
+    message.success(`${label}已复制`)
   } catch {
-    ElMessage.error('复制失败，请手动选择文本')
+    message.error('复制失败，请手动选择文本')
   }
 }
 </script>
@@ -441,23 +439,8 @@ async function copyText(text, label) {
   margin-bottom: 18px;
   overflow: hidden;
   border: 1px solid var(--cborder);
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 85% 10%, color-mix(in srgb, var(--cpurple) 18%, transparent), transparent 38%),
-    linear-gradient(135deg, var(--cpanel), var(--cpanel2));
-  box-shadow: var(--cshadow);
-}
-
-.help-hero::after {
-  content: '';
-  position: absolute;
-  right: -70px;
-  bottom: -115px;
-  width: 260px;
-  height: 260px;
-  border: 1px solid color-mix(in srgb, var(--cprimary) 25%, transparent);
-  border-radius: 50%;
-  pointer-events: none;
+  border-radius: 8px;
+  background: var(--cpanel);
 }
 
 .hero-copy,
@@ -495,10 +478,9 @@ async function copyText(text, label) {
   align-items: flex-start;
   gap: 10px;
   padding: 20px;
-  border: 1px solid color-mix(in srgb, var(--cprimary) 28%, var(--cborder));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--cpanel) 88%, transparent);
-  backdrop-filter: blur(8px);
+  border: 1px solid var(--cborder);
+  border-radius: 8px;
+  background: var(--cpanel2);
 }
 
 .endpoint-label {
@@ -533,12 +515,12 @@ async function copyText(text, label) {
   top: 0;
 }
 
-.help-toc :deep(.el-card) {
+.help-toc :deep(.ant-card) {
   border-color: var(--cborder);
   background: var(--cpanel);
 }
 
-.help-toc :deep(.el-card__body) {
+.help-toc :deep(.ant-card-body) {
   padding: 12px;
 }
 
@@ -594,12 +576,12 @@ async function copyText(text, label) {
   background: var(--cpanel);
 }
 
-.doc-card :deep(.el-card__header) {
+.doc-card :deep(.ant-card-head) {
   padding: 16px 20px;
   border-color: var(--cborder);
 }
 
-.doc-card :deep(.el-card__body) {
+.doc-card :deep(.ant-card-body) {
   padding: 20px;
 }
 
@@ -616,7 +598,7 @@ async function copyText(text, label) {
   flex: 0 0 42px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--cprimary) 35%, var(--cborder));
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--help-accent-soft);
   color: var(--help-accent);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -783,8 +765,8 @@ async function copyText(text, label) {
 
 .code-toolbar button:hover,
 .code-toolbar button:focus-visible {
-  border-color: #22d3ee;
-  color: #67e8f9;
+  border-color: #1677ff;
+  color: #69b1ff;
   outline: none;
 }
 
@@ -845,12 +827,6 @@ async function copyText(text, label) {
 .prompt-grid small {
   color: var(--csub);
   font-size: 11px;
-}
-
-.tool-table {
-  --el-table-border-color: var(--cborder);
-  --el-table-header-bg-color: var(--cpanel2);
-  --el-table-row-hover-bg-color: var(--ctable-hover);
 }
 
 .tool-name {
@@ -977,18 +953,8 @@ async function copyText(text, label) {
   line-height: 1.9;
 }
 
-.faq {
-  --el-collapse-border-color: var(--cborder);
-}
-
-.faq :deep(.el-collapse-item__header) {
-  background: transparent;
-  color: var(--ctext);
+.faq :deep(.ant-collapse-header) {
   font-weight: 600;
-}
-
-.faq :deep(.el-collapse-item__wrap) {
-  background: transparent;
 }
 
 .faq p {
@@ -1038,7 +1004,7 @@ async function copyText(text, label) {
     min-width: 0;
   }
 
-  .help-toc :deep(.el-card__body) {
+  .help-toc :deep(.ant-card-body) {
     display: flex;
     gap: 3px;
     overflow-x: auto;
@@ -1072,8 +1038,8 @@ async function copyText(text, label) {
   .hero-copy p { font-size: 13px; line-height: 1.7; }
   .endpoint-card { padding: 15px; }
 
-  .doc-card :deep(.el-card__header),
-  .doc-card :deep(.el-card__body) {
+  .doc-card :deep(.ant-card-head),
+  .doc-card :deep(.ant-card-body) {
     padding: 16px;
   }
 

@@ -8,6 +8,8 @@ import {
   ButtonGroup as AntButtonGroup,
   Card as AntCard,
   Col as AntCol,
+  Collapse as AntCollapse,
+  CollapsePanel as AntCollapsePanel,
   ConfigProvider,
   Descriptions as AntDescriptions,
   DescriptionsItem as AntDescriptionsItem,
@@ -118,6 +120,8 @@ app.use(AntButton)
 app.use(AntButtonGroup)
 app.use(AntCard)
 app.use(AntCol)
+app.use(AntCollapse)
+app.use(AntCollapsePanel)
 app.use(ConfigProvider)
 app.use(AntDescriptions)
 app.use(AntDescriptionsItem)
