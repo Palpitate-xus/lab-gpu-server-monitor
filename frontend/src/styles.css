@@ -15,15 +15,15 @@ html, body, #app {
 .layout.cockpit { padding: 0; }
 .layout .app-header {
   background: var(--cpanel, #fff);
-  border-bottom: 1px solid var(--cborder, #dde5f0);
+  border-bottom: 1px solid var(--cborder, #d9d9d9);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
 }
 .layout .app-sider {
-  background: var(--cpanel2, #f7f9fc);
-  border-right: 1px solid var(--cborder, #dde5f0);
+  background: var(--cpanel2, #fafafa);
+  border-right: 1px solid var(--cborder, #d9d9d9);
 }
 .layout .app-content { min-width: 0; padding: 16px; overflow-y: auto; }
 
@@ -39,15 +39,15 @@ html, body, #app {
   font-size: 26px;
   font-weight: 700;
   line-height: 1.4;
-  color: var(--ctext, #1f2d3d);
+  color: var(--ctext, rgba(0, 0, 0, 0.88));
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.stat-label { font-size: 13px; color: var(--csub, #64748b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stat-sub { font-size: 12px; color: var(--csub, #64748b); opacity: 0.85; margin-top: 2px; }
+.stat-label { font-size: 13px; color: var(--csub, rgba(0, 0, 0, 0.45)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-sub { font-size: 12px; color: var(--csub, rgba(0, 0, 0, 0.45)); margin-top: 2px; }
 
 /* description list labels never wrap (values may) */
-.el-descriptions__label { white-space: nowrap; }
+.ant-descriptions-item-label { white-space: nowrap; }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .gpu-card { margin-bottom: 12px; }
@@ -57,7 +57,7 @@ html, body, #app {
 .table-scroll-hint {
   display: none;
   margin: -2px 0 8px;
-  color: var(--csub, #64748b);
+  color: var(--csub, rgba(0, 0, 0, 0.45));
   font-size: 12px;
 }
 .mobile-card-list {
@@ -66,10 +66,9 @@ html, body, #app {
 }
 .mobile-data-card {
   padding: 14px;
-  border: 1px solid var(--cborder, #dde5f0);
+  border: 1px solid var(--cborder, #d9d9d9);
   border-radius: 10px;
   background: var(--cpanel, #fff);
-  box-shadow: 0 5px 18px -14px rgba(15, 23, 42, .55);
 }
 .mobile-data-card__head {
   display: flex;
@@ -83,20 +82,20 @@ html, body, #app {
   display: grid;
   grid-template-columns: minmax(86px, auto) 1fr;
   gap: 7px 12px;
-  color: var(--ctext, #1f2d3d);
+  color: var(--ctext, rgba(0, 0, 0, 0.88));
   font-size: 13px;
 }
-.mobile-data-card__meta > span:nth-child(odd) { color: var(--csub, #64748b); }
+.mobile-data-card__meta > span:nth-child(odd) { color: var(--csub, rgba(0, 0, 0, 0.45)); }
 .mobile-data-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--cborder, #dde5f0);
+  border-top: 1px solid var(--cborder, #d9d9d9);
 }
 
-.process-table-pid { color: var(--csub, #64748b); }
+.process-table-pid { color: var(--csub, rgba(0, 0, 0, 0.45)); }
 
 .tag-dot {
   display: inline-block;
@@ -104,15 +103,15 @@ html, body, #app {
   border-radius: 50%;
   margin-right: 5px;
 }
-.dot-ok { background: var(--cgreen, #059669); }
-.dot-err { background: var(--cred, #dc2626); }
-.dot-off { background: var(--csub, #64748b); }
+.dot-ok { background: var(--cgreen, #52c41a); }
+.dot-err { background: var(--cred, #ff4d4f); }
+.dot-off { background: var(--csub, rgba(0, 0, 0, 0.45)); }
 
 .chart-box { width: 100%; height: 300px; }
 .chart-box-sm { width: 100%; height: 210px; }
 .chart-sub-title {
   font-size: 12px;
-  color: var(--csub, #64748b);
+  color: var(--csub, rgba(0, 0, 0, 0.45));
   letter-spacing: 0.06em;
   margin-bottom: 4px;
   padding-left: 2px;
@@ -133,15 +132,15 @@ html, body, #app {
   .desktop-only { display: none !important; }
   .mobile-only { display: block !important; }
   .table-scroll-hint { display: block; }
-  .responsive-dialog .el-dialog__body { padding: 16px; }
-  .responsive-dialog .responsive-form .el-form-item { display: block; }
-  .responsive-dialog .responsive-form .el-form-item__label {
+  .responsive-dialog .ant-modal-body { padding: 16px 0 0; }
+  .responsive-dialog .responsive-form .ant-form-item-row { display: block; }
+  .responsive-dialog .responsive-form .ant-form-item-label {
     width: auto !important;
-    height: auto;
     padding: 0 0 6px;
     line-height: 1.4;
+    text-align: left;
   }
-  .responsive-dialog .responsive-form .el-form-item__content { margin-left: 0 !important; }
+  .responsive-dialog .responsive-form .ant-form-item-control { max-width: 100%; }
 }
 
 @media (max-width: 640px) {

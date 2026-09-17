@@ -5,27 +5,18 @@ import {
   Avatar as AntAvatar,
   Badge as AntBadge,
   Button as AntButton,
-  ButtonGroup as AntButtonGroup,
   Card as AntCard,
   Col as AntCol,
   Collapse as AntCollapse,
-  CollapsePanel as AntCollapsePanel,
   ConfigProvider,
   Descriptions as AntDescriptions,
-  DescriptionsItem as AntDescriptionsItem,
   Drawer as AntDrawer,
   Dropdown as AntDropdown,
   Form as AntForm,
-  FormItem as AntFormItem,
   Input as AntInput,
   InputNumber as AntInputNumber,
-  InputPassword as AntInputPassword,
   Layout as AntLayout,
-  LayoutContent as AntLayoutContent,
-  LayoutHeader as AntLayoutHeader,
-  LayoutSider as AntLayoutSider,
   Menu as AntMenu,
-  MenuItem as AntMenuItem,
   Modal as AntModal,
   Empty as AntEmpty,
   PageHeader as AntPageHeader,
@@ -33,78 +24,21 @@ import {
   Pagination as AntPagination,
   Progress as AntProgress,
   Radio as AntRadio,
-  RadioButton as AntRadioButton,
-  RadioGroup as AntRadioGroup,
   Result as AntResult,
   Row as AntRow,
   Skeleton as AntSkeleton,
   Slider as AntSlider,
   Select as AntSelect,
-  SelectOption as AntSelectOption,
   Spin as AntSpin,
   Statistic as AntStatistic,
   Steps as AntSteps,
   Switch as AntSwitch,
   Table as AntTable,
-  TableColumn as AntTableColumn,
   Tabs as AntTabs,
   Tag as AntTag,
   Tooltip as AntTooltip,
 } from 'ant-design-vue'
-import {
-  ElAlert,
-  ElAside,
-  ElAvatar,
-  ElButton,
-  ElButtonGroup,
-  ElCard,
-  ElCol,
-  ElCollapse,
-  ElCollapseItem,
-  ElConfigProvider,
-  ElContainer,
-  ElDescriptions,
-  ElDescriptionsItem,
-  ElDialog,
-  ElDrawer,
-  ElDropdown,
-  ElDropdownItem,
-  ElDropdownMenu,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
-  ElHeader,
-  ElIcon,
-  ElInput,
-  ElInputNumber,
-  ElLink,
-  ElLoading,
-  ElMain,
-  ElMenu,
-  ElMenuItem,
-  ElOption,
-  ElPageHeader,
-  ElPagination,
-  ElPopconfirm,
-  ElProgress,
-  ElRadio,
-  ElRadioButton,
-  ElRadioGroup,
-  ElRow,
-  ElSelect,
-  ElSkeleton,
-  ElSlider,
-  ElSwitch,
-  ElTabPane,
-  ElTable,
-  ElTableColumn,
-  ElTabs,
-  ElTag,
-  ElTooltip,
-} from 'element-plus'
 import 'ant-design-vue/dist/reset.css'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import router from './router'
 import { bootstrapSession } from './composables'
@@ -114,33 +48,23 @@ import './theme'
 
 const app = createApp(App)
 
-app.use(router)
 app.use(AntAlert)
 app.use(AntApp)
 app.use(AntAvatar)
 app.use(AntBadge)
 app.use(AntButton)
-app.use(AntButtonGroup)
 app.use(AntCard)
 app.use(AntCol)
 app.use(AntCollapse)
-app.use(AntCollapsePanel)
 app.use(ConfigProvider)
 app.use(AntDescriptions)
-app.use(AntDescriptionsItem)
 app.use(AntDrawer)
 app.use(AntDropdown)
 app.use(AntForm)
-app.use(AntFormItem)
 app.use(AntInput)
 app.use(AntInputNumber)
-app.use(AntInputPassword)
 app.use(AntLayout)
-app.use(AntLayoutContent)
-app.use(AntLayoutHeader)
-app.use(AntLayoutSider)
 app.use(AntMenu)
-app.use(AntMenuItem)
 app.use(AntModal)
 app.use(AntEmpty)
 app.use(AntPageHeader)
@@ -148,75 +72,21 @@ app.use(AntPopconfirm)
 app.use(AntPagination)
 app.use(AntProgress)
 app.use(AntRadio)
-app.use(AntRadioButton)
-app.use(AntRadioGroup)
 app.use(AntResult)
 app.use(AntRow)
 app.use(AntSkeleton)
 app.use(AntSlider)
 app.use(AntSelect)
-app.use(AntSelectOption)
 app.use(AntSpin)
 app.use(AntStatistic)
 app.use(AntSteps)
 app.use(AntTable)
-app.use(AntTableColumn)
 app.use(AntTabs)
 app.use(AntTag)
 app.use(AntSwitch)
 app.use(AntTooltip)
-for (const component of [
-  ElAlert,
-  ElAside,
-  ElAvatar,
-  ElButton,
-  ElButtonGroup,
-  ElCard,
-  ElCol,
-  ElCollapse,
-  ElCollapseItem,
-  ElConfigProvider,
-  ElContainer,
-  ElDescriptions,
-  ElDescriptionsItem,
-  ElDialog,
-  ElDrawer,
-  ElDropdown,
-  ElDropdownItem,
-  ElDropdownMenu,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
-  ElHeader,
-  ElIcon,
-  ElInput,
-  ElInputNumber,
-  ElLink,
-  ElMain,
-  ElMenu,
-  ElMenuItem,
-  ElOption,
-  ElPageHeader,
-  ElPagination,
-  ElPopconfirm,
-  ElProgress,
-  ElRadio,
-  ElRadioButton,
-  ElRadioGroup,
-  ElRow,
-  ElSelect,
-  ElSkeleton,
-  ElSlider,
-  ElSwitch,
-  ElTabPane,
-  ElTable,
-  ElTableColumn,
-  ElTabs,
-  ElTag,
-  ElTooltip,
-]) {
-  app.use(component)
-}
-app.use(ElLoading)
 
-bootstrapSession().finally(() => app.mount('#app'))
+bootstrapSession().finally(() => {
+  app.use(router)
+  app.mount('#app')
+})
