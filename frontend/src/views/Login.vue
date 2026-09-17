@@ -48,7 +48,7 @@
 </template>
 
 <script setup>
-import { onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { App as AntApp } from 'ant-design-vue'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
@@ -108,6 +108,9 @@ async function submit() {
 }
 
 onUnmounted(() => clearInterval(lockTimer))
+onMounted(() => {
+  if (route.query.reason === 'expired') message.warning('登录已过期，请重新登录')
+})
 </script>
 
 <style scoped>

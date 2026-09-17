@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
 import { clearSession } from './composables'
 
 const api = axios.create({
@@ -19,13 +18,15 @@ api.interceptors.response.use(
       redirecting = true
       clearSession()
       if (!location.pathname.startsWith('/login')) {
-        ElMessage.warning('登录已过期，请重新登录')
         // dynamic import: a static router import here would be circular
         // (router.js loads view modules which import api.js) and evaluate
         // to undefined during module init, crashing the whole SPA
         import('./router').then(({ default: router }) =>
           router
-            .push({ name: 'login', query: { redirect: location.pathname + location.search } })
+            .push({
+              name: 'login',
+              query: { redirect: location.pathname + location.search, reason: 'expired' },
+            })
             .finally(() => { redirecting = false })
         )
       } else {
