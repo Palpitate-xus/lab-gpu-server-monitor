@@ -13,7 +13,7 @@ html, body, #app {
 .layout { height: 100%; background: var(--cbg, #f5f5f5); }
 /* Layout imports the cockpit palette, but must not inherit page-level padding. */
 .layout.cockpit { padding: 0; }
-.layout .el-header {
+.layout .app-header {
   background: var(--cpanel, #fff);
   border-bottom: 1px solid var(--cborder, #dde5f0);
   display: flex;
@@ -21,11 +21,11 @@ html, body, #app {
   justify-content: space-between;
   padding: 0 20px;
 }
-.layout .el-aside {
+.layout .app-sider {
   background: var(--cpanel2, #f7f9fc);
   border-right: 1px solid var(--cborder, #dde5f0);
 }
-.layout .el-main { min-width: 0; padding: 16px; overflow-y: auto; }
+.layout .app-content { min-width: 0; padding: 16px; overflow-y: auto; }
 
 .metric-grid {
   display: grid;
@@ -123,12 +123,12 @@ html, body, #app {
 }
 @media (max-width: 991px) {
   .stat-value { font-size: 20px; }
-  .layout .el-main { padding: 12px; }
+  .layout .app-content { padding: 12px; }
 }
 @media (max-width: 768px) {
-  .layout .el-aside { display: none; }
-  .layout .el-main { padding: 10px; }
-  .layout .el-main > .cockpit { padding: 8px 0 20px; }
+  .layout .app-sider { display: none; }
+  .layout .app-content { padding: 10px; }
+  .layout .app-content > .cockpit { padding: 8px 0 20px; }
   .toolbar { gap: 8px; }
   .desktop-only { display: none !important; }
   .mobile-only { display: block !important; }

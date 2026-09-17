@@ -1,114 +1,131 @@
 <template>
-  <el-container class="layout cockpit">
-    <el-aside width="200px" class="dark-aside">
+  <a-layout class="layout">
+    <a-layout-sider :width="208" class="app-sider">
       <div class="menu-title">
-        <span class="live-dot"></span>
+        <a-badge status="processing" />
         <span>GPU Monitor</span>
       </div>
-      <el-menu :default-active="active" router class="dark-menu" background-color="transparent" :text-color="uiTheme.menuText" :active-text-color="uiTheme.menuActive">
-        <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
-        <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
-        <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
-        <el-menu-item index="/gpu-analysis">
-          <el-icon><Cpu /></el-icon>GPU 分析
-          <span v-if="idleHeldCount > 0" class="menu-badge menu-badge-warn">{{ idleHeldCount > 99 ? '99+' : idleHeldCount }}</span>
-        </el-menu-item>
-        <el-menu-item index="/gpu-matrix"><el-icon><Grid /></el-icon>GPU 矩阵</el-menu-item>
-        <el-menu-item index="/reports"><el-icon><TrendCharts /></el-icon>利用率报表</el-menu-item>
-        <el-menu-item index="/alerts">
-          <el-icon><Bell /></el-icon>告警
-          <span v-if="openAlerts > 0" class="menu-badge">{{ openAlerts > 99 ? '99+' : openAlerts }}</span>
-        </el-menu-item>
-        <el-menu-item index="/help"><el-icon><QuestionFilled /></el-icon>帮助 / MCP</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/users"><el-icon><UserFilled /></el-icon>用户管理</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
-      </el-menu>
-    </el-aside>
-    <el-container>
-      <el-header height="60px" class="dark-header">
+      <a-menu mode="inline" :selected-keys="[active]" class="app-menu" @click="onNavigate">
+        <a-menu-item v-for="item in menuEntries" :key="item.path">
+          <component :is="item.icon" />
+          <span>{{ item.label }}</span>
+          <a-badge
+            v-if="item.count > 0"
+            :count="item.count"
+            :overflow-count="99"
+            :number-style="item.warning ? { backgroundColor: '#faad14' } : undefined"
+            class="menu-count"
+          />
+        </a-menu-item>
+      </a-menu>
+    </a-layout-sider>
+
+    <a-layout>
+      <a-layout-header class="app-header">
         <div class="header-left">
-          <el-button class="mobile-menu-btn" text :icon="Menu" aria-label="打开主导航" @click="drawer = true" />
+          <a-button
+            class="mobile-menu-btn"
+            type="text"
+            shape="circle"
+            aria-label="打开主导航"
+            @click="drawer = true"
+          >
+            <MenuOutlined />
+          </a-button>
           <div class="page-title" :title="pageTitle">{{ pageTitle }}</div>
         </div>
         <div class="header-actions">
           <ThemeSwitch />
-          <el-dropdown @command="onCommand">
-            <span class="user-trigger" role="button" tabindex="0" :aria-label="`当前用户：${user?.display_name || user?.username}`">
-              <el-avatar :size="30" style="background:linear-gradient(135deg,var(--cprimary),var(--cpurple))">{{ avatarChar }}</el-avatar>
+          <a-dropdown :trigger="['click']">
+            <a-button
+              type="text"
+              class="user-trigger"
+              :aria-label="`当前用户：${user?.display_name || user?.username}`"
+            >
+              <a-avatar :size="30" class="user-avatar">{{ avatarChar }}</a-avatar>
               <span class="user-name">{{ user?.display_name || user?.username }}</span>
-              <el-icon class="user-arrow"><ArrowDown /></el-icon>
-            </span>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-              </el-dropdown-menu>
+              <DownOutlined class="user-arrow" />
+            </a-button>
+            <template #overlay>
+              <a-menu @click="onUserMenuClick">
+                <a-menu-item key="logout">退出登录</a-menu-item>
+              </a-menu>
             </template>
-          </el-dropdown>
+          </a-dropdown>
         </div>
-      </el-header>
-      <el-main class="dark-main">
+      </a-layout-header>
+      <a-layout-content class="app-content">
         <router-view :key="route.fullPath" />
-      </el-main>
-    </el-container>
+      </a-layout-content>
+    </a-layout>
 
-    <el-drawer v-model="drawer" direction="ltr" size="min(280px, 82vw)" :with-header="false" class="mobile-nav-drawer">
+    <a-drawer
+      v-model:open="drawer"
+      placement="left"
+      :width="280"
+      :closable="false"
+      :body-style="drawerBodyStyle"
+      class="mobile-nav-drawer"
+    >
       <div class="drawer-brand">
-        <div class="drawer-brand-name"><span class="live-dot"></span>GPU Monitor</div>
-        <el-button text circle :icon="Close" aria-label="关闭主导航" @click="drawer = false" />
+        <div class="drawer-brand-name">
+          <a-badge status="processing" />
+          <span>GPU Monitor</span>
+        </div>
+        <a-button type="text" shape="circle" aria-label="关闭主导航" @click="drawer = false">
+          <CloseOutlined />
+        </a-button>
       </div>
-      <el-menu :default-active="active" router class="dark-menu drawer-menu" @select="drawer = false">
-        <el-menu-item index="/cockpit"><el-icon><DataBoard /></el-icon>驾驶舱</el-menu-item>
-        <el-menu-item index="/dashboard"><el-icon><Odometer /></el-icon>总览</el-menu-item>
-        <el-menu-item index="/servers"><el-icon><Monitor /></el-icon>服务器</el-menu-item>
-        <el-menu-item index="/gpu-analysis">
-          <el-icon><Cpu /></el-icon>GPU 分析
-          <span v-if="idleHeldCount > 0" class="menu-badge menu-badge-warn">{{ idleHeldCount > 99 ? '99+' : idleHeldCount }}</span>
-        </el-menu-item>
-        <el-menu-item index="/gpu-matrix"><el-icon><Grid /></el-icon>GPU 矩阵</el-menu-item>
-        <el-menu-item index="/reports"><el-icon><TrendCharts /></el-icon>利用率报表</el-menu-item>
-        <el-menu-item index="/alerts">
-          <el-icon><Bell /></el-icon>告警
-          <span v-if="openAlerts > 0" class="menu-badge">{{ openAlerts > 99 ? '99+' : openAlerts }}</span>
-        </el-menu-item>
-        <el-menu-item index="/help"><el-icon><QuestionFilled /></el-icon>帮助 / MCP</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/users"><el-icon><UserFilled /></el-icon>用户管理</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
-      </el-menu>
+      <a-menu mode="inline" :selected-keys="[active]" class="drawer-menu" @click="onNavigate">
+        <a-menu-item v-for="item in menuEntries" :key="item.path">
+          <component :is="item.icon" />
+          <span>{{ item.label }}</span>
+          <a-badge
+            v-if="item.count > 0"
+            :count="item.count"
+            :overflow-count="99"
+            :number-style="item.warning ? { backgroundColor: '#faad14' } : undefined"
+            class="menu-count"
+          />
+        </a-menu-item>
+      </a-menu>
       <div class="drawer-user">
-        <el-avatar :size="34" style="background:linear-gradient(135deg,var(--cprimary),var(--cpurple))">{{ avatarChar }}</el-avatar>
-        <div><b>{{ user?.display_name || user?.username }}</b><span>{{ isAdmin ? '管理员' : '查看者' }}</span></div>
+        <a-avatar :size="36" class="user-avatar">{{ avatarChar }}</a-avatar>
+        <div>
+          <b>{{ user?.display_name || user?.username }}</b>
+          <span>{{ isAdmin ? '管理员' : '查看者' }}</span>
+        </div>
       </div>
-    </el-drawer>
-  </el-container>
+    </a-drawer>
+  </a-layout>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { App as AntApp } from 'ant-design-vue'
 import {
-  ArrowDown,
-  Bell,
-  Close,
-  Cpu,
-  DataBoard,
-  Grid,
-  Menu,
-  Monitor,
-  Odometer,
-  QuestionFilled,
-  Setting,
-  TrendCharts,
-  UserFilled,
-} from '@element-plus/icons-vue'
+  AppstoreOutlined,
+  BarChartOutlined,
+  BellOutlined,
+  CloseOutlined,
+  DashboardOutlined,
+  DesktopOutlined,
+  DownOutlined,
+  FundProjectionScreenOutlined,
+  LineChartOutlined,
+  MenuOutlined,
+  QuestionCircleOutlined,
+  SettingOutlined,
+  TeamOutlined,
+} from '@ant-design/icons-vue'
 import api from '../api'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { clearSession, getSession, isAdminSession } from '../composables'
-import { uiTheme } from '../theme'
-import '../cockpit.css'
 
 const route = useRoute()
 const router = useRouter()
+const { message, modal } = AntApp.useApp()
 const user = computed(() => getSession().user)
 const isAdmin = computed(() => isAdminSession())
 const active = computed(() => route.path.startsWith('/servers') ? '/servers' : route.path)
@@ -117,7 +134,25 @@ const avatarChar = computed(() => (user.value?.username || '?').charAt(0).toUppe
 const openAlerts = ref(0)
 const idleHeldCount = ref(0)
 const drawer = ref(false)
+const drawerBodyStyle = { padding: 0, position: 'relative' }
 let alertTimer = null
+
+const menuEntries = computed(() => [
+  { path: '/cockpit', label: '驾驶舱', icon: FundProjectionScreenOutlined, count: 0 },
+  { path: '/dashboard', label: '总览', icon: DashboardOutlined, count: 0 },
+  { path: '/servers', label: '服务器', icon: DesktopOutlined, count: 0 },
+  { path: '/gpu-analysis', label: 'GPU 分析', icon: LineChartOutlined, count: idleHeldCount.value, warning: true },
+  { path: '/gpu-matrix', label: 'GPU 矩阵', icon: AppstoreOutlined, count: 0 },
+  { path: '/reports', label: '利用率报表', icon: BarChartOutlined, count: 0 },
+  { path: '/alerts', label: '告警', icon: BellOutlined, count: openAlerts.value },
+  { path: '/help', label: '帮助 / MCP', icon: QuestionCircleOutlined, count: 0 },
+  ...(isAdmin.value
+    ? [
+        { path: '/users', label: '用户管理', icon: TeamOutlined, count: 0 },
+        { path: '/settings', label: '系统设置', icon: SettingOutlined, count: 0 },
+      ]
+    : []),
+])
 
 async function loadOpenAlerts() {
   if (document.hidden) return
@@ -130,21 +165,30 @@ async function loadOpenAlerts() {
   }
 }
 
-function onCommand(cmd) {
-  if (cmd === 'logout') {
-    ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
-      .then(async () => {
-        try {
-          await api.post('/auth/logout')
-        } catch (e) {
-          if (e && e.friendlyMessage) ElMessageBox.alert(e.friendlyMessage, '退出失败')
-        } finally {
-          clearSession()
-          router.push('/login')
-        }
-      })
-      .catch(() => {})
-  }
+function onNavigate({ key }) {
+  drawer.value = false
+  if (key !== active.value) router.push(key)
+}
+
+function onUserMenuClick({ key }) {
+  if (key !== 'logout') return
+  modal.confirm({
+    title: '确定要退出登录吗？',
+    content: '退出后需要重新登录才能继续访问监控控制台。',
+    okText: '退出登录',
+    cancelText: '取消',
+    okType: 'danger',
+    async onOk() {
+      try {
+        await api.post('/auth/logout')
+      } catch (e) {
+        if (e?.friendlyMessage) message.error(e.friendlyMessage)
+      } finally {
+        clearSession()
+        await router.push('/login')
+      }
+    },
+  })
 }
 
 onMounted(() => {
@@ -155,60 +199,35 @@ onUnmounted(() => clearInterval(alertTimer))
 </script>
 
 <style scoped>
-.dark-aside {
-  background: var(--cpanel2) !important;
-  border-right: 1px solid var(--cborder) !important;
+.app-sider {
   overflow-y: auto;
+  border-right: 1px solid var(--cborder);
+  background: var(--cpanel);
 }
 .menu-title {
-  height: 60px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.05em;
-  color: var(--cprimary);
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ctext);
   border-bottom: 1px solid var(--cborder);
 }
-.dark-menu {
-  border-right: none !important;
+.app-menu {
+  padding-top: 8px;
+  border-inline-end: 0;
 }
-.menu-badge {
-  margin-left: 8px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--cred);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-  display: inline-block;
-  vertical-align: middle;
-  align-self: center;
-  box-shadow: 0 0 0 2px var(--cpanel2);
-}
-.menu-badge-warn {
-  background: var(--cyellow);
-}
-.dark-menu :deep(.el-menu-item.is-active) {
-  background: var(--ctable-hover) !important;
-  border-right: 2px solid var(--cprimary);
-}
-.dark-menu :deep(.el-menu-item:hover) {
-  background: var(--ctable-hover);
-}
-.dark-header {
-  background: var(--cpanel) !important;
-  border-bottom: 1px solid var(--cborder) !important;
+.menu-count { margin-left: auto; }
+.app-header {
+  height: 64px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  background: var(--cpanel);
+  border-bottom: 1px solid var(--cborder);
 }
 .header-left {
   min-width: 0;
@@ -221,104 +240,88 @@ onUnmounted(() => clearInterval(alertTimer))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.04em;
 }
 .header-actions {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
 }
 .user-trigger {
-  cursor: pointer;
-  display: flex;
+  height: 40px;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--ctext);
-  outline: none;
+  gap: 8px;
 }
-.user-trigger:focus-visible {
-  border-radius: 8px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cprimary) 35%, transparent);
+.user-avatar {
+  flex: 0 0 auto;
+  background: #1677ff;
 }
-.dark-main {
+.app-content {
   min-width: 0;
   padding: 16px;
   overflow-y: auto;
 }
-.mobile-menu-btn {
-  display: none !important;
+.mobile-menu-btn { display: none; }
+.drawer-brand {
+  height: 64px;
+  padding: 0 12px 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--cborder);
 }
+.drawer-brand-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.drawer-menu {
+  padding-top: 8px;
+  border-inline-end: 0;
+}
+.drawer-user {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--cborder);
+  border-radius: 8px;
+  background: var(--cpanel2);
+}
+.drawer-user div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.drawer-user b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-user span {
+  color: var(--csub);
+  font-size: 12px;
+}
+
 @media (max-width: 768px) {
-  .dark-header {
-    padding: 0 10px;
-  }
-  .header-left {
-    flex: 1 1 auto;
-    gap: 4px;
-  }
-  .page-title {
-    font-size: 15px;
-    letter-spacing: 0.02em;
-  }
-  .header-actions {
-    gap: 5px;
-  }
+  .app-sider { display: none; }
+  .app-header { padding: 0 8px; }
+  .header-left { flex: 1 1 auto; gap: 4px; }
+  .page-title { font-size: 15px; }
+  .header-actions { gap: 2px; }
   .user-name,
-  .user-arrow {
-    display: none;
-  }
-  .mobile-menu-btn {
-    display: inline-flex !important;
-    flex: 0 0 auto;
-  }
-  .drawer-brand {
-    height: 64px;
-    padding: 0 14px 0 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--cborder);
-  }
-  .drawer-brand-name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--cprimary);
-    font-weight: 700;
-    letter-spacing: .04em;
-  }
-  .drawer-menu {
-    padding: 8px 0;
-  }
-  .drawer-user {
-    position: absolute;
-    left: 18px;
-    right: 18px;
-    bottom: 18px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px;
-    border: 1px solid var(--cborder);
-    border-radius: 10px;
-    background: var(--cpanel2);
-  }
-  .drawer-user div {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .drawer-user b {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .drawer-user span {
-    color: var(--csub);
-    font-size: 12px;
-  }
+  .user-arrow { display: none; }
+  .mobile-menu-btn { display: inline-flex; }
+  .app-content { padding: 10px; }
 }
 </style>

@@ -1,9 +1,16 @@
 import { createApp } from 'vue'
 import {
   App as AntApp,
+  Avatar as AntAvatar,
+  Badge as AntBadge,
   Button as AntButton,
   ConfigProvider,
+  Drawer as AntDrawer,
   Dropdown as AntDropdown,
+  Layout as AntLayout,
+  LayoutContent as AntLayoutContent,
+  LayoutHeader as AntLayoutHeader,
+  LayoutSider as AntLayoutSider,
   Menu as AntMenu,
   MenuItem as AntMenuItem,
   Tooltip as AntTooltip,
@@ -73,9 +80,16 @@ const app = createApp(App)
 
 app.use(router)
 app.use(AntApp)
+app.use(AntAvatar)
+app.use(AntBadge)
 app.use(AntButton)
 app.use(ConfigProvider)
+app.use(AntDrawer)
 app.use(AntDropdown)
+app.use(AntLayout)
+app.use(AntLayoutContent)
+app.use(AntLayoutHeader)
+app.use(AntLayoutSider)
 app.use(AntMenu)
 app.use(AntMenuItem)
 app.use(AntTooltip)
