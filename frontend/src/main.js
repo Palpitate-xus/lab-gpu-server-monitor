@@ -8,6 +8,8 @@ import {
   Card as AntCard,
   Col as AntCol,
   ConfigProvider,
+  Descriptions as AntDescriptions,
+  DescriptionsItem as AntDescriptionsItem,
   Drawer as AntDrawer,
   Dropdown as AntDropdown,
   Form as AntForm,
@@ -115,6 +117,8 @@ app.use(AntButton)
 app.use(AntCard)
 app.use(AntCol)
 app.use(ConfigProvider)
+app.use(AntDescriptions)
+app.use(AntDescriptionsItem)
 app.use(AntDrawer)
 app.use(AntDropdown)
 app.use(AntForm)

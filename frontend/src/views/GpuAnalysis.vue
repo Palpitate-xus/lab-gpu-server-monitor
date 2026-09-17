@@ -7,103 +7,91 @@
       </div>
       <div class="analysis-controls">
         <span v-if="lastUpdated" class="analysis-updated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
-        <el-radio-group v-model="viewMode" size="small">
-          <el-radio-button value="idle">空占检测</el-radio-button>
-          <el-radio-button value="risk">故障预测</el-radio-button>
-          <el-radio-button value="all">全部 GPU</el-radio-button>
-        </el-radio-group>
-        <el-button size="small" :icon="Refresh" @click="load">刷新</el-button>
+        <a-radio-group v-model:value="viewMode" size="small">
+          <a-radio-button value="idle">空占检测</a-radio-button>
+          <a-radio-button value="risk">故障预测</a-radio-button>
+          <a-radio-button value="all">全部 GPU</a-radio-button>
+        </a-radio-group>
+        <a-button size="small" @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
       </div>
     </div>
 
-    <el-alert v-if="loadError" :title="`数据加载失败：${loadError}（保留上次数据，1 分钟后重试）`" type="error" show-icon :closable="false" style="margin-bottom:12px" />
+    <a-alert v-if="loadError" :message="`数据加载失败：${loadError}（保留上次数据，1 分钟后重试）`" type="error" show-icon class="load-alert" />
 
     <!-- ===== summary cards ===== -->
-    <el-row :gutter="14" class="analysis-kpis">
-      <el-col :span="6" :xs="{ span: 12 }">
-        <div class="cockpit-panel kpi-accent-cyan">
-          <div class="kpi-value">{{ summary.total_gpus }}<span class="kpi-unit">卡</span></div>
-          <div class="kpi-label">集群 GPU 总数</div>
-        </div>
-      </el-col>
-      <el-col :span="6" :xs="{ span: 12 }">
-        <div class="cockpit-panel kpi-accent-yellow">
-          <div class="kpi-value kpi-solid-yellow">{{ summary.idle_held_count }}<span class="kpi-unit">卡</span></div>
-          <div class="kpi-label">空占（占卡不计算）</div>
-        </div>
-      </el-col>
-      <el-col :span="6" :xs="{ span: 12 }">
-        <div class="cockpit-panel kpi-accent-purple">
-          <div class="kpi-value kpi-solid-purple">{{ summary.high_risk_count }}<span class="kpi-unit">卡</span></div>
-          <div class="kpi-label">风险关注（≥30 分）</div>
-        </div>
-      </el-col>
-      <el-col :span="6" :xs="{ span: 12 }">
-        <div class="cockpit-panel kpi-accent-green">
-          <div class="kpi-value kpi-solid-green">{{ healthyCount }}<span class="kpi-unit">卡</span></div>
-          <div class="kpi-label">健康（低风险无空占）</div>
-        </div>
-      </el-col>
-    </el-row>
+    <a-row :gutter="14" class="analysis-kpis">
+      <a-col :span="6" :xs="12">
+        <a-card><a-statistic title="集群 GPU 总数" :value="summary.total_gpus" suffix="卡" /></a-card>
+      </a-col>
+      <a-col :span="6" :xs="12">
+        <a-card><a-statistic title="空占（占卡不计算）" :value="summary.idle_held_count" suffix="卡" /></a-card>
+      </a-col>
+      <a-col :span="6" :xs="12">
+        <a-card><a-statistic title="风险关注（≥30 分）" :value="summary.high_risk_count" suffix="卡" /></a-card>
+      </a-col>
+      <a-col :span="6" :xs="12">
+        <a-card><a-statistic title="健康（低风险无空占）" :value="healthyCount" suffix="卡" /></a-card>
+      </a-col>
+    </a-row>
 
     <!-- ===== main table ===== -->
-    <el-card class="cockpit-panel">
-      <template #header>
+    <a-card>
+      <template #title>
         <div class="analysis-card-head">
           <span>{{ viewTitle }}</span>
           <span>{{ viewHint }}</span>
         </div>
       </template>
-      <el-table class="desktop-only" :data="filtered" size="small" v-loading="loading" :row-class-name="rowClass" max-height="560">
-        <el-table-column label="服务器 / GPU" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-link @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>
+      <a-table class="desktop-only" :data-source="filtered" size="small" :loading="loading" :pagination="false" :row-class-name="rowClass" :scroll="{ x: 1180, y: 560 }" :row-key="rowKey">
+        <a-table-column title="服务器 / GPU" :width="210" ellipsis>
+          <template #default="{ record: row }">
+            <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
             <div class="analysis-server-meta">GPU {{ row.gpu_index }} · {{ row.name }}</div>
           </template>
-        </el-table-column>
-        <el-table-column label="利用率" width="90">
-          <template #default="{ row }">
+        </a-table-column>
+        <a-table-column title="利用率" :width="90">
+          <template #default="{ record: row }">
             <span :style="{ color: row.util > 5 ? '' : 'var(--cyellow)' }">{{ row.util }}%</span>
           </template>
-        </el-table-column>
-        <el-table-column label="显存占用" width="125">
-          <template #default="{ row }">
-            <el-progress :percentage="pct(row.mem_pct)" :stroke-width="8" :color="utilColor(row.mem_pct)" :show-text="false" style="width:80px" />
+        </a-table-column>
+        <a-table-column title="显存占用" :width="150">
+          <template #default="{ record: row }">
+            <a-progress :percent="pct(row.mem_pct)" :stroke-width="8" :stroke-color="utilColor(row.mem_pct)" :show-info="false" style="width:80px" />
             <span class="mono" style="font-size:11px;margin-left:6px">{{ row.mem_used_gb }}G</span>
           </template>
-        </el-table-column>
-        <el-table-column label="空占状态" width="145">
-          <template #default="{ row }">
-            <el-tag v-if="row.idle_held" type="danger" effect="dark" size="small">
+        </a-table-column>
+        <a-table-column title="空占状态" :width="160">
+          <template #default="{ record: row }">
+            <a-tag v-if="row.idle_held" color="red">
               空占 {{ fmtIdleMin(row.idle_minutes) }}
-            </el-tag>
-            <el-tag v-else-if="row.mem_pct >= 30 && row.util < 5" type="warning" size="small">疑似（观察中）</el-tag>
-            <el-tag v-else-if="row.util < 5 && row.mem_pct < 30" type="info" size="small">空闲</el-tag>
-            <el-tag v-else type="success" size="small">使用中</el-tag>
+            </a-tag>
+            <a-tag v-else-if="row.mem_pct >= 30 && row.util < 5" color="orange">疑似（观察中）</a-tag>
+            <a-tag v-else-if="row.util < 5 && row.mem_pct < 30">空闲</a-tag>
+            <a-tag v-else color="green">使用中</a-tag>
           </template>
-        </el-table-column>
-        <el-table-column label="风险评分" width="180">
-          <template #default="{ row }">
+        </a-table-column>
+        <a-table-column title="风险评分" :width="190">
+          <template #default="{ record: row }">
             <div style="display:flex;align-items:center;gap:8px">
-              <el-progress :percentage="pct(row.risk)" :stroke-width="8" :show-text="false" :color="riskColor(row.risk)" style="width:90px" />
+              <a-progress :percent="pct(row.risk)" :stroke-width="8" :show-info="false" :stroke-color="riskColor(row.risk)" style="width:90px" />
               <b :style="{ color: riskColor(row.risk) }">{{ row.risk }}</b>
-              <el-tag size="small" :type="row.risk >= 60 ? 'danger' : row.risk >= 30 ? 'warning' : 'success'">{{ row.risk_label }}</el-tag>
+              <a-tag :color="riskTagColor(row.risk)">{{ row.risk_label }}</a-tag>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column label="风险因素" min-width="190">
-          <template #default="{ row }">
+        </a-table-column>
+        <a-table-column title="风险因素" :width="230">
+          <template #default="{ record: row }">
             <div class="risk-factors">
-              <el-tag v-if="row.xid_events" type="danger" size="small" effect="plain">Xid×{{ row.xid_events }}</el-tag>
-              <el-tag v-if="row.ecc_uncorrected" type="danger" size="small" effect="plain">ECC不可纠正×{{ row.ecc_uncorrected }}</el-tag>
-              <el-tag v-if="row.thermal_throttle" type="warning" size="small" effect="plain">热降频×{{ row.thermal_throttle }}</el-tag>
-              <el-tag v-if="row.max_temp >= 80" type="warning" size="small" effect="plain">{{ row.max_temp }}°C</el-tag>
+              <a-tag v-if="row.xid_events" color="red">Xid×{{ row.xid_events }}</a-tag>
+              <a-tag v-if="row.ecc_uncorrected" color="red">ECC不可纠正×{{ row.ecc_uncorrected }}</a-tag>
+              <a-tag v-if="row.thermal_throttle" color="orange">热降频×{{ row.thermal_throttle }}</a-tag>
+              <a-tag v-if="row.max_temp >= 80" color="orange">{{ row.max_temp }}°C</a-tag>
               <span v-if="!row.xid_events && !row.ecc_uncorrected && !row.thermal_throttle && row.max_temp < 80" style="color:var(--csub)">无异常信号</span>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column label="持有进程" min-width="180">
-          <template #default="{ row }">
+        </a-table-column>
+        <a-table-column title="持有进程" :width="240">
+          <template #default="{ record: row }">
             <div v-if="row.processes?.length" class="proc-list">
               <div v-for="p in row.processes" :key="p.pid" class="proc-line">
                 <span class="mono" style="color:var(--cprimary)">{{ p.pid }}</span>
@@ -113,10 +101,10 @@
             </div>
             <span v-else style="color:var(--csub)">—</span>
           </template>
-        </el-table-column>
-      </el-table>
+        </a-table-column>
+      </a-table>
 
-      <div class="mobile-only" v-loading="loading">
+      <a-spin class="mobile-only" :spinning="loading">
         <div v-if="filtered.length" class="mobile-card-list">
           <article
             v-for="row in filtered"
@@ -129,40 +117,40 @@
           >
             <div class="mobile-data-card__head">
               <div class="mobile-data-card__title">
-                <el-link @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</el-link>
+                <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
                 <span class="analysis-gpu-index">GPU {{ row.gpu_index }}</span>
               </div>
-              <el-tag size="small" :type="row.risk >= 60 ? 'danger' : row.risk >= 30 ? 'warning' : 'success'">
+              <a-tag :color="riskTagColor(row.risk)">
                 {{ row.risk_label }} · {{ row.risk }} 分
-              </el-tag>
+              </a-tag>
             </div>
             <div class="analysis-gpu-model">{{ row.name }}</div>
             <div class="analysis-mobile-metrics">
               <div>
                 <span>GPU 利用率</span>
                 <b :class="{ 'metric-warning': row.util < 5 }">{{ row.util }}%</b>
-                <el-progress :percentage="pct(row.util)" :stroke-width="6" :show-text="false" :color="utilColor(row.util)" />
+                <a-progress :percent="pct(row.util)" :stroke-width="6" :show-info="false" :stroke-color="utilColor(row.util)" />
               </div>
               <div>
                 <span>显存占用</span>
                 <b>{{ row.mem_used_gb }} GB · {{ row.mem_pct }}%</b>
-                <el-progress :percentage="pct(row.mem_pct)" :stroke-width="6" :show-text="false" :color="utilColor(row.mem_pct)" />
+                <a-progress :percent="pct(row.mem_pct)" :stroke-width="6" :show-info="false" :stroke-color="utilColor(row.mem_pct)" />
               </div>
             </div>
             <div class="analysis-status-line">
               <span>资源状态</span>
-              <el-tag v-if="row.idle_held" type="danger" effect="dark" size="small">空占 {{ fmtIdleMin(row.idle_minutes) }}</el-tag>
-              <el-tag v-else-if="row.mem_pct >= 30 && row.util < 5" type="warning" size="small">疑似空占（观察中）</el-tag>
-              <el-tag v-else-if="row.util < 5 && row.mem_pct < 30" type="info" size="small">空闲</el-tag>
-              <el-tag v-else type="success" size="small">使用中</el-tag>
+              <a-tag v-if="row.idle_held" color="red">空占 {{ fmtIdleMin(row.idle_minutes) }}</a-tag>
+              <a-tag v-else-if="row.mem_pct >= 30 && row.util < 5" color="orange">疑似空占（观察中）</a-tag>
+              <a-tag v-else-if="row.util < 5 && row.mem_pct < 30">空闲</a-tag>
+              <a-tag v-else color="green">使用中</a-tag>
             </div>
             <div class="analysis-mobile-section">
               <span>风险因素</span>
               <div class="risk-factors">
-                <el-tag v-if="row.xid_events" type="danger" size="small" effect="plain">Xid×{{ row.xid_events }}</el-tag>
-                <el-tag v-if="row.ecc_uncorrected" type="danger" size="small" effect="plain">ECC 不可纠正×{{ row.ecc_uncorrected }}</el-tag>
-                <el-tag v-if="row.thermal_throttle" type="warning" size="small" effect="plain">热降频×{{ row.thermal_throttle }}</el-tag>
-                <el-tag v-if="row.max_temp >= 80" type="warning" size="small" effect="plain">{{ row.max_temp }}°C</el-tag>
+                <a-tag v-if="row.xid_events" color="red">Xid×{{ row.xid_events }}</a-tag>
+                <a-tag v-if="row.ecc_uncorrected" color="red">ECC 不可纠正×{{ row.ecc_uncorrected }}</a-tag>
+                <a-tag v-if="row.thermal_throttle" color="orange">热降频×{{ row.thermal_throttle }}</a-tag>
+                <a-tag v-if="row.max_temp >= 80" color="orange">{{ row.max_temp }}°C</a-tag>
                 <span v-if="!row.xid_events && !row.ecc_uncorrected && !row.thermal_throttle && row.max_temp < 80" class="analysis-muted">无异常信号</span>
               </div>
             </div>
@@ -179,19 +167,18 @@
             </div>
           </article>
         </div>
-      </div>
-      <el-empty v-if="!loading && !filtered.length" :description="emptyText" :image-size="60" />
-    </el-card>
+      </a-spin>
+      <a-empty v-if="!loading && !filtered.length" :description="emptyText" />
+    </a-card>
 
     <!-- ===== how it works ===== -->
-    <el-card class="cockpit-panel" style="margin-top:14px">
-      <template #header>判定规则</template>
-      <el-descriptions class="desktop-only" :column="2" border size="small">
-        <el-descriptions-item label="空占（GPU Idle Held）">显存占用 ≥30% 且利用率 <5% 持续 30 分钟以上 —— 通常是僵尸进程或程序卡死后占着显存</el-descriptions-item>
-        <el-descriptions-item label="疑似（观察中）">当前满足空占条件但持续时间不足 30 分钟，继续观察</el-descriptions-item>
-        <el-descriptions-item label="风险评分（0-100）">近 24h：Xid 事件每条 +20（上限40）、不可纠正 ECC 每 条 +5（上限25）、热降频采样 +5~15、高温 ≥85°C +5、PCIe 链路降级 +5</el-descriptions-item>
-        <el-descriptions-item label="风险分级">≥60 高危（建议检查/重启）、30-59 关注（观察趋势）、<30 健康</el-descriptions-item>
-      </el-descriptions>
+    <a-card title="判定规则" style="margin-top:14px">
+      <a-descriptions class="desktop-only" :column="2" border size="small">
+        <a-descriptions-item label="空占（GPU Idle Held）">显存占用 ≥30% 且利用率 <5% 持续 30 分钟以上 —— 通常是僵尸进程或程序卡死后占着显存</a-descriptions-item>
+        <a-descriptions-item label="疑似（观察中）">当前满足空占条件但持续时间不足 30 分钟，继续观察</a-descriptions-item>
+        <a-descriptions-item label="风险评分（0-100）">近 24h：Xid 事件每条 +20（上限40）、不可纠正 ECC 每 条 +5（上限25）、热降频采样 +5~15、高温 ≥85°C +5、PCIe 链路降级 +5</a-descriptions-item>
+        <a-descriptions-item label="风险分级">≥60 高危（建议检查/重启）、30-59 关注（观察趋势）、<30 健康</a-descriptions-item>
+      </a-descriptions>
       <div class="mobile-only analysis-rule-list">
         <section>
           <b>空占（GPU Idle Held）</b>
@@ -210,13 +197,13 @@
           <p>60 分及以上为高危，30–59 分需要关注，低于 30 分为健康。</p>
         </section>
       </div>
-    </el-card>
+    </a-card>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { fmtDuration, pct } from '../format'
 import { chartTheme } from '../theme'
@@ -271,7 +258,9 @@ const emptyText = computed(() => ({
   idle: '没有空占 GPU，资源利用健康', risk: '没有风险 GPU，全部健康', all: '暂无数据',
 }[viewMode.value]))
 
-function rowClass({ row }) {
+const rowKey = row => `${row.server_id}-${row.gpu_index}`
+
+function rowClass(row) {
   if (row.idle_held) return 'row-idle-held'
   if (row.risk >= 60) return 'row-high-risk'
   if (row.risk >= 30) return 'row-watch'
@@ -288,6 +277,11 @@ function riskColor(v) {
   if (v >= 60) return T.red
   if (v >= 30) return T.yellow
   return T.green
+}
+function riskTagColor(value) {
+  if (value >= 60) return 'red'
+  if (value >= 30) return 'orange'
+  return 'green'
 }
 function utilColor(v) {
   const T = chartTheme.value
@@ -325,6 +319,8 @@ onUnmounted(() => clearInterval(timer))
   gap: 10px;
 }
 .analysis-kpis { margin-bottom: 14px; }
+.load-alert { margin-bottom: 12px; }
+.table-link { height: auto; padding: 0; }
 .analysis-card-head {
   display: flex;
   justify-content: space-between;
@@ -434,12 +430,11 @@ onUnmounted(() => clearInterval(timer))
   .analysis-heading { width: 100%; }
   .analysis-controls { width: 100%; flex-wrap: wrap; }
   .analysis-updated { order: 3; width: 100%; text-align: right; }
-  .analysis-controls .el-radio-group { min-width: 0; flex: 1; }
-  .analysis-controls :deep(.el-radio-button) { flex: 1; }
-  .analysis-controls :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }
-  .analysis-kpis .el-col { margin-bottom: 10px; }
+  .analysis-controls .ant-radio-group { min-width: 0; flex: 1; display: flex; }
+  .analysis-controls :deep(.ant-radio-button-wrapper) { flex: 1; padding-inline: 8px; text-align: center; }
+  .analysis-kpis .ant-col { margin-bottom: 10px; }
   .analysis-kpis { margin-bottom: 4px; }
   .analysis-card-head { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .analysis-gpu-card .el-tag { max-width: 48%; }
+  .analysis-gpu-card .ant-tag { max-width: 48%; }
 }
 </style>
