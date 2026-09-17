@@ -1,67 +1,57 @@
 <template>
-  <div class="cockpit">
-    <el-alert v-if="error" type="error" :closable="false" show-icon style="margin-bottom:14px"
-              :title="`数据加载失败：${error}，正在重试`" />
+  <div class="cockpit-page">
+    <a-alert v-if="error" type="error" show-icon class="load-alert"
+              :message="`数据加载失败：${error}，正在重试`" />
 
     <!-- ===== header ===== -->
     <div class="cockpit-page-head">
       <div class="cockpit-page-identity">
-        <span class="live-dot" :class="{ err: hasError }"></span>
+        <a-badge :status="hasError ? 'error' : 'success'" />
         <span class="cockpit-page-title">GPU 集群驾驶舱</span>
       </div>
       <div class="cockpit-page-actions">
         <span v-if="lastUpdated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
-        <el-radio-group v-model="rangeHours" size="small" @change="loadHistory">
-          <el-radio-button :value="1">1H</el-radio-button>
-          <el-radio-button :value="6">6H</el-radio-button>
-          <el-radio-button :value="24">24H</el-radio-button>
-        </el-radio-group>
+        <a-radio-group v-model:value="rangeHours" size="small" @change="loadHistory">
+          <a-radio-button :value="1">1H</a-radio-button>
+          <a-radio-button :value="6">6H</a-radio-button>
+          <a-radio-button :value="24">24H</a-radio-button>
+        </a-radio-group>
         <RateUnitPicker v-show="trendMetric === 'net'" kind="net" @change="onUnitChange" />
         <RateUnitPicker v-show="trendMetric === 'disk'" kind="disk" @change="onUnitChange" />
-        <el-button v-if="isAdminSession()" size="small" :icon="Refresh" :loading="refreshing" @click="refreshNow">立即采集</el-button>
+        <a-button v-if="isAdminSession()" size="small" :loading="refreshing" @click="refreshNow"><template #icon><ThunderboltOutlined /></template>立即采集</a-button>
       </div>
     </div>
 
     <!-- ===== KPI band ===== -->
     <div class="kpi-band">
-      <div class="cockpit-panel kpi-accent-cyan">
-        <div class="kpi-value">{{ nServers }}<span class="kpi-unit">/{{ stats.servers_total }}</span></div>
-        <div class="kpi-label">在线服务器</div>
-      </div>
-      <div class="cockpit-panel kpi-accent-purple">
-        <div class="kpi-value">{{ nGpus }}<span class="kpi-unit">卡</span></div>
-        <div class="kpi-label">GPU 总数 · 空闲 {{ nIdle }} 卡</div>
-      </div>
-      <div class="cockpit-panel kpi-accent-cyan">
-        <div class="kpi-value">{{ fmtPct(avgGpuUtil) }}<span class="kpi-unit">%</span></div>
-        <div class="kpi-label">GPU 平均利用率</div>
-      </div>
-      <div class="cockpit-panel" :class="gpuMemClass">
-        <div class="kpi-value">{{ fmtPct(gpuMemPct) }}<span class="kpi-unit">%</span></div>
-        <div class="kpi-label">显存 {{ fmtSizeMB(gpuMemUsed) }} / {{ fmtSizeMB(gpuMemTotal) }}</div>
-      </div>
-      <div class="cockpit-panel kpi-accent-green">
-        <div class="kpi-value">{{ fmtPct(avgCpu) }}<span class="kpi-unit">%</span></div>
-        <div class="kpi-label">CPU 平均 · 内存 {{ fmtPct(memPct) }}%</div>
-      </div>
-      <div class="cockpit-panel" :class="alertClass">
-        <div class="kpi-value">{{ openAlerts }}<span class="kpi-unit">起</span></div>
-        <div class="kpi-label">未恢复告警</div>
-      </div>
-      <div class="cockpit-panel kpi-accent-yellow energy-kpi">
-        <div class="kpi-value">{{ fmtPower(clusterPowerW) }}<span class="kpi-unit">W</span></div>
-        <div class="kpi-label" style="cursor:pointer" title="GPU 集群功率 · 点击查看每日电量统计" @click="showEnergy = true">
+      <a-card><a-statistic title="在线服务器" :value="nServers" :suffix="`/${stats.servers_total || 0}`" /></a-card>
+      <a-card><a-statistic title="GPU 总数" :value="nGpus" suffix="卡" /><div class="kpi-note">空闲 {{ nIdle }} 卡</div></a-card>
+      <a-card>
+        <a-statistic title="GPU 平均利用率" :value="avgGpuUtil" :precision="1" suffix="%" />
+        <a-progress :percent="gpuUtilDisplay" :show-info="false" size="small" :stroke-color="utilColor(gpuUtilDisplay)" />
+      </a-card>
+      <a-card>
+        <a-statistic title="GPU 显存占用" :value="gpuMemPct" :precision="1" suffix="%" />
+        <a-progress :percent="gpuMemoryDisplay" :show-info="false" size="small" :stroke-color="utilColor(gpuMemoryDisplay)" />
+        <div class="kpi-note">{{ fmtSizeMB(gpuMemUsed) }} / {{ fmtSizeMB(gpuMemTotal) }}</div>
+      </a-card>
+      <a-card>
+        <a-statistic title="CPU 平均利用率" :value="avgCpu" :precision="1" suffix="%" />
+        <a-progress :percent="cpuDisplay" :show-info="false" size="small" :stroke-color="utilColor(cpuDisplay)" />
+        <div class="kpi-note">内存 {{ fmtPct(memPct) }}%</div>
+      </a-card>
+      <a-card><a-statistic title="未恢复告警" :value="openAlerts" suffix="起" /></a-card>
+      <a-card class="energy-kpi">
+        <a-statistic title="GPU 集群功率" :value="fmtPower(clusterPowerW)" suffix="W" />
+        <a-button type="link" size="small" class="energy-link" @click="showEnergy = true">
           今日电量 {{ energy?.days?.at(-1)?.kwh ?? '—' }} kWh
-        </div>
-      </div>
+        </a-button>
+      </a-card>
     </div>
 
     <!-- ===== daily energy panel ===== -->
-    <div class="cockpit-panel energy-panel" v-if="showEnergy">
-      <div class="cockpit-panel-title">
-        <b>每日电量消耗（GPU）</b>
-        <el-button size="small" text :icon="Close" @click="showEnergy = false">收起</el-button>
-      </div>
+    <a-card v-if="showEnergy" class="energy-panel" title="每日电量消耗（GPU）">
+      <template #extra><a-button size="small" type="text" @click="showEnergy = false"><template #icon><CloseOutlined /></template>收起</a-button></template>
       <div class="energy-summary">
         <span>近 7 天合计 <b class="mono">{{ energy?.total_kwh ?? '—' }}</b> kWh</span>
         <span>日均 <b class="mono">{{ energy?.avg_kwh_per_day ?? '—' }}</b> kWh</span>
@@ -75,50 +65,50 @@
           <span class="energy-col-date">{{ d.date.slice(5) }}</span>
         </div>
       </div>
-    </div>
+    </a-card>
 
     <!-- ===== cluster health strip ===== -->
     <div class="health-strip" v-if="healthSummary.length">
-      <div v-for="h in healthSummary" :key="h.server_id" class="health-chip" :class="`hs-${h.overall}`"
+      <a-card v-for="h in healthSummary" :key="h.server_id" size="small" hoverable class="health-chip" :class="`hs-${h.overall}`"
         role="link" tabindex="0" :aria-label="`查看 ${h.name} 服务器详情`"
         @click="$router.push(`/servers/${h.server_id}`)"
         @keydown.enter.prevent="$router.push(`/servers/${h.server_id}`)"
         @keydown.space.prevent="$router.push(`/servers/${h.server_id}`)">
-        <span class="live-dot" v-if="h.overall === 'ok'"></span>
-        <el-icon v-else-if="h.overall === 'critical'" color="var(--cred)"><CircleCloseFilled /></el-icon>
-        <el-icon v-else color="var(--cyellow)"><WarningFilled /></el-icon>
+        <CheckCircleFilled v-if="h.overall === 'ok'" class="health-ok" />
+        <CloseCircleFilled v-else-if="h.overall === 'critical'" class="health-error" />
+        <WarningFilled v-else class="health-warning" />
         <b>{{ h.name }}</b>
         <span class="health-chip-detail">
           {{ h.overall === 'ok' ? '健康' : (h.error_code && h.error_code !== 'OK') ? faultLabel(h.error_code) : (h.critical ? `${h.critical} 严重` : `${h.warning} 警告`) }}
         </span>
-      </div>
+      </a-card>
     </div>
 
     <!-- ===== main grid: GPU matrix + cluster trend ===== -->
     <div class="main-grid">
-      <div class="cockpit-panel">
-        <div class="cockpit-panel-title matrix-panel-title">
+      <a-card class="matrix-panel">
+        <template #title><div class="panel-heading matrix-panel-title">
           <b>GPU 资源矩阵</b>
           <span class="matrix-panel-actions">
-            <el-select :value="matrixSort" size="small" style="width:128px" @change="matrixSort = $event">
-              <el-option value="server" label="按服务器" />
-              <el-option value="util-desc" label="利用率 ↓" />
-              <el-option value="util-asc" label="利用率 ↑" />
-              <el-option value="mem-desc" label="显存占用 ↓" />
-              <el-option value="temp-desc" label="温度 ↓" />
-            </el-select>
-            <el-button size="small" type="primary" plain @click="$router.push('/gpu-matrix')">排序页 ↗</el-button>
+            <a-select v-model:value="matrixSort" size="small" style="width:128px">
+              <a-select-option value="server">按服务器</a-select-option>
+              <a-select-option value="util-desc">利用率 ↓</a-select-option>
+              <a-select-option value="util-asc">利用率 ↑</a-select-option>
+              <a-select-option value="mem-desc">显存占用 ↓</a-select-option>
+              <a-select-option value="temp-desc">温度 ↓</a-select-option>
+            </a-select>
+            <a-button size="small" type="primary" @click="$router.push('/gpu-matrix')">排序页 ↗</a-button>
             <span>
-              <el-tag size="small" type="success" effect="dark" class="tag-idle">空闲</el-tag>
-              <el-tag size="small" effect="dark" class="tag-busy">繁忙</el-tag>
-              <el-tag size="small" effect="dark" class="tag-full">满载</el-tag>
+              <a-tag color="green">空闲</a-tag>
+              <a-tag color="blue">繁忙</a-tag>
+              <a-tag color="red">满载</a-tag>
             </span>
           </span>
-        </div>
+        </div></template>
 
         <!-- sorted flat view -->
         <div v-if="matrixSort !== 'server'" class="gpu-matrix" style="margin-top:8px">
-          <div v-for="g in sortedFlatGpus" :key="g.key"
+          <a-card v-for="g in sortedFlatGpus" :key="g.key" size="small" hoverable
                class="gpu-cell" :class="gpuCellClass(g)" @click="$router.push(`/servers/${g.server_id}`)">
             <div class="gpu-cell-head">
               <span class="gpu-cell-name">{{ g.server_short }}·{{ g.index }}</span>
@@ -127,37 +117,31 @@
             <div class="gpu-meters">
               <div class="gpu-meter">
                 <div class="gpu-meter-label"><span>负载</span><span class="mono">{{ gpuUtilPercent(g) }}%</span></div>
-                <div class="gpu-util-bar" role="progressbar" aria-label="GPU 负载"
-                     :aria-valuenow="gpuUtilPercent(g)" aria-valuemin="0" aria-valuemax="100">
-                  <div class="gpu-util-fill" :style="{ width: gpuUtilPercent(g) + '%', background: utilGradient(gpuUtilPercent(g)) }"></div>
-                </div>
+                <a-progress :percent="gpuUtilPercent(g)" :show-info="false" size="small" :stroke-color="utilColor(gpuUtilPercent(g))" aria-label="GPU 负载" />
               </div>
               <div class="gpu-meter">
                 <div class="gpu-meter-label"><span>显存</span><span class="mono">{{ gpuMemoryPercent(g) }}%</span></div>
-                <div class="gpu-util-bar" role="progressbar" aria-label="GPU 显存占用"
-                     :aria-valuenow="gpuMemoryPercent(g)" aria-valuemin="0" aria-valuemax="100">
-                  <div class="gpu-util-fill" :style="{ width: gpuMemoryPercent(g) + '%', background: memoryGradient(gpuMemoryPercent(g)) }"></div>
-                </div>
+                <a-progress :percent="gpuMemoryPercent(g)" :show-info="false" size="small" :stroke-color="utilColor(gpuMemoryPercent(g))" aria-label="GPU 显存占用" />
               </div>
             </div>
             <div class="gpu-cell-meta">
               <span>温度 <span class="mono">{{ g.temperature }}°C</span></span>
               <span class="mono gpu-cell-memory" title="显存已用 / 总量">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
             </div>
-          </div>
+          </a-card>
         </div>
 
         <!-- grouped-by-server view (default) -->
         <div v-for="srv in gpuMatrix" v-show="matrixSort === 'server'" :key="srv.server_id" style="margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
-            <span class="live-dot" :class="{ err: !srv.online }" style="width:6px;height:6px"></span>
+            <a-badge :status="srv.online ? 'success' : 'error'" />
             <b style="cursor:pointer" @click="$router.push(`/servers/${srv.server_id}`)">{{ srv.server_name }}</b>
             <span style="color:var(--csub);font-size:11px">{{ srv.hostname }}</span>
             <span v-if="!srv.enabled" style="color:var(--csub);font-size:11px">(已禁用)</span>
             <span v-if="!srv.online && srv.error" style="color:var(--cred);font-size:11px">{{ faultLabel(srv.error_code || srv.error).slice(0, 60) }}</span>
           </div>
           <div class="gpu-matrix" v-if="srv.gpus.length">
-            <div v-for="g in srv.gpus" :key="srv.server_id + '-' + g.index"
+            <a-card v-for="g in srv.gpus" :key="srv.server_id + '-' + g.index" size="small" hoverable
                  class="gpu-cell" :class="gpuCellClass(g)" @click="$router.push(`/servers/${srv.server_id}`)">
               <div class="gpu-cell-head">
                 <span class="gpu-cell-name">GPU {{ g.index }}</span>
@@ -166,49 +150,42 @@
               <div class="gpu-meters">
                 <div class="gpu-meter">
                   <div class="gpu-meter-label"><span>负载</span><span class="mono">{{ gpuUtilPercent(g) }}%</span></div>
-                  <div class="gpu-util-bar" role="progressbar" aria-label="GPU 负载"
-                       :aria-valuenow="gpuUtilPercent(g)" aria-valuemin="0" aria-valuemax="100">
-                    <div class="gpu-util-fill" :style="{ width: gpuUtilPercent(g) + '%', background: utilGradient(gpuUtilPercent(g)) }"></div>
-                  </div>
+                  <a-progress :percent="gpuUtilPercent(g)" :show-info="false" size="small" :stroke-color="utilColor(gpuUtilPercent(g))" aria-label="GPU 负载" />
                 </div>
                 <div class="gpu-meter">
                   <div class="gpu-meter-label"><span>显存</span><span class="mono">{{ gpuMemoryPercent(g) }}%</span></div>
-                  <div class="gpu-util-bar" role="progressbar" aria-label="GPU 显存占用"
-                       :aria-valuenow="gpuMemoryPercent(g)" aria-valuemin="0" aria-valuemax="100">
-                    <div class="gpu-util-fill" :style="{ width: gpuMemoryPercent(g) + '%', background: memoryGradient(gpuMemoryPercent(g)) }"></div>
-                  </div>
+                  <a-progress :percent="gpuMemoryPercent(g)" :show-info="false" size="small" :stroke-color="utilColor(gpuMemoryPercent(g))" aria-label="GPU 显存占用" />
                 </div>
               </div>
               <div class="gpu-cell-meta">
                 <span>温度 <span class="mono">{{ g.temperature }}°C</span></span>
                 <span class="mono gpu-cell-memory" title="显存已用 / 总量">{{ fmtSizeMB(g.mem_used_mb) }} / {{ fmtSizeMB(g.mem_total_mb) }}</span>
               </div>
-            </div>
+            </a-card>
           </div>
           <div v-else style="color:var(--csub);font-size:12px;padding:6px 0">
             {{ srv.online ? '无 GPU' : '离线' }}
           </div>
         </div>
-        <el-empty v-if="!gpuMatrix.length" description="暂无服务器" :image-size="60" />
-      </div>
+        <a-empty v-if="!gpuMatrix.length" description="暂无服务器" />
+      </a-card>
 
       <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
-        <div class="cockpit-panel">
-          <div class="cockpit-panel-title trend-panel-title">
+        <a-card>
+          <template #title><div class="panel-heading trend-panel-title">
             <b>集群资源趋势</b>
-            <el-radio-group v-model="trendMetric" size="small">
-              <el-radio-button value="gpu">GPU</el-radio-button>
-              <el-radio-button value="cpu">CPU/内存</el-radio-button>
-              <el-radio-button value="net">网络</el-radio-button>
-              <el-radio-button value="disk">磁盘</el-radio-button>
-              <el-radio-button value="power">功率</el-radio-button>
-            </el-radio-group>
-          </div>
+            <a-radio-group v-model:value="trendMetric" size="small">
+              <a-radio-button value="gpu">GPU</a-radio-button>
+              <a-radio-button value="cpu">CPU/内存</a-radio-button>
+              <a-radio-button value="net">网络</a-radio-button>
+              <a-radio-button value="disk">磁盘</a-radio-button>
+              <a-radio-button value="power">功率</a-radio-button>
+            </a-radio-group>
+          </div></template>
           <v-chart :option="trendOption" class="cockpit-chart-lg" autoresize />
-        </div>
+        </a-card>
 
-        <div class="cockpit-panel">
-          <div class="cockpit-panel-title"><b>GPU 显存占用 TOP</b></div>
+        <a-card title="GPU 显存占用 TOP">
           <div class="rank-scroll">
           <div v-for="(r, i) in gpuMemRank" :key="r.key" class="rank-row">
             <span class="rank-no" :class="i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''">{{ i + 1 }}</span>
@@ -217,22 +194,23 @@
               <div class="rank-sub">{{ r.server }} · {{ r.name }}</div>
             </div>
             <span class="rank-val mono">{{ fmtSizeMB(r.used) }}</span>
-            <el-progress :percentage="r.pct" :stroke-width="6" :color="utilColor(r.pct)" style="width:90px" :show-text="false" />
+            <a-progress :percent="Math.round(r.pct)" :stroke-width="6" :stroke-color="utilColor(r.pct)" style="width:90px" :show-info="false" />
           </div>
-          <el-empty v-if="!gpuMemRank.length" description="—" :image-size="40" />
+          <a-empty v-if="!gpuMemRank.length" description="—" />
           </div>
-        </div>
+        </a-card>
       </div>
     </div>
 
     <!-- ===== bottom: alerts ticker + process rank + net rank ===== -->
     <div class="bottom-grid">
-      <div class="cockpit-panel stack">
-        <div class="cockpit-panel-title"><b>实时告警</b><span class="io-label">{{ openAlerts }} 条未恢复</span></div>
+      <a-card class="stack">
+        <template #title><span>实时告警</span></template>
+        <template #extra><span class="io-label">{{ openAlerts }} 条未恢复</span></template>
         <div class="ticker" v-if="alertTickerRows.length">
           <div class="ticker-inner">
             <div v-for="(a, i) in alertTickerRows" :key="i" class="ticker-row">
-              <el-tag size="small" type="danger" effect="dark">告警</el-tag>
+              <a-tag color="red">告警</a-tag>
               <span class="mono">{{ fmtTime(a.triggered_at) }}</span>
               <b>{{ a.server_name }}</b>
               <span>{{ a.message }}</span>
@@ -240,12 +218,11 @@
           </div>
         </div>
         <div v-else class="ticker-empty">
-          <el-icon><CircleCheckFilled /></el-icon> 全部指标正常，无未恢复告警
+          <CheckCircleFilled /> 全部指标正常，无未恢复告警
         </div>
-      </div>
+      </a-card>
 
-      <div class="cockpit-panel stack">
-        <div class="cockpit-panel-title"><b>GPU 进程 TOP</b></div>
+      <a-card class="stack" title="GPU 进程 TOP">
         <div class="fill-list">
           <div v-for="(p, i) in gpuProcRank" :key="p.pid" class="rank-row">
             <span class="rank-no" :class="i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''">{{ i + 1 }}</span>
@@ -255,12 +232,11 @@
             </div>
             <span class="rank-val mono">{{ fmtSizeMB(p.mem_mb) }}</span>
           </div>
-          <el-empty v-if="!gpuProcRank.length" description="无 GPU 进程" :image-size="40" />
+          <a-empty v-if="!gpuProcRank.length" description="无 GPU 进程" />
         </div>
-      </div>
+      </a-card>
 
-      <div class="cockpit-panel stack">
-        <div class="cockpit-panel-title"><b>网络 / 磁盘吞吐</b></div>
+      <a-card class="stack" title="网络 / 磁盘吞吐">
         <div class="io-rows fill-list">
           <div class="io-row">
             <span class="io-label">↓ 集群接收</span>
@@ -287,21 +263,21 @@
             <b class="mono">{{ totalGpuPower }} W</b>
           </div>
         </div>
-      </div>
+      </a-card>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { App as AntApp } from 'ant-design-vue'
 import {
-  CircleCheckFilled,
-  CircleCloseFilled,
-  Close,
-  Refresh,
+  CheckCircleFilled,
+  CloseCircleFilled,
+  CloseOutlined,
+  ThunderboltOutlined,
   WarningFilled,
-} from '@element-plus/icons-vue'
+} from '@ant-design/icons-vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -310,12 +286,12 @@ import VChart from 'vue-echarts'
 import api from '../api'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
 import { diskAxisFormatter, fmtDiskRate, fmtNetRate, fmtSizeMB, fmtTime, netAxisFormatter } from '../format'
-import '../cockpit.css'
 import { isAdminSession, useLatestOnly, usePoll } from '../composables'
 import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
 
+const { message } = AntApp.useApp()
 const rangeHours = ref(6)
 const trendMetric = ref('gpu')
 const unitEpoch = ref(0)
@@ -337,9 +313,9 @@ function barH(kwh) {
 function energyGrad(kwh) {
   const max = Math.max(...(energy.value?.days || []).map(d => d.kwh), 1)
   const r = kwh / max
-  if (r > 0.75) return 'linear-gradient(180deg, #f59e0b, #ef4444)'
-  if (r > 0.45) return 'linear-gradient(180deg, #22d3ee, #0891b2)'
-  return 'linear-gradient(180deg, #34d399, #10b981)'
+  if (r > 0.75) return '#ff4d4f'
+  if (r > 0.45) return '#1677ff'
+  return '#52c41a'
 }
 function fmtPower(w) {
   return w >= 1000 ? (w / 1000).toFixed(2) + 'k' : Math.round(w)
@@ -380,9 +356,10 @@ const gpuMemUsed = computed(() => stats.value.gpu_mem_used_mb ?? 0)
 const gpuMemPct = computed(() => (gpuMemTotal.value ? (gpuMemUsed.value / gpuMemTotal.value) * 100 : 0))
 const avgCpu = computed(() => stats.value.avg_cpu_percent ?? 0)
 const memPct = computed(() => (stats.value.mem_total_mb ? (stats.value.mem_used_mb / stats.value.mem_total_mb) * 100 : 0))
+const gpuUtilDisplay = computed(() => normalizedPercent(avgGpuUtil.value))
+const gpuMemoryDisplay = computed(() => normalizedPercent(gpuMemPct.value))
+const cpuDisplay = computed(() => normalizedPercent(avgCpu.value))
 const openAlerts = computed(() => alerts.value.filter(a => !a.recovered_at).length)
-const alertClass = computed(() => (openAlerts.value > 0 ? 'kpi-accent-yellow' : 'kpi-accent-green'))
-const gpuMemClass = computed(() => (gpuMemPct.value >= 90 ? 'kpi-accent-yellow' : 'kpi-accent-cyan'))
 
 const gpuMemRank = computed(() =>
   allGpus.value
@@ -505,13 +482,6 @@ function tempColor(t) {
   return T.green
 }
 
-function utilGradient(u) {
-  if (u >= 90) return 'linear-gradient(90deg,#fb7185,#f87171)'
-  if (u >= 70) return 'linear-gradient(90deg,#fbbf24,#f59e0b)'
-  if (u >= 30) return 'linear-gradient(90deg,#22d3ee,#0ea5e9)'
-  return 'linear-gradient(90deg,#34d399,#10b981)'
-}
-
 function normalizedPercent(value) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.round(Math.min(100, Math.max(0, number))) : 0
@@ -524,13 +494,6 @@ function gpuUtilPercent(g) {
 function gpuMemoryPercent(g) {
   const total = Number(g.mem_total_mb)
   return total > 0 ? normalizedPercent((Number(g.mem_used_mb) / total) * 100) : 0
-}
-
-function memoryGradient(value) {
-  if (value >= 95) return 'linear-gradient(90deg,#fb7185,#f87171)'
-  if (value >= 85) return 'linear-gradient(90deg,#fbbf24,#f59e0b)'
-  if (value >= 50) return 'linear-gradient(90deg,#22d3ee,#0ea5e9)'
-  return 'linear-gradient(90deg,#34d399,#10b981)'
 }
 
 function gpuCellClass(g) {
@@ -589,11 +552,11 @@ async function refreshNow() {
   refreshing.value = true
   try {
     await api.post('/metrics/refresh')
-    ElMessage.success('已触发采集')
+    message.success('已触发采集')
     reloadTimer = setTimeout(() => { reload(); loadHistory() }, 5000)
   } catch (e) {
-    if (e.response?.status === 409) ElMessage.info('采集进行中')
-    else ElMessage.error(e.friendlyMessage || '触发失败')
+    if (e.response?.status === 409) message.info('采集进行中')
+    else message.error(e.friendlyMessage || '触发失败')
   } finally {
     refreshing.value = false
   }
@@ -604,12 +567,17 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
 </script>
 
 <style scoped>
+.cockpit-page { min-height: 100%; }
+.load-alert { margin-bottom: 14px; }
 .kpi-band {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
+.kpi-band :deep(.ant-card-body) { min-height: 126px; }
+.kpi-note { margin-top: 4px; color: var(--csub); font-size: 12px; }
+.energy-link { height: auto; margin-top: 2px; padding: 0; }
 .cockpit-page-head {
   display: flex;
   justify-content: space-between;
@@ -628,6 +596,27 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
   font-size: 12px;
 }
 .matrix-panel-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.gpu-cell { padding: 0; }
+.gpu-cell :deep(.ant-card-body) { padding: 8px 10px; }
+.gpu-cell :deep(.ant-progress) { margin: 0; }
+.health-chip { padding: 0; }
+.health-chip :deep(.ant-card-body) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.health-ok { color: var(--cgreen); }
+.health-error { color: var(--cred); }
+.health-warning { color: var(--cyellow); }
+.stack { display: flex; flex-direction: column; }
+.stack :deep(.ant-card-body) { flex: 1; display: flex; flex-direction: column; }
 .main-grid {
   display: grid;
   grid-template-columns: 1.25fr 1fr;
@@ -664,7 +653,7 @@ onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
   .matrix-panel-title,
   .trend-panel-title { align-items: flex-start; flex-direction: column; gap: 10px; }
   .matrix-panel-actions { justify-content: flex-start; }
-  .trend-panel-title :deep(.el-radio-group) { max-width: 100%; overflow-x: auto; }
+  .trend-panel-title :deep(.ant-radio-group) { max-width: 100%; overflow-x: auto; white-space: nowrap; }
   .health-strip { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
   .health-chip { min-width: 0; flex: 1 1 155px; }
   .cockpit-chart-lg { height: 260px; }
