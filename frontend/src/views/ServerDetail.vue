@@ -1410,10 +1410,10 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
 .core-block {
   position: relative;
   height: 60px;
-  border: 1px solid var(--cborder, #dde5f0);
+  border: 1px solid var(--cborder, #d9d9d9);
   border-radius: 4px;
   overflow: hidden;
-  background: var(--cpanel2, #f7f9fc);
+  background: var(--cpanel2, #fafafa);
   cursor: default;
 }
 .core-fill {
@@ -1421,10 +1421,10 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   bottom: 0; left: 0; right: 0;
   transition: height .4s;
 }
-.core-idle .core-fill { background: color-mix(in srgb, var(--csub, #64748b) 40%, transparent); }
-.core-ok   .core-fill { background: color-mix(in srgb, var(--cgreen, #059669) 55%, transparent); }
-.core-warn .core-fill { background: color-mix(in srgb, var(--cyellow, #d97706) 60%, transparent); }
-.core-crit .core-fill { background: color-mix(in srgb, var(--cred, #dc2626) 65%, transparent); }
+.core-idle .core-fill { background: color-mix(in srgb, var(--csub, rgba(0, 0, 0, 0.45)) 40%, transparent); }
+.core-ok   .core-fill { background: color-mix(in srgb, var(--cgreen, #52c41a) 55%, transparent); }
+.core-warn .core-fill { background: color-mix(in srgb, var(--cyellow, #faad14) 60%, transparent); }
+.core-crit .core-fill { background: color-mix(in srgb, var(--cred, #ff4d4f) 65%, transparent); }
 .core-text {
   position: absolute;
   inset: 0;
@@ -1433,16 +1433,16 @@ onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
   justify-content: center;
   font-size: 11px;
   font-weight: 600;
-  color: var(--ctext, #1f2d3d);
+  color: var(--ctext, rgba(0, 0, 0, 0.88));
 }
 
 .ipmi-kpi {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  background: var(--cpanel2, #f7f9fc); border: 1px solid var(--cborder, #dde5f0);
+  background: var(--cpanel2, #fafafa); border: 1px solid var(--cborder, #d9d9d9);
   border-radius: 8px; padding: 10px 6px;
 }
 .ipmi-kpi b { font-size: 17px; }
-.ipmi-kpi span { font-size: 11px; color: var(--csub, #64748b); }
+.ipmi-kpi span { font-size: 11px; color: var(--csub, rgba(0, 0, 0, 0.45)); }
 @media (max-width: 768px) {
   .detail-toolbar { align-items: flex-start; }
   .detail-toolbar :deep(.ant-page-header) { flex-basis: 100%; }
