@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import {
+  Alert as AntAlert,
   App as AntApp,
   Avatar as AntAvatar,
   Badge as AntBadge,
@@ -19,6 +20,9 @@ import {
   Menu as AntMenu,
   MenuItem as AntMenuItem,
   Result as AntResult,
+  Skeleton as AntSkeleton,
+  Steps as AntSteps,
+  Tag as AntTag,
   Tooltip as AntTooltip,
 } from 'ant-design-vue'
 import {
@@ -85,6 +89,7 @@ import './theme'
 const app = createApp(App)
 
 app.use(router)
+app.use(AntAlert)
 app.use(AntApp)
 app.use(AntAvatar)
 app.use(AntBadge)
@@ -104,6 +109,9 @@ app.use(AntLayoutSider)
 app.use(AntMenu)
 app.use(AntMenuItem)
 app.use(AntResult)
+app.use(AntSkeleton)
+app.use(AntSteps)
+app.use(AntTag)
 app.use(AntTooltip)
 for (const component of [
   ElAlert,
