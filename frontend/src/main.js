@@ -6,6 +6,7 @@ import {
   Badge as AntBadge,
   Button as AntButton,
   Card as AntCard,
+  Col as AntCol,
   ConfigProvider,
   Drawer as AntDrawer,
   Dropdown as AntDropdown,
@@ -19,9 +20,16 @@ import {
   LayoutSider as AntLayoutSider,
   Menu as AntMenu,
   MenuItem as AntMenuItem,
+  Empty as AntEmpty,
+  Progress as AntProgress,
   Result as AntResult,
+  Row as AntRow,
   Skeleton as AntSkeleton,
+  Spin as AntSpin,
+  Statistic as AntStatistic,
   Steps as AntSteps,
+  Table as AntTable,
+  TableColumn as AntTableColumn,
   Tag as AntTag,
   Tooltip as AntTooltip,
 } from 'ant-design-vue'
@@ -95,6 +103,7 @@ app.use(AntAvatar)
 app.use(AntBadge)
 app.use(AntButton)
 app.use(AntCard)
+app.use(AntCol)
 app.use(ConfigProvider)
 app.use(AntDrawer)
 app.use(AntDropdown)
@@ -108,9 +117,16 @@ app.use(AntLayoutHeader)
 app.use(AntLayoutSider)
 app.use(AntMenu)
 app.use(AntMenuItem)
+app.use(AntEmpty)
+app.use(AntProgress)
 app.use(AntResult)
+app.use(AntRow)
 app.use(AntSkeleton)
+app.use(AntSpin)
+app.use(AntStatistic)
 app.use(AntSteps)
+app.use(AntTable)
+app.use(AntTableColumn)
 app.use(AntTag)
 app.use(AntTooltip)
 for (const component of [
