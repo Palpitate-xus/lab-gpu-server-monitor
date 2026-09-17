@@ -1,74 +1,70 @@
 <template>
   <div class="cockpit">
     <div class="toolbar users-toolbar">
-      <el-button type="primary" :icon="Plus" @click="openCreate">新建用户</el-button>
-      <el-button :icon="Refresh" @click="load">刷新</el-button>
+      <a-button type="primary" @click="openCreate"><template #icon><PlusOutlined /></template>新建用户</a-button>
+      <a-button @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
       <span class="users-toolbar__spacer"></span>
-      <el-button class="change-password-button" plain type="primary" @click="pwdDlg = true">修改我的密码</el-button>
+      <a-button class="change-password-button" @click="pwdDlg = true">修改我的密码</a-button>
     </div>
 
-    <div class="users-summary" aria-label="用户概况">
-      <div><b>{{ users.length }}</b><span>全部用户</span></div>
-      <div><b>{{ activeUserCount }}</b><span>已启用</span></div>
-      <div><b>{{ adminCount }}</b><span>管理员</span></div>
-    </div>
+    <a-row :gutter="[12, 12]" class="users-summary" aria-label="用户概况">
+      <a-col :span="8"><a-card size="small"><a-statistic title="全部用户" :value="users.length" /></a-card></a-col>
+      <a-col :span="8"><a-card size="small"><a-statistic title="已启用" :value="activeUserCount" /></a-card></a-col>
+      <a-col :span="8"><a-card size="small"><a-statistic title="管理员" :value="adminCount" /></a-card></a-col>
+    </a-row>
 
-    <el-card class="users-list-card">
-      <el-table class="desktop-only" :data="users" v-loading="loading" max-height="640">
-        <el-table-column prop="id" label="ID" width="54" />
-        <el-table-column prop="username" label="用户名" min-width="105" />
-        <el-table-column prop="display_name" label="显示名" min-width="105" />
-        <el-table-column prop="email" label="邮箱" min-width="145" show-overflow-tooltip />
-        <el-table-column label="角色" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.role === 'admin' ? 'danger' : 'info'" size="small">
+    <a-card class="users-list-card">
+      <a-table class="desktop-only" :data-source="users" :loading="loading" :pagination="false" :scroll="{ x: 1120, y: 640 }" row-key="id" size="middle">
+        <a-table-column data-index="id" title="ID" :width="64" />
+        <a-table-column data-index="username" title="用户名" :width="130" ellipsis />
+        <a-table-column data-index="display_name" title="显示名" :width="130" ellipsis />
+        <a-table-column data-index="email" title="邮箱" :width="190" ellipsis />
+        <a-table-column title="角色" :width="100">
+          <template #default="{ record: row }">
+            <a-tag :color="row.role === 'admin' ? 'red' : undefined">
               {{ row.role === 'admin' ? '管理员' : '查看者' }}
-            </el-tag>
+            </a-tag>
           </template>
-        </el-table-column>
-        <el-table-column label="状态" width="76">
-          <template #default="{ row }">
-            <el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
+        </a-table-column>
+        <a-table-column title="状态" :width="90">
+          <template #default="{ record: row }">
+            <a-tag :color="row.is_active ? 'green' : undefined">{{ row.is_active ? '启用' : '禁用' }}</a-tag>
           </template>
-        </el-table-column>
-        <el-table-column label="MFA" width="82">
-          <template #default="{ row }">
-            <el-tag v-if="row.role === 'admin'" :type="row.mfa_enrolled ? 'success' : 'danger'" size="small">
+        </a-table-column>
+        <a-table-column title="MFA" :width="100">
+          <template #default="{ record: row }">
+            <a-tag v-if="row.role === 'admin'" :color="row.mfa_enrolled ? 'green' : 'red'">
               {{ row.mfa_enrolled ? '已绑定' : '未绑定' }}
-            </el-tag>
+            </a-tag>
             <span v-else>—</span>
           </template>
-        </el-table-column>
-        <el-table-column label="创建时间" width="158">
-          <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" min-width="290">
-          <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" @confirm="toggleActive(row)">
-              <template #reference>
-                <el-button size="small" :type="row.is_active ? 'warning' : 'success'">
+        </a-table-column>
+        <a-table-column title="创建时间" :width="170">
+          <template #default="{ record: row }">{{ fmtTime(row.created_at) }}</template>
+        </a-table-column>
+        <a-table-column title="操作" :width="310" fixed="right">
+          <template #default="{ record: row }">
+            <div class="table-actions">
+              <a-button size="small" @click="openEdit(row)">编辑</a-button>
+              <a-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" ok-text="确定" cancel-text="取消" @confirm="toggleActive(row)">
+                <a-button size="small" :danger="row.is_active">
                   {{ row.is_active ? '禁用' : '启用' }}
-                </el-button>
-              </template>
-            </el-popconfirm>
-            <el-button
-              v-if="row.role === 'admin' && row.mfa_enrolled && row.id !== me?.id"
-              size="small"
-              type="warning"
-              plain
-              @click="resetMfa(row)"
-            >重置 MFA</el-button>
-            <el-popconfirm title="确定删除该用户？" @confirm="remove(row)">
-              <template #reference>
-                <el-button size="small" type="danger" :disabled="row.id === me?.id">删除</el-button>
-              </template>
-            </el-popconfirm>
+                </a-button>
+              </a-popconfirm>
+              <a-button
+                v-if="row.role === 'admin' && row.mfa_enrolled && row.id !== me?.id"
+                size="small"
+                @click="resetMfa(row)"
+              >重置 MFA</a-button>
+              <a-popconfirm title="确定删除该用户？" ok-text="删除" cancel-text="取消" @confirm="remove(row)">
+                <a-button size="small" danger :disabled="row.id === me?.id">删除</a-button>
+              </a-popconfirm>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
+        </a-table-column>
+      </a-table>
 
-      <div class="mobile-only" v-loading="loading">
+      <a-spin class="mobile-only" :spinning="loading">
         <div v-if="users.length" class="mobile-card-list">
           <article v-for="row in users" :key="row.id" class="mobile-data-card user-mobile-card">
             <div class="mobile-data-card__head">
@@ -77,8 +73,8 @@
                 <span v-if="row.display_name" class="user-mobile-card__username">@{{ row.username }}</span>
               </div>
               <div class="user-mobile-card__status">
-                <el-tag v-if="row.id === me?.id" type="primary" effect="plain" size="small">当前账号</el-tag>
-                <el-tag :type="row.is_active ? 'success' : 'info'" size="small">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
+                <a-tag v-if="row.id === me?.id" color="blue">当前账号</a-tag>
+                <a-tag :color="row.is_active ? 'green' : undefined">{{ row.is_active ? '启用' : '禁用' }}</a-tag>
               </div>
             </div>
             <div class="mobile-data-card__meta">
@@ -88,90 +84,85 @@
               <span>创建时间</span><span>{{ fmtTime(row.created_at) }}</span>
             </div>
             <div class="mobile-data-card__actions">
-              <el-button size="small" @click="openEdit(row)">编辑</el-button>
-              <el-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" @confirm="toggleActive(row)">
-                <template #reference>
-                  <el-button size="small" :type="row.is_active ? 'warning' : 'success'" plain>
+              <a-button size="small" @click="openEdit(row)">编辑</a-button>
+              <a-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" ok-text="确定" cancel-text="取消" @confirm="toggleActive(row)">
+                  <a-button size="small" :danger="row.is_active">
                     {{ row.is_active ? '禁用' : '启用' }}
-                  </el-button>
-                </template>
-              </el-popconfirm>
-              <el-button
+                  </a-button>
+              </a-popconfirm>
+              <a-button
                 v-if="row.role === 'admin' && row.mfa_enrolled && row.id !== me?.id"
                 size="small"
-                type="warning"
-                plain
                 @click="resetMfa(row)"
-              >重置 MFA</el-button>
-              <el-popconfirm title="确定删除该用户？" @confirm="remove(row)">
-                <template #reference>
-                  <el-button size="small" type="danger" plain :disabled="row.id === me?.id">删除</el-button>
-                </template>
-              </el-popconfirm>
+              >重置 MFA</a-button>
+              <a-popconfirm title="确定删除该用户？" ok-text="删除" cancel-text="取消" @confirm="remove(row)">
+                  <a-button size="small" danger :disabled="row.id === me?.id">删除</a-button>
+              </a-popconfirm>
             </div>
           </article>
         </div>
-        <el-empty v-else-if="!loading" description="暂无用户" :image-size="72" />
-      </div>
-    </el-card>
+        <a-empty v-else-if="!loading" description="暂无用户" />
+      </a-spin>
+    </a-card>
 
-    <el-dialog v-model="dlg" class="responsive-dialog" :title="editId ? '编辑用户' : '新建用户'" width="460px">
-      <el-form ref="formRef" class="responsive-form" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" :disabled="!!editId" autocomplete="username" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password
+    <a-modal v-model:open="dlg" class="responsive-dialog" :title="editId ? '编辑用户' : '新建用户'" :width="480">
+      <a-form ref="formRef" class="responsive-form" :model="form" :rules="rules" :label-col="{ style: { width: '84px' } }">
+        <a-form-item label="用户名" name="username">
+          <a-input v-model:value="form.username" :disabled="!!editId" autocomplete="username" />
+        </a-form-item>
+        <a-form-item label="密码" name="password">
+          <a-input-password v-model:value="form.password"
             autocomplete="new-password" :placeholder="editId ? '留空保持不变' : '至少 15 位'" />
-        </el-form-item>
-        <el-form-item label="显示名">
-          <el-input v-model="form.display_name" />
-        </el-form-item>
-        <el-form-item label="邮箱">
-          <el-input v-model="form.email" />
-        </el-form-item>
-        <el-form-item label="角色">
-          <el-radio-group v-model="form.role" :disabled="editId === me?.id">
-            <el-radio value="admin">管理员</el-radio>
-            <el-radio value="viewer">查看者</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
+        </a-form-item>
+        <a-form-item label="显示名">
+          <a-input v-model:value="form.display_name" />
+        </a-form-item>
+        <a-form-item label="邮箱">
+          <a-input v-model:value="form.email" />
+        </a-form-item>
+        <a-form-item label="角色">
+          <a-radio-group v-model:value="form.role" :disabled="editId === me?.id">
+            <a-radio value="admin">管理员</a-radio>
+            <a-radio value="viewer">查看者</a-radio>
+          </a-radio-group>
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="dlg = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <a-button @click="dlg = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="pwdDlg" class="responsive-dialog" title="修改我的密码" width="420px">
-      <el-form ref="pwdFormRef" class="responsive-form" :model="pwdForm" :rules="pwdRules" label-width="90px">
-        <el-form-item label="当前密码" prop="old_password">
-          <el-input v-model="pwdForm.old_password" type="password" show-password autocomplete="current-password" />
-        </el-form-item>
-        <el-form-item label="新密码" prop="new_password">
-          <el-input v-model="pwdForm.new_password" type="password" show-password autocomplete="new-password" placeholder="至少 15 位" />
-        </el-form-item>
-        <el-form-item label="确认新密码" prop="confirm">
-          <el-input v-model="pwdForm.confirm" type="password" show-password autocomplete="new-password" />
-        </el-form-item>
-      </el-form>
+    <a-modal v-model:open="pwdDlg" class="responsive-dialog" title="修改我的密码" :width="440">
+      <a-form ref="pwdFormRef" class="responsive-form" :model="pwdForm" :rules="pwdRules" :label-col="{ style: { width: '96px' } }">
+        <a-form-item label="当前密码" name="old_password">
+          <a-input-password v-model:value="pwdForm.old_password" autocomplete="current-password" />
+        </a-form-item>
+        <a-form-item label="新密码" name="new_password">
+          <a-input-password v-model:value="pwdForm.new_password" autocomplete="new-password" placeholder="至少 15 位" />
+        </a-form-item>
+        <a-form-item label="确认新密码" name="confirm">
+          <a-input-password v-model:value="pwdForm.confirm" autocomplete="new-password" />
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="pwdDlg = false">取消</el-button>
-        <el-button type="primary" :loading="savingPwd" @click="changePwd">修改</el-button>
+        <a-button @click="pwdDlg = false">取消</a-button>
+        <a-button type="primary" :loading="savingPwd" @click="changePwd">修改</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { App as AntApp } from 'ant-design-vue'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { getSession } from '../composables'
 import { fmtTime } from '../format'
 
 const loading = ref(false)
+const { message, modal } = AntApp.useApp()
 const users = ref([])
 const dlg = ref(false)
 const editId = ref(null)
@@ -218,7 +209,7 @@ async function load() {
     const { data } = await api.get('/users')
     users.value = data
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '加载失败')
+    message.error(e.friendlyMessage || '加载失败')
   } finally {
     loading.value = false
   }
@@ -253,11 +244,11 @@ async function save() {
     } else {
       await api.post('/users', form)
     }
-    ElMessage.success('保存成功')
+    message.success('保存成功')
     dlg.value = false
     load()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '保存失败')
+    message.error(e.friendlyMessage || '保存失败')
   } finally {
     saving.value = false
   }
@@ -267,34 +258,43 @@ async function toggleActive(row) {
   try {
     await api.put(`/users/${row.id}`, { is_active: !row.is_active })
     row.is_active = !row.is_active
-    ElMessage.success(row.is_active ? '已启用' : '已禁用')
+    message.success(row.is_active ? '已启用' : '已禁用')
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '操作失败')
+    message.error(e.friendlyMessage || '操作失败')
   }
 }
 
 async function remove(row) {
   try {
     await api.delete(`/users/${row.id}`)
-    ElMessage.success('已删除')
+    message.success('已删除')
     load()
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '删除失败')
+    message.error(e.friendlyMessage || '删除失败')
   }
 }
 
-async function resetMfa(row) {
+function resetMfa(row) {
+  modal.confirm({
+    title: '重置 MFA',
+    content: `确认重置管理员 ${row.username} 的 MFA？其所有现有会话会立即失效。`,
+    okText: '确认重置',
+    cancelText: '取消',
+    okType: 'danger',
+    async onOk() {
+      await runResetMfa(row)
+    },
+  })
+}
+
+async function runResetMfa(row) {
   try {
-    await ElMessageBox.confirm(
-      `确认重置管理员 ${row.username} 的 MFA？其所有现有会话会立即失效。`,
-      '重置 MFA',
-      { type: 'warning' }
-    )
     await api.post(`/users/${row.id}/reset-mfa`)
-    ElMessage.success('MFA 已重置；该管理员下次登录必须重新绑定')
+    message.success('MFA 已重置；该管理员下次登录必须重新绑定')
     load()
   } catch (e) {
-    if (e && e !== 'cancel' && e.friendlyMessage) ElMessage.error(e.friendlyMessage)
+    message.error(e.friendlyMessage || 'MFA 重置失败')
+    throw e
   }
 }
 
@@ -307,11 +307,11 @@ async function changePwd() {
   savingPwd.value = true
   try {
     await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
-    ElMessage.success('密码已修改')
+    message.success('密码已修改')
     pwdDlg.value = false
     Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })
   } catch (e) {
-    ElMessage.error(e.friendlyMessage || '修改失败')
+    message.error(e.friendlyMessage || '修改失败')
   } finally {
     savingPwd.value = false
   }
@@ -323,27 +323,11 @@ onMounted(load)
 <style scoped>
 .users-toolbar__spacer { flex: 1; }
 .users-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
   max-width: 520px;
   margin-bottom: 14px;
 }
-.users-summary > div {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 11px 13px;
-  border: 1px solid var(--cborder);
-  border-radius: 9px;
-  background: var(--cpanel);
-}
-.users-summary b {
-  color: var(--cprimary);
-  font-size: 20px;
-  font-variant-numeric: tabular-nums;
-}
-.users-summary span { color: var(--csub); font-size: 12px; }
+.users-summary :deep(.ant-statistic-content) { font-size: 22px; }
+.table-actions { display: flex; gap: 8px; }
 .user-mobile-card__username {
   display: block;
   margin-top: 2px;
@@ -360,19 +344,14 @@ onMounted(load)
 .user-mobile-card__email { overflow-wrap: anywhere; }
 
 @media (max-width: 768px) {
-  .users-toolbar > .el-button:not(.change-password-button) { flex: 1; }
+  .users-toolbar > .ant-btn:not(.change-password-button) { flex: 1; }
   .users-toolbar__spacer { display: none; }
   .change-password-button { width: 100%; margin-left: 0; }
-  .users-summary { max-width: none; gap: 7px; }
-  .users-summary > div {
-    align-items: center;
-    flex-direction: column;
-    gap: 1px;
-    padding: 9px 4px;
-    text-align: center;
-  }
-  .users-summary b { font-size: 18px; }
-  .users-list-card :deep(.el-card__body) { padding: 12px; }
-  .mobile-data-card__actions :deep(.el-button + .el-button) { margin-left: 0; }
+  .users-summary { max-width: none; }
+  .users-summary :deep(.ant-card-body) { padding: 10px; }
+  .users-summary :deep(.ant-statistic-title) { font-size: 12px; }
+  .users-summary :deep(.ant-statistic-content) { font-size: 18px; }
+  .users-list-card :deep(.ant-card-body) { padding: 12px; }
+  .mobile-data-card__actions :deep(.ant-btn + .ant-btn) { margin-left: 0; }
 }
 </style>
