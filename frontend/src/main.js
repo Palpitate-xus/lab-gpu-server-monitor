@@ -4,9 +4,14 @@ import {
   Avatar as AntAvatar,
   Badge as AntBadge,
   Button as AntButton,
+  Card as AntCard,
   ConfigProvider,
   Drawer as AntDrawer,
   Dropdown as AntDropdown,
+  Form as AntForm,
+  FormItem as AntFormItem,
+  Input as AntInput,
+  InputPassword as AntInputPassword,
   Layout as AntLayout,
   LayoutContent as AntLayoutContent,
   LayoutHeader as AntLayoutHeader,
@@ -84,9 +89,14 @@ app.use(AntApp)
 app.use(AntAvatar)
 app.use(AntBadge)
 app.use(AntButton)
+app.use(AntCard)
 app.use(ConfigProvider)
 app.use(AntDrawer)
 app.use(AntDropdown)
+app.use(AntForm)
+app.use(AntFormItem)
+app.use(AntInput)
+app.use(AntInputPassword)
 app.use(AntLayout)
 app.use(AntLayoutContent)
 app.use(AntLayoutHeader)
