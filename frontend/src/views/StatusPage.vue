@@ -1,167 +1,185 @@
 <template>
-  <div class="status-page" :class="themeClass">
-    <div class="sp-container">
-      <!-- header -->
-      <header class="sp-header">
-        <h1><span v-if="data?.overall" class="sp-live-dot" :class="data.overall.all_operational ? 'ok' : 'bad'"></span>{{ data?.title || '服务状态' }}</h1>
-        <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
-      </header>
-
-      <div v-if="!loaded" class="sp-card sp-loading" aria-live="polite">
-        <div class="sp-loading-line wide"></div>
-        <div class="sp-loading-line"></div>
-        <div class="sp-loading-line short"></div>
-      </div>
-
-      <div v-else-if="loadError" class="sp-card sp-load-error" role="alert">
-        <span class="sp-banner-icon">!</span>
-        <div><b>暂时无法获取服务状态</b><p>请稍后重试，或联系平台管理员确认监控服务是否可用。</p></div>
-        <button type="button" @click="load">重新加载</button>
-      </div>
-
-      <!-- admin preview banner -->
-      <div v-if="preview" class="sp-card sp-preview-hint">
-        预览模式 · 仅管理员可见，尚未对外发布
-      </div>
-
-      <!-- unpublished -->
-      <div v-if="loaded && !loadError && !data?.published" class="sp-card sp-empty">
-        此状态页未发布。管理员可在「系统设置 → 状态页」中开启。
-      </div>
-
-      <!-- overall banner -->
-      <div v-if="data?.published" class="sp-card sp-banner" :class="data.overall?.all_operational ? 'ok' : 'bad'">
-        <template v-if="data.overall?.all_operational">
-          <span class="sp-banner-icon">✓</span> 全部系统正常运行 · {{ data.overall.servers_online }}/{{ data.overall.servers_total }} 台在线
-        </template>
-        <template v-else>
-          <span class="sp-banner-icon">!</span> 部分系统异常 · {{ data.overall.servers_online }}/{{ data.overall.servers_total }} 台在线
-        </template>
-      </div>
-
-      <!-- server rows -->
-      <div v-if="data?.published" class="sp-list">
-        <div v-for="s in data.servers" :key="s.id" class="sp-card sp-row">
-          <div class="sp-row-head">
-            <div class="sp-row-name">
-              <span class="sp-dot" :class="s.online ? 'ok' : 'bad'"></span>
-              <b>{{ s.name }}</b>
-              <span v-if="s.server_type === 'cpu'" class="sp-tag">CPU</span>
-              <span v-else class="sp-tag gpu">GPU</span>
-            </div>
-            <div class="sp-row-meta">
-              <span v-if="data.show_latency && s.online" class="sp-latency">{{ s.avg_latency_ms }} ms</span>
-              <span class="sp-uptime">{{ s.uptime_30d == null ? '—' : s.uptime_30d + '%' }}</span>
-              <span class="sp-status-label" :class="s.online ? 'ok' : 'bad'">{{ s.online ? '正常' : '离线' }}</span>
-            </div>
+  <a-config-provider :theme="statusThemeConfig">
+    <main class="status-page" :class="themeClass">
+      <div class="status-container">
+        <header class="status-header">
+          <div class="status-title">
+            <a-badge v-if="data?.overall" :status="data.overall.all_operational ? 'success' : 'error'" />
+            <h1>{{ data?.title || '服务状态' }}</h1>
           </div>
+          <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
+        </header>
 
-          <!-- GPU utilization cards -->
-          <div v-if="data.show_gpu && s.gpus?.length" class="sp-gpus">
-            <div v-for="g in s.gpus" :key="g.index" class="sp-gpu-card" :class="gpuClass(g.util)">
-              <div class="sp-gpu-top">
-                <span class="sp-gpu-id">GPU {{ g.index }}</span>
-                <span class="sp-gpu-name" :title="g.name">{{ g.name }}</span>
+        <a-card v-if="!loaded" aria-live="polite">
+          <a-skeleton active :paragraph="{ rows: 3 }" />
+        </a-card>
+
+        <a-alert
+          v-else-if="loadError"
+          type="error"
+          show-icon
+          message="暂时无法获取服务状态"
+          description="请稍后重试，或联系平台管理员确认监控服务是否可用。"
+        >
+          <template #action><a-button size="small" danger @click="load">重新加载</a-button></template>
+        </a-alert>
+
+        <a-alert
+          v-if="preview"
+          type="warning"
+          show-icon
+          banner
+          message="预览模式：仅管理员可见，当前配置可能尚未对外发布。"
+        />
+
+        <a-result
+          v-if="loaded && !loadError && !data?.published"
+          status="info"
+          title="此状态页未发布"
+          sub-title="管理员可在「系统设置 → 公开状态页」中开启。"
+        />
+
+        <a-alert
+          v-if="data?.published"
+          :type="data.overall?.all_operational ? 'success' : 'error'"
+          show-icon
+          :message="data.overall?.all_operational ? '全部系统正常运行' : '部分系统异常'"
+          :description="`${data.overall?.servers_online || 0}/${data.overall?.servers_total || 0} 台服务器在线`"
+        />
+
+        <section v-if="data?.published" class="server-list" aria-label="服务器状态">
+          <a-card v-for="server in data.servers" :key="server.id" size="small" class="server-status-card">
+            <template #title>
+              <div class="server-title">
+                <a-badge :status="server.online ? 'success' : 'error'" />
+                <b>{{ server.name }}</b>
+                <a-tag :color="server.server_type === 'cpu' ? undefined : 'blue'">
+                  {{ server.server_type === 'cpu' ? 'CPU' : 'GPU' }}
+                </a-tag>
               </div>
-              <div class="sp-gpu-ring">
-                <svg viewBox="0 0 36 36">
-                  <circle class="sp-ring-bg" cx="18" cy="18" r="15.9"></circle>
-                  <circle class="sp-ring-fg" cx="18" cy="18" r="15.9"
-                    :stroke-dasharray="`${g.util}, 100`"></circle>
-                </svg>
-                <span class="sp-gpu-pct">{{ g.util }}<i>%</i></span>
+            </template>
+            <template #extra>
+              <div class="server-meta">
+                <span v-if="data.show_latency && server.online">{{ server.avg_latency_ms }} ms</span>
+                <b>{{ server.uptime_30d == null ? '—' : server.uptime_30d + '%' }}</b>
+                <a-tag :color="server.online ? 'green' : 'red'">{{ server.online ? '正常' : '离线' }}</a-tag>
               </div>
-              <div class="sp-gpu-memrow">
-                <div class="sp-gpu-membar"><div :style="{ width: g.mem_pct + '%' }"></div></div>
-                <span class="sp-gpu-memtxt">{{ g.mem_pct }}% 显存</span>
-              </div>
+            </template>
+
+            <div v-if="data.show_gpu && server.gpus?.length" class="gpu-list">
+              <a-card v-for="gpu in server.gpus" :key="gpu.index" size="small" class="gpu-card">
+                <div class="gpu-heading">
+                  <b>GPU {{ gpu.index }}</b>
+                  <span :title="gpu.name">{{ gpu.name }}</span>
+                </div>
+                <div class="gpu-metrics">
+                  <a-progress
+                    type="circle"
+                    :percent="gpu.util"
+                    :size="62"
+                    :stroke-color="gpuColor(gpu.util)"
+                  />
+                  <div class="gpu-memory">
+                    <span>显存占用 {{ gpu.mem_pct }}%</span>
+                    <a-progress
+                      :percent="gpu.mem_pct"
+                      :show-info="false"
+                      size="small"
+                      :stroke-color="gpuColor(gpu.mem_pct)"
+                    />
+                  </div>
+                </div>
+              </a-card>
             </div>
-          </div>
 
-          <!-- uptime bars -->
-          <div class="sp-bars">
-            <el-tooltip v-for="(d, i) in s.history" :key="i" :disabled="!d.uptime" placement="top">
-              <template #content>
-                {{ d.date }}：<template v-if="d.uptime == null">无数据</template>
-                <template v-else>{{ d.uptime }}% 可用（{{ d.n }} 次探测）</template>
-              </template>
-              <div class="sp-bar" :class="barClass(d)"></div>
-            </el-tooltip>
-          </div>
-          <div class="sp-bars-axis">
-            <span>{{ axisLabel(s.history, 'first') }}</span>
-            <span>{{ axisLabel(s.history, 'mid') }}</span>
-            <span>今天</span>
-          </div>
-        </div>
+            <div class="uptime-bars" aria-label="可用率历史">
+              <a-tooltip v-for="(day, index) in server.history" :key="index" :title="historyTip(day)">
+                <div class="uptime-bar" :class="barClass(day)"></div>
+              </a-tooltip>
+            </div>
+            <div class="uptime-axis">
+              <span>{{ axisLabel(server.history, 'first') }}</span>
+              <span>{{ axisLabel(server.history, 'mid') }}</span>
+              <span>今天</span>
+            </div>
+          </a-card>
+        </section>
+
+        <footer v-if="data?.footer" class="status-footer">{{ data.footer }}</footer>
+        <footer v-if="data?.generated_at" class="status-footer secondary">
+          数据实时来自 SSH 探测 · 更新于 {{ fmtTime(data.generated_at) }}
+        </footer>
       </div>
-
-      <footer class="sp-footer" v-if="data?.footer">{{ data.footer }}</footer>
-      <footer class="sp-footer sub" v-if="data?.generated_at">
-        数据实时来自 SSH 探测 · 更新于 {{ fmtTime(data.generated_at) }}
-      </footer>
-    </div>
-  </div>
+    </main>
+  </a-config-provider>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { theme as antTheme } from 'ant-design-vue'
 import axios from 'axios'
 import { fmtTime } from '../format'
 
 const route = useRoute()
 const preview = computed(() => route.query.preview === '1')
-
 const data = ref(null)
 const loaded = ref(false)
 const loadError = ref(false)
 let timer = null
 
-const themeClass = computed(() => {
-  const t = data.value?.theme || 'auto'
-  if (t === 'dark') return 'sp-dark'
-  if (t === 'light') return 'sp-light'
-  // auto: follow the app-level html.dark class if present
-  return document.documentElement.classList.contains('dark') ? 'sp-dark' : 'sp-light'
+const selectedTheme = computed(() => {
+  const configured = data.value?.theme || 'auto'
+  if (configured === 'dark' || configured === 'light') return configured
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
 })
+const themeClass = computed(() => `status-page--${selectedTheme.value}`)
+const statusThemeConfig = computed(() => ({
+  algorithm: selectedTheme.value === 'dark' ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
+}))
 
-function gpuClass(util) {
-  if (util >= 90) return 'hot'
-  if (util >= 50) return 'busy'
-  return 'idle'
+function gpuColor(value) {
+  if (value >= 90) return '#ff4d4f'
+  if (value >= 50) return '#1677ff'
+  return '#52c41a'
 }
 
-function barClass(d) {
-  if (d.uptime == null) return 'none'
-  if (d.uptime >= 99.5) return 'ok'
-  if (d.uptime >= 90) return 'warn'
-  return 'bad'
+function barClass(day) {
+  if (day.uptime == null) return 'none'
+  if (day.uptime >= 99.5) return 'ok'
+  if (day.uptime >= 90) return 'warning'
+  return 'error'
 }
 
-function axisLabel(history, pos) {
+function historyTip(day) {
+  if (day.uptime == null) return `${day.date}：无数据`
+  return `${day.date}：${day.uptime}% 可用（${day.n} 次探测）`
+}
+
+function axisLabel(history, position) {
   if (!history?.length) return ''
-  const idx = pos === 'first' ? 0 : Math.floor(history.length / 2)
-  return history[idx]?.date?.slice(5) || ''
+  const index = position === 'first' ? 0 : Math.floor(history.length / 2)
+  return history[index]?.date?.slice(5) || ''
 }
 
 async function load() {
   loadError.value = false
   try {
-    // preview mode hits the admin endpoint (ignores the published flag);
-    // the public endpoint stays auth-free
-    let res
+    let response
     if (preview.value) {
       try {
-        res = await axios.get('/api/status-page/preview', { withCredentials: true })
-      } catch (e) {
-        if (e?.response?.status === 401 || e?.response?.status === 403) res = await axios.get('/api/status-public')
-        else throw e
+        response = await axios.get('/api/status-page/preview', { withCredentials: true })
+      } catch (error) {
+        if (error?.response?.status === 401 || error?.response?.status === 403) {
+          response = await axios.get('/api/status-public')
+        } else {
+          throw error
+        }
       }
     } else {
-      res = await axios.get('/api/status-public')
+      response = await axios.get('/api/status-public')
     }
-    data.value = res.data
+    data.value = response.data
   } catch {
     data.value = null
     loadError.value = true
@@ -173,8 +191,7 @@ async function load() {
 onMounted(() => {
   load()
   timer = setInterval(() => {
-    if (document.hidden) return
-    load()
+    if (!document.hidden) load()
   }, 60000)
 })
 onUnmounted(() => clearInterval(timer))
@@ -183,169 +200,133 @@ onUnmounted(() => clearInterval(timer))
 <style scoped>
 .status-page {
   min-height: 100vh;
-  font-family: -apple-system, 'PingFang SC', 'Segoe UI', Roboto, sans-serif;
+  padding: 48px 20px 40px;
 }
-.sp-light {
-  background: radial-gradient(900px 360px at 50% -120px, rgba(8,145,178,.09), transparent 70%), #f5f7fb;
-  color: #1f2d3d;
+.status-page--light {
+  --ctext: rgba(0, 0, 0, .88);
+  --csub: rgba(0, 0, 0, .45);
+  background: #f5f5f5;
+  color: var(--ctext);
 }
-.sp-dark {
-  background: radial-gradient(900px 360px at 50% -120px, rgba(34,211,238,.10), transparent 70%), #0c1425;
-  color: #dce7f5;
+.status-page--dark {
+  --ctext: rgba(255, 255, 255, .85);
+  --csub: rgba(255, 255, 255, .45);
+  background: #141414;
+  color: var(--ctext);
 }
-
-.sp-container { max-width: 860px; margin: 0 auto; padding: 48px 20px 40px; }
-
-.sp-header { text-align: center; margin-bottom: 28px; }
-.sp-header h1 { font-size: 28px; margin: 0 0 7px; letter-spacing: -.02em; }
-.sp-header h1 .sp-live-dot { margin-right: 9px; vertical-align: middle; }
-.sp-header p { margin: 0; opacity: .58; font-size: 13px; }
-.sp-live-dot {
-  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
-  animation: sp-pulse 2s infinite;
+.status-container {
+  max-width: 880px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
 }
-.sp-live-dot.ok { --sp-halo: rgba(16,185,129,.22); background: #10b981; }
-.sp-live-dot.bad { --sp-halo: rgba(239,68,68,.22); background: #ef4444; }
-@keyframes sp-pulse {
-  0%,100% { box-shadow: 0 0 0 4px var(--sp-halo, transparent); }
-  50% { box-shadow: 0 0 0 8px transparent; }
+.status-header {
+  padding: 8px 0 12px;
+  text-align: center;
 }
-
-.sp-card {
-  border-radius: 10px;
-  padding: 16px 20px;
-  margin-bottom: 12px;
-}
-.sp-light .sp-card { background: #fff; border: 1px solid #e3e9f2; }
-.sp-dark .sp-card { background: #131f36; border: 1px solid #1e2d47; }
-
-.sp-empty { text-align: center; opacity: .7; padding: 40px; }
-.sp-loading { padding: 24px; }
-.sp-loading-line {
-  width: 62%;
-  height: 12px;
-  margin: 11px 0;
-  overflow: hidden;
-  border-radius: 8px;
-  background: currentColor;
-  opacity: .08;
-  animation: sp-loading 1.4s ease-in-out infinite alternate;
-}
-.sp-loading-line.wide { width: 86%; }
-.sp-loading-line.short { width: 38%; }
-@keyframes sp-loading { to { opacity: .15; } }
-.sp-load-error {
+.status-title {
   display: flex;
   align-items: center;
-  gap: 13px;
-  border-left: 4px solid #ef4444 !important;
+  justify-content: center;
+  gap: 10px;
 }
-.sp-load-error .sp-banner-icon { flex: 0 0 auto; background: #ef4444; }
-.sp-load-error div { flex: 1; }
-.sp-load-error p { margin: 4px 0 0; opacity: .65; font-size: 12px; line-height: 1.55; }
-.sp-load-error button {
-  flex: 0 0 auto;
-  padding: 7px 13px;
-  border: 1px solid currentColor;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+.status-title h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.4;
 }
-
-.sp-preview-hint {
-  text-align: center; font-size: 13px; font-weight: 600;
-  color: #d97706; border: 1px dashed #d97706 !important;
-  background: rgba(217, 119, 6, .08) !important;
+.status-header p {
+  margin: 6px 0 0;
+  color: var(--csub);
+  font-size: 13px;
 }
-
-.sp-banner { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
-.sp-banner.ok { border-left: 4px solid #10b981; }
-.sp-banner.bad { border-left: 4px solid #ef4444; }
-.sp-banner-icon {
-  width: 22px; height: 22px; border-radius: 50%; color: #fff;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 13px;
+.server-list {
+  display: grid;
+  gap: 12px;
 }
-.sp-banner.ok .sp-banner-icon { background: #10b981; }
-.sp-banner.bad .sp-banner-icon { background: #ef4444; }
-
-.sp-row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.sp-row-name { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-.sp-dot { width: 9px; height: 9px; border-radius: 50%; }
-.sp-dot.ok { background: #10b981; }
-.sp-dot.bad { background: #ef4444; }
-.sp-tag {
-  font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid currentColor;
-  opacity: .72; font-weight: 600; letter-spacing: .05em;
+.server-title,
+.server-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.sp-tag.gpu { color: #0891b2; }
-.sp-row-meta { display: flex; align-items: center; gap: 14px; font-size: 13px; }
-.sp-latency { opacity: .6; font-variant-numeric: tabular-nums; }
-.sp-uptime { font-weight: 600; font-variant-numeric: tabular-nums; }
-.sp-status-label.ok { color: #10b981; font-weight: 600; }
-.sp-status-label.bad { color: #ef4444; font-weight: 600; }
-
-.sp-bars { display: flex; gap: 3px; align-items: flex-end; height: 34px; }
-.sp-bar { flex: 1; min-width: 3px; height: 100%; border-radius: 2px; cursor: default; }
-.sp-bar.ok { background: #10b981; }
-.sp-bar.warn { background: #f59e0b; }
-.sp-bar.bad { background: #ef4444; }
-.sp-bar.none { background: currentColor; opacity: .12; }
-.sp-bars-axis {
-  display: flex; justify-content: space-between; font-size: 11px; opacity: .45; margin-top: 6px;
+.server-meta {
+  color: var(--csub);
+  font-size: 12px;
+}
+.server-meta b { color: var(--ctext); font-variant-numeric: tabular-nums; }
+.gpu-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.gpu-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.gpu-heading span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--csub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gpu-metrics {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.gpu-memory { min-width: 0; flex: 1; }
+.gpu-memory > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--csub);
+  font-size: 11px;
+}
+.uptime-bars {
+  height: 32px;
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+}
+.uptime-bar {
+  min-width: 3px;
+  flex: 1;
+  border-radius: 2px;
+}
+.uptime-bar.ok { background: #52c41a; }
+.uptime-bar.warning { background: #faad14; }
+.uptime-bar.error { background: #ff4d4f; }
+.uptime-bar.none { background: #d9d9d9; opacity: .5; }
+.uptime-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--csub);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-
-.sp-footer { text-align: center; font-size: 12px; opacity: .5; margin-top: 22px; }
-.sp-footer.sub { margin-top: 6px; }
+.status-footer {
+  margin-top: 4px;
+  color: var(--csub);
+  text-align: center;
+  font-size: 12px;
+}
+.status-footer.secondary { margin-top: -10px; }
 
 @media (max-width: 560px) {
-  .sp-container { padding: 28px 12px 24px; }
-  .sp-header { margin-bottom: 22px; }
-  .sp-header h1 { font-size: 24px; }
-  .sp-row-meta { gap: 8px; }
-  .sp-latency { display: none; }
-  .sp-load-error { align-items: flex-start; flex-wrap: wrap; }
-  .sp-load-error button { margin-left: 35px; }
-}
-
-.sp-gpus {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.sp-gpu-card {
-  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
-  border-radius: 8px;
-  padding: 8px 10px 9px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  opacity: .92;
-}
-.sp-gpu-card.idle { color: #10b981; background: rgba(16,185,129,.06); }
-.sp-gpu-card.busy { color: #0891b2; background: rgba(8,145,178,.08); }
-.sp-gpu-card.hot  { color: #f59e0b; background: rgba(245,158,11,.08); }
-.sp-gpu-top { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
-.sp-gpu-id { font-size: 11px; font-weight: 700; color: inherit; }
-.sp-gpu-name { font-size: 11px; opacity: .76; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 84px; letter-spacing: .01em; }
-.sp-gpu-ring { position: relative; width: 58px; height: 58px; margin: 2px 0; }
-.sp-gpu-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.sp-ring-bg { fill: none; stroke: currentColor; stroke-opacity: .15; stroke-width: 3; }
-.sp-ring-fg { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .6s; }
-.sp-gpu-pct {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
-  color: inherit;
-}
-.sp-gpu-pct i { font-style: normal; font-size: 8px; opacity: .6; margin-left: 1px; }
-.sp-gpu-memrow { width: 100%; display: flex; align-items: center; gap: 5px; }
-.sp-gpu-membar { flex: 1; height: 4px; border-radius: 2px; background: currentColor; opacity: .18; overflow: hidden; }
-.sp-gpu-membar div { height: 100%; border-radius: 2px; background: currentColor; opacity: .9; transition: width .5s; }
-.sp-gpu-memtxt { font-size: 10px; opacity: .78; font-variant-numeric: tabular-nums; white-space: nowrap; }
-@media (prefers-reduced-motion: reduce) {
-  .sp-live-dot, .sp-loading-line { animation: none; }
+  .status-page { padding: 28px 12px 24px; }
+  .status-title h1 { font-size: 23px; }
+  .server-status-card :deep(.ant-card-head) { padding-inline: 12px; }
+  .server-status-card :deep(.ant-card-head-wrapper) { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .server-status-card :deep(.ant-card-extra) { margin-inline-start: 0; }
+  .server-status-card :deep(.ant-card-body) { padding: 12px; }
+  .server-meta { flex-wrap: wrap; }
+  .gpu-list { grid-template-columns: 1fr; }
 }
 </style>
