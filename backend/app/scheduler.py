@@ -867,6 +867,7 @@ def _load_servers() -> list[Server]:
                 Server.id,
                 Server.host,
                 Server.port,
+                Server.auth_type,
                 Server.username,
                 Server.password,
                 Server.private_key,
