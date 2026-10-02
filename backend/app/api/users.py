@@ -61,6 +61,8 @@ def update_user(
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    role_changed = body.role is not None and body.role != user.role
+    active_changed = body.is_active is not None and body.is_active != user.is_active
     if body.display_name is not None:
         user.display_name = body.display_name
     if body.email is not None:
@@ -75,7 +77,7 @@ def update_user(
         user.is_active = body.is_active
     if body.password:
         user.password_hash = hash_password(body.password)
-    if body.password or body.is_active is False or body.role is not None:
+    if body.password or active_changed or role_changed:
         increment_token_version(db, user)
     db.commit()
     db.refresh(user)

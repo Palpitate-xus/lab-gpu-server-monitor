@@ -47,7 +47,7 @@
             <div class="table-actions">
               <a-button size="small" @click="openEdit(row)">编辑</a-button>
               <a-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" ok-text="确定" cancel-text="取消" @confirm="toggleActive(row)">
-                <a-button size="small" :danger="row.is_active">
+                <a-button size="small" :danger="row.is_active" :disabled="row.id === me?.id" :loading="busyUserIds.has(row.id)">
                   {{ row.is_active ? '禁用' : '启用' }}
                 </a-button>
               </a-popconfirm>
@@ -86,7 +86,7 @@
             <div class="mobile-data-card__actions">
               <a-button size="small" @click="openEdit(row)">编辑</a-button>
               <a-popconfirm :title="`确定${row.is_active ? '禁用' : '启用'}用户 ${row.username}？`" ok-text="确定" cancel-text="取消" @confirm="toggleActive(row)">
-                  <a-button size="small" :danger="row.is_active">
+                  <a-button size="small" :danger="row.is_active" :disabled="row.id === me?.id" :loading="busyUserIds.has(row.id)">
                     {{ row.is_active ? '禁用' : '启用' }}
                   </a-button>
               </a-popconfirm>
@@ -108,7 +108,7 @@
     <a-modal v-model:open="dlg" class="responsive-dialog" :title="editId ? '编辑用户' : '新建用户'" :width="480">
       <a-form ref="formRef" class="responsive-form" :model="form" :rules="rules" :label-col="{ style: { width: '84px' } }">
         <a-form-item label="用户名" name="username">
-          <a-input v-model:value="form.username" :disabled="!!editId" autocomplete="username" />
+          <a-input v-model:value="form.username" :disabled="!!editId" autocomplete="username" :maxlength="64" />
         </a-form-item>
         <a-form-item label="密码" name="password">
           <a-input-password v-model:value="form.password"
@@ -154,20 +154,24 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { App as AntApp } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
-import { getSession } from '../composables'
+import { clearSession, getSession, setSession } from '../composables'
 import { fmtTime } from '../format'
 
 const loading = ref(false)
+const router = useRouter()
 const { message, modal } = AntApp.useApp()
 const users = ref([])
 const dlg = ref(false)
 const editId = ref(null)
 const saving = ref(false)
 const formRef = ref()
+const originalRole = ref(null)
+const busyUserIds = reactive(new Set())
 
 const pwdDlg = ref(false)
 const savingPwd = ref(false)
@@ -182,21 +186,28 @@ const blank = () => ({ username: '', password: '', display_name: '', email: '', 
 const form = reactive(blank())
 
 const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 2, max: 64, message: '用户名须为 2–64 个字符', trigger: 'blur' }
+  ],
   password: [
     { validator: (r, v, cb) => {
       if (!editId.value && !v) cb(new Error('请输入密码'))
-      else if (v && v.length < 15) cb(new Error('密码至少 15 位'))
+      else if (v && ([...v].length < 15 || [...v].length > 72)) cb(new Error('密码须为 15–72 个字符'))
       else cb()
     }, trigger: 'blur' }
   ]
 }
 
 const pwdRules = {
-  old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  old_password: [
+    { required: true, message: '请输入当前密码', trigger: 'blur' },
+    { max: 128, message: '当前密码最多 128 个字符', trigger: 'blur' }
+  ],
   new_password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 15, message: '密码至少 15 位', trigger: 'blur' }
+    { validator: (_, value) => [...(value || '')].length >= 15 && [...value].length <= 72
+      ? Promise.resolve() : Promise.reject(new Error('密码须为 15–72 个字符')), trigger: 'blur' }
   ],
   confirm: [
     { validator: (r, v, cb) => v === pwdForm.new_password ? cb() : cb(new Error('两次密码不一致')), trigger: 'blur' }
@@ -217,12 +228,14 @@ async function load() {
 
 function openCreate() {
   editId.value = null
+  originalRole.value = null
   Object.assign(form, blank())
   dlg.value = true
 }
 
 function openEdit(row) {
   editId.value = row.id
+  originalRole.value = row.role
   Object.assign(form, blank(), {
     username: row.username, display_name: row.display_name, email: row.email, role: row.role
   })
@@ -230,17 +243,30 @@ function openEdit(row) {
 }
 
 async function save() {
+  if (saving.value) return
+  saving.value = true
   try {
     await formRef.value.validate()
   } catch {
+    saving.value = false
     return
   }
-  saving.value = true
   try {
     if (editId.value) {
-      const payload = { display_name: form.display_name, email: form.email, role: form.role }
+      const payload = { display_name: form.display_name, email: form.email }
+      if (form.role !== originalRole.value) payload.role = form.role
       if (form.password) payload.password = form.password
-      await api.put(`/users/${editId.value}`, payload)
+      const { data } = await api.put(`/users/${editId.value}`, payload)
+      if (editId.value === me.value?.id) {
+        if (payload.password) {
+          clearSession()
+          dlg.value = false
+          message.success('密码已重置，请重新登录')
+          await router.replace('/login')
+          return
+        }
+        setSession(data)
+      }
     } else {
       await api.post('/users', form)
     }
@@ -255,12 +281,16 @@ async function save() {
 }
 
 async function toggleActive(row) {
+  if (row.id === me.value?.id || busyUserIds.has(row.id)) return
+  busyUserIds.add(row.id)
   try {
     await api.put(`/users/${row.id}`, { is_active: !row.is_active })
     row.is_active = !row.is_active
     message.success(row.is_active ? '已启用' : '已禁用')
   } catch (e) {
     message.error(e.friendlyMessage || '操作失败')
+  } finally {
+    busyUserIds.delete(row.id)
   }
 }
 
@@ -299,12 +329,14 @@ async function runResetMfa(row) {
 }
 
 async function changePwd() {
+  if (savingPwd.value) return
+  savingPwd.value = true
   try {
     await pwdFormRef.value.validate()
   } catch {
+    savingPwd.value = false
     return
   }
-  savingPwd.value = true
   try {
     await api.post('/users/change-password', { old_password: pwdForm.old_password, new_password: pwdForm.new_password })
     message.success('密码已修改')
@@ -316,6 +348,11 @@ async function changePwd() {
     savingPwd.value = false
   }
 }
+
+watch(dlg, (open) => { if (!open) form.password = '' })
+watch(pwdDlg, (open) => {
+  if (!open) Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })
+})
 
 onMounted(load)
 </script>
