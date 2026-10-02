@@ -14,7 +14,7 @@ from ..schemas import (
     ServerStatusUpdate,
     ServerUpdate,
 )
-from ..security import encrypt_text, get_current_user, require_admin
+from ..security import decrypt_text, encrypt_text, get_current_user, require_admin
 from ..ssh_collector import test_connection
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
@@ -58,6 +58,38 @@ def _reject_root_ssh(username: str | None) -> None:
         )
 
 
+def _connection_body(body, server: Server | None = None, *, require_credentials: bool = True) -> ConnectionTestRequest:
+    """Merge a write-only draft without retaining inactive SSH credentials."""
+    auth_type = body.auth_type or (server.auth_type if server else "password")
+    same_auth = server is not None and auth_type == server.auth_type
+    password = private_key = passphrase = ""
+    if auth_type == "password":
+        password = body.password or (
+            decrypt_text(server.password or "") if same_auth else ""
+        )
+    else:
+        private_key = body.private_key or (
+            decrypt_text(server.private_key or "") if same_auth else ""
+        )
+        # A replacement key must not inherit the previous key's passphrase.
+        passphrase = body.passphrase if body.passphrase is not None else (
+            decrypt_text(server.passphrase or "") if same_auth and not body.private_key else ""
+        )
+    if require_credentials and not (password if auth_type == "password" else private_key):
+        raise HTTPException(status_code=400, detail="请输入 SSH 密码" if auth_type == "password" else "请提供 SSH 私钥")
+    request = ConnectionTestRequest(
+        host=body.host or (server.host if server else ""),
+        port=body.port if body.port is not None else (server.port if server else 22),
+        username=body.username or (server.username if server else ""),
+        auth_type=auth_type,
+        password=password,
+        private_key=private_key,
+        passphrase=passphrase,
+    )
+    _reject_root_ssh(request.username)
+    return request
+
+
 @router.get("", response_model=list[ServerOut])
 def list_servers(
     request: Request,
@@ -81,7 +113,7 @@ def list_servers(
 
 @router.post("", response_model=ServerOut)
 def create_server(body: ServerCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    _reject_root_ssh(body.username)
+    connection = _connection_body(body)
     exists = db.query(Server).filter(Server.name == body.name).first()
     if exists:
         raise HTTPException(status_code=400, detail=f"服务器名称已存在: {body.name}")
@@ -91,9 +123,9 @@ def create_server(body: ServerCreate, db: Session = Depends(get_db), admin: User
         port=body.port,
         auth_type=body.auth_type,
         username=body.username,
-        password=encrypt_text(body.password or ""),
-        private_key=encrypt_text(body.private_key or ""),
-        passphrase=encrypt_text(body.passphrase or ""),
+        password=encrypt_text(connection.password or ""),
+        private_key=encrypt_text(connection.private_key or ""),
+        passphrase=encrypt_text(connection.passphrase or ""),
         enabled=body.enabled,
         server_type=body.server_type,
         tags=body.tags or [],
@@ -119,6 +151,11 @@ def update_server(
     server = db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    auth_changed = body.auth_type is not None and body.auth_type != server.auth_type
+    credential_fields = body.model_fields_set.intersection({"auth_type", "password", "private_key", "passphrase"})
+    # Turning off a server or editing metadata must remain possible even if
+    # the stored credential keyring is unavailable or corrupt.
+    connection = _connection_body(body, server, require_credentials=auth_changed) if credential_fields else None
     if body.name is not None and body.name != server.name:
         exists = db.query(Server).filter(Server.name == body.name).first()
         if exists:
@@ -143,12 +180,10 @@ def update_server(
     if body.username is not None:
         _reject_root_ssh(body.username)
         server.username = body.username
-    if body.password is not None:
-        server.password = encrypt_text(body.password)
-    if body.private_key is not None:
-        server.private_key = encrypt_text(body.private_key)
-    if body.passphrase is not None:
-        server.passphrase = encrypt_text(body.passphrase)
+    if connection is not None:
+        server.password = encrypt_text(connection.password or "")
+        server.private_key = encrypt_text(connection.private_key or "")
+        server.passphrase = encrypt_text(connection.passphrase or "")
     if body.enabled is not None:
         server.enabled = body.enabled
     if body.server_type is not None:
@@ -217,6 +252,10 @@ def test_server_connection(
     body: ConnectionTestRequest,
     _: User = Depends(require_admin),
 ):
+    return _run_connection_test(body, server_key=f"target_{body.host}_{body.port}")
+
+
+def _run_connection_test(body: ConnectionTestRequest, *, server_key: str) -> ConnectionTestResult:
     _reject_root_ssh(body.username)
     import ipaddress
     import socket
@@ -225,6 +264,8 @@ def test_server_connection(
     # 169.254.169.254)/multicast targets, both as literal IPs and behind
     # hostnames. Private ranges stay allowed: lab servers live there.
     def _bad_ip(ip) -> bool:
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            return _bad_ip(ip.ipv4_mapped)
         return ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local
 
     # Resolve once and connect to the validated address: a second lookup
@@ -246,13 +287,14 @@ def test_server_connection(
             return ConnectionTestResult(ok=False, message=f"非法目标地址: {body.host}")
         target = str(answers[0])
     ok, message = test_connection(
-        host=target,
+        host=body.host,
         port=body.port,
         username=body.username,
-        password=body.password or "",
-        private_key=body.private_key or "",
-        passphrase=body.passphrase or "",
-        server_key=f"target_{body.host}_{body.port}",
+        password=(body.password or "") if body.auth_type == "password" else "",
+        private_key=(body.private_key or "") if body.auth_type == "key" else "",
+        passphrase=(body.passphrase or "") if body.auth_type == "key" else "",
+        server_key=server_key,
+        connect_address=target,
     )
     return ConnectionTestResult(ok=ok, message=message)
 

@@ -56,7 +56,7 @@
         </a-table-column>
         <a-table-column title="启用" :width="80">
           <template #default="{ record: row }">
-            <a-switch v-model:checked="row.enabled" :disabled="!isAdmin" @change="toggleEnabled(row)" />
+            <a-switch v-model:checked="row.enabled" :disabled="!isAdmin || busyServerIds.has(row.id)" :loading="busyServerIds.has(row.id)" @change="toggleEnabled(row)" />
           </template>
         </a-table-column>
         <a-table-column data-index="note" title="备注" :width="140" ellipsis />
@@ -90,7 +90,7 @@
             </div>
             <div class="mobile-data-card__meta">
               <span>认证</span><span>{{ isAdmin ? (row.auth_type === 'key' ? 'SSH 密钥' : '用户名 / 密码') : '受保护' }}</span>
-              <span>启用采集</span><a-switch v-model:checked="row.enabled" :disabled="!isAdmin" @change="toggleEnabled(row)" />
+              <span>启用采集</span><a-switch v-model:checked="row.enabled" :disabled="!isAdmin || busyServerIds.has(row.id)" :loading="busyServerIds.has(row.id)" @change="toggleEnabled(row)" />
               <template v-if="row.status_reason"><span>状态说明</span><span>{{ row.status_reason }}</span></template>
               <template v-if="row.note"><span>备注</span><span>{{ row.note }}</span></template>
             </div>
@@ -110,15 +110,17 @@
     <a-modal v-model:open="dlg" :title="editId ? '编辑服务器' : '添加服务器'" :width="620" class="responsive-dialog server-dialog">
       <a-form ref="formRef" :model="form" :rules="rules" :label-col="{ style: { width: '96px' } }" class="responsive-form">
         <a-form-item label="名称" name="name">
-          <a-input v-model:value="form.name" placeholder="如 gpu-node-01" />
+          <a-input v-model:value="form.name" placeholder="如 gpu-node-01" :maxlength="128" />
         </a-form-item>
         <a-form-item label="主机" name="host">
           <a-row :gutter="8" class="host-row">
           <a-col :span="16">
-            <a-input v-model:value="form.host" placeholder="IP 或主机名" />
+            <a-input v-model:value="form.host" placeholder="IP 或主机名" :maxlength="255" />
           </a-col>
           <a-col :span="8">
-            <a-input-number v-model:value="form.port" :min="1" :max="65535" style="width:100%" />
+            <a-form-item name="port" class="port-form-item">
+              <a-input-number v-model:value="form.port" :min="1" :max="65535" :precision="0" aria-label="SSH 端口" style="width:100%" />
+            </a-form-item>
           </a-col>
           </a-row>
         </a-form-item>
@@ -136,7 +138,7 @@
         </a-form-item>
         <a-form-item label="用户名" name="username">
           <a-input v-model:value="form.username"
-            :placeholder="editId ? '留空保持不变' : 'gpumon'" />
+            :maxlength="64" :placeholder="editId ? '留空保持不变' : 'gpumon'" />
         </a-form-item>
         <template v-if="form.auth_type === 'password'">
           <a-form-item label="密码" name="password">
@@ -177,21 +179,22 @@
         </a-form-item>
       </a-form>
       <template #footer>
-        <a-button :loading="testing" @click="testConn">测试连接</a-button>
-        <a-button v-if="editId" :loading="testingIpmi" @click="testIpmi">测试 IPMI</a-button>
+        <a-button :loading="testing" :disabled="saving || testingIpmi" @click="testConn">测试连接</a-button>
+        <a-button v-if="editId" :loading="testingIpmi" :disabled="saving || testing" @click="testIpmi">测试 IPMI</a-button>
         <a-button @click="dlg = false">取消</a-button>
-        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
+        <a-button type="primary" :loading="saving" :disabled="testing || testingIpmi" @click="save">保存</a-button>
       </template>
     </a-modal>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { App as AntApp } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { isAdminSession } from '../composables'
+import { buildServerPayload } from '../server-form'
 
 const isAdmin = computed(() => isAdminSession())
 const { message, modal } = AntApp.useApp()
@@ -208,6 +211,8 @@ const dlg = ref(false)
 const editId = ref(null)
 const hasPassword = ref(false)
 const hasKey = ref(false)
+const originalAuthType = ref(null)
+const busyServerIds = reactive(new Set())
 const saving = ref(false)
 const testing = ref(false)
 const testingId = ref(null)
@@ -226,11 +231,19 @@ const hasBmc = ref(false)
 const testingIpmi = ref(false)
 
 const rules = computed(() => ({
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  host: [{ required: true, message: '请输入主机地址', trigger: 'blur' }],
-  username: [{ required: !editId.value, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: form.auth_type === 'password' && !editId.value, message: '请输入 SSH 密码', trigger: 'blur' }],
-  private_key: [{ required: form.auth_type === 'key' && !editId.value, message: '请粘贴 SSH 私钥', trigger: 'blur' }]
+  name: [{ required: true, whitespace: true, max: 128, message: '名称须为 1–128 个字符', trigger: 'blur' }],
+  host: [
+    { required: true, max: 255, message: '请输入主机地址（最多 255 个字符）', trigger: 'blur' },
+    { pattern: /^[^\s\x00-\x1f\x7f]+$/, message: '主机地址不能含空格或控制字符', trigger: 'blur' }
+  ],
+  port: [{ validator: (_, value) => Number.isInteger(value) && value >= 1 && value <= 65535
+    ? Promise.resolve() : Promise.reject(new Error('端口须为 1–65535 的整数')), trigger: 'change' }],
+  username: [
+    { required: !editId.value, message: '请输入用户名', trigger: 'blur' },
+    { max: 64, message: '用户名最多 64 个字符', trigger: 'blur' }
+  ],
+  password: [{ required: form.auth_type === 'password' && (!editId.value || originalAuthType.value !== 'password' || !hasPassword.value), message: '请输入 SSH 密码', trigger: 'blur' }],
+  private_key: [{ required: form.auth_type === 'key' && (!editId.value || originalAuthType.value !== 'key' || !hasKey.value), message: '请粘贴 SSH 私钥', trigger: 'blur' }]
 }))
 
 const allTags = computed(() => [...new Set(serversList.value.flatMap(s => s.tags || []))].sort())
@@ -273,14 +286,17 @@ async function load() {
 
 function openCreate() {
   editId.value = null
+  originalAuthType.value = null
   Object.assign(form, blank())
   hasPassword.value = false
   hasKey.value = false
+  hasBmc.value = false
   dlg.value = true
 }
 
 function openEdit(row) {
   editId.value = row.id
+  originalAuthType.value = row.auth_type
   Object.assign(form, blank(), {
     name: row.name, host: row.host, port: row.port, auth_type: row.auth_type,
     username: '', server_type: row.server_type || 'gpu',
@@ -294,21 +310,17 @@ function openEdit(row) {
 }
 
 async function save() {
+  if (saving.value || testing.value || testingIpmi.value) return
+  saving.value = true
   try {
     await formRef.value.validate()
   } catch {
+    saving.value = false
     return
   }
-  saving.value = true
   try {
-    const payload = { ...form }
+    const payload = buildServerPayload(form, !!editId.value)
     if (editId.value) {
-      // blank username on edit means "keep the stored one"
-      if (!payload.username) delete payload.username
-      if (!payload.password) delete payload.password
-      if (!payload.private_key) delete payload.private_key
-      if (!payload.passphrase) delete payload.passphrase
-      if (!payload.bmc_password) delete payload.bmc_password
       await api.put(`/servers/${editId.value}`, payload)
     } else {
       await api.post('/servers', payload)
@@ -324,7 +336,7 @@ async function save() {
 }
 
 async function testIpmi() {
-  if (!editId.value) return
+  if (!editId.value || testingIpmi.value || saving.value || testing.value) return
   modal.confirm({
     title: '测试 IPMI',
     content: '测试前将保存当前 BMC 配置，是否继续？',
@@ -337,6 +349,7 @@ async function testIpmi() {
 }
 
 async function runIpmiTest() {
+  if (testingIpmi.value || saving.value || testing.value) return
   testingIpmi.value = true
   try {
     const payload = { bmc_host: form.bmc_host, bmc_user: form.bmc_user }
@@ -369,32 +382,36 @@ async function remove(row) {
 }
 
 async function toggleEnabled(row) {
+  if (busyServerIds.has(row.id)) return
+  busyServerIds.add(row.id)
   try {
     await api.put(`/servers/${row.id}`, { enabled: row.enabled })
     message.success(row.enabled ? '已启用' : '已禁用')
   } catch (e) {
     row.enabled = !row.enabled
     message.error(e.friendlyMessage || '操作失败')
+  } finally {
+    busyServerIds.delete(row.id)
   }
 }
 
 async function testConn() {
+  if (testing.value || saving.value || testingIpmi.value) return
   testing.value = true
   try {
-    const payload = {
-      host: form.host, port: form.port, auth_type: form.auth_type, username: form.username,
-      password: form.password || '', private_key: form.private_key || '', passphrase: form.passphrase || ''
-    }
-    const { data } = await api.post('/servers/test', payload)
+    await formRef.value.validate()
+    const payload = buildServerPayload(form, !!editId.value)
+    const { data } = await api.post(editId.value ? `/servers/${editId.value}/test` : '/servers/test', payload)
     data.ok ? message.success(data.message) : message.error(data.message)
   } catch (e) {
-    message.error(e.friendlyMessage || '测试失败')
+    if (!e.errorFields) message.error(e.friendlyMessage || '测试失败')
   } finally {
     testing.value = false
   }
 }
 
 async function testExisting(row) {
+  if (testingId.value !== null) return
   testingId.value = row.id
   try {
     const { data } = await api.post(`/servers/${row.id}/test`)
@@ -406,6 +423,10 @@ async function testExisting(row) {
   }
 }
 
+watch(dlg, (open) => {
+  if (!open) Object.assign(form, { username: '', password: '', private_key: '', passphrase: '', bmc_password: '' })
+})
+
 onMounted(load)
 </script>
 
@@ -413,6 +434,7 @@ onMounted(load)
 .table-link { height: auto; padding: 0; }
 .table-actions { display: flex; gap: 8px; }
 .host-row { width: 100%; }
+.port-form-item { margin-bottom: 0; }
 .bmc-fields { display: flex; gap: 8px; flex-wrap: wrap; width: 100%; }
 .server-card-status { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .server-address { margin-top: 5px; color: var(--csub); font-size: 11px; font-weight: 400; }

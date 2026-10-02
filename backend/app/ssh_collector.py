@@ -789,6 +789,7 @@ def test_connection(
     private_key="",
     passphrase="",
     server_key: str = "",
+    connect_address: str = "",
 ) -> tuple[bool, str]:
     try:
         client = connect_host(
@@ -799,6 +800,7 @@ def test_connection(
             private_key,
             passphrase,
             server_key=server_key,
+            connect_address=connect_address,
         )
         try:
             code, out, _ = run_remote(client, "echo ok", timeout=10)

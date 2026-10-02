@@ -665,9 +665,9 @@ def _poll_one(server: Server) -> None:
             host=server.host,
             port=server.port or 22,
             username=server.username,
-            password_enc=server.password or "",
-            private_key_enc=server.private_key or "",
-            passphrase_enc=server.passphrase or "",
+            password_enc=(server.password or "") if server.auth_type == "password" else "",
+            private_key_enc=(server.private_key or "") if server.auth_type == "key" else "",
+            passphrase_enc=(server.passphrase or "") if server.auth_type == "key" else "",
             server_key=f"server_{server.id}",
         )
     except Exception:
@@ -770,9 +770,9 @@ def _slow_one(server: Server) -> None:
             host=server.host,
             port=server.port or 22,
             username=server.username,
-            password_enc=server.password or "",
-            private_key_enc=server.private_key or "",
-            passphrase_enc=server.passphrase or "",
+            password_enc=(server.password or "") if server.auth_type == "password" else "",
+            private_key_enc=(server.private_key or "") if server.auth_type == "key" else "",
+            passphrase_enc=(server.passphrase or "") if server.auth_type == "key" else "",
             server_key=f"server_{server.id}",
         )
     except Exception:
@@ -813,9 +813,9 @@ def _inventory_one(server: Server) -> None:
             host=server.host,
             port=server.port or 22,
             username=server.username,
-            password_enc=server.password or "",
-            private_key_enc=server.private_key or "",
-            passphrase_enc=server.passphrase or "",
+            password_enc=(server.password or "") if server.auth_type == "password" else "",
+            private_key_enc=(server.private_key or "") if server.auth_type == "key" else "",
+            passphrase_enc=(server.passphrase or "") if server.auth_type == "key" else "",
             server_key=f"server_{server.id}",
         )
     except Exception:

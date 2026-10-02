@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import AuditLog, Server, User
-from ..schemas import ConnectionTestResult
-from ..security import decrypt_text, require_admin
-from ..ssh_collector import test_connection
+from ..schemas import ConnectionTestResult, ServerUpdate
+from ..security import require_admin
+from .servers import _connection_body, _run_connection_test
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -15,23 +15,21 @@ def test_stored_server(
     server_id: int,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
+    body: ServerUpdate | None = None,
 ):
-    """Test connection using the credentials already stored (encrypted) for this server."""
+    """Test stored credentials merged with an optional draft, without saving it."""
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=404, detail="Server not found")
-    ok, message = test_connection(
-        host=server.host,
-        port=server.port,
-        username=server.username,
-        password=decrypt_text(server.password or ""),
-        private_key=decrypt_text(server.private_key or ""),
-        passphrase=decrypt_text(server.passphrase or ""),
-        server_key=f"server_{server.id}",
+    connection = _connection_body(body or ServerUpdate(), server)
+    unchanged_address = connection.host == server.host and connection.port == server.port
+    result = _run_connection_test(
+        connection,
+        server_key=f"server_{server.id}" if unchanged_address else f"target_{connection.host}_{connection.port}",
     )
     try:
-        db.add(AuditLog(username=admin.username, action="server.test", detail=f"test {server.name}: {'ok' if ok else message}"))
+        db.add(AuditLog(username=admin.username, action="server.test", detail=f"test {server.name}: {'ok' if result.ok else result.message}"))
         db.commit()
     except Exception:
         db.rollback()
-    return ConnectionTestResult(ok=ok, message=message)
+    return result

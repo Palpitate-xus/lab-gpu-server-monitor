@@ -323,6 +323,7 @@ def connect_host(
     private_key: str = "",
     passphrase: str = "",
     server_key: str = "",
+    connect_address: str = "",
 ) -> paramiko.SSHClient:
     """Connect with TOFU host-key verification keyed by server identity."""
     if username.strip().lower() == "root" and not settings.allow_root_ssh:
@@ -339,6 +340,18 @@ def connect_host(
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
     else:
         client.set_missing_host_key_policy(_TofuPolicy(kh, host, port))
+    if connect_address and connect_address != host:
+        # Older ad-hoc tests recorded the resolved IP instead of the submitted
+        # hostname. Reuse that exact validated-IP pin in memory only; never
+        # replace an existing hostname pin or trust a different address.
+        known_keys = client.get_host_keys()
+        logical_name = host if port == 22 else f"[{host}]:{port}"
+        resolved_name = connect_address if port == 22 else f"[{connect_address}]:{port}"
+        if known_keys.lookup(logical_name) is None:
+            legacy_keys = known_keys.lookup(resolved_name)
+            if legacy_keys:
+                for algorithm, key in legacy_keys.items():
+                    known_keys.add(logical_name, algorithm, key)
     kwargs = {
         "hostname": host,
         "port": port,
@@ -354,7 +367,22 @@ def connect_host(
         kwargs["pkey"] = load_pkey(private_key, passphrase)
     else:
         kwargs["password"] = password
-    client.connect(**kwargs)
+    transport_socket = None
+    try:
+        if connect_address:
+            # The API has already resolved and validated this IP. Keep the
+            # original hostname for host-key verification, but do not resolve
+            # it again when opening the socket (DNS-rebinding protection).
+            transport_socket = socket.create_connection(
+                (connect_address, port), timeout=settings.SSH_CONNECT_TIMEOUT
+            )
+            kwargs["sock"] = transport_socket
+        client.connect(**kwargs)
+    except Exception:
+        client.close()
+        if transport_socket is not None:
+            transport_socket.close()
+        raise
     return client
 
 
@@ -364,9 +392,9 @@ def connect_server(server) -> paramiko.SSHClient:
         host=server.host,
         port=server.port or 22,
         username=server.username,
-        password=decrypt_text(server.password or ""),
-        private_key=decrypt_text(server.private_key or ""),
-        passphrase=decrypt_text(server.passphrase or ""),
+        password=decrypt_text(server.password or "") if server.auth_type == "password" else "",
+        private_key=decrypt_text(server.private_key or "") if server.auth_type == "key" else "",
+        passphrase=decrypt_text(server.passphrase or "") if server.auth_type == "key" else "",
         server_key=f"server_{server.id}",
     )
 
@@ -440,7 +468,7 @@ def run_script(client: paramiko.SSHClient, script: str, timeout: int = 30) -> tu
 
 def decrypt_creds(server) -> tuple[str, str, str]:
     return (
-        decrypt_text(server.password or ""),
-        decrypt_text(server.private_key or ""),
-        decrypt_text(server.passphrase or ""),
+        decrypt_text(server.password or "") if server.auth_type == "password" else "",
+        decrypt_text(server.private_key or "") if server.auth_type == "key" else "",
+        decrypt_text(server.passphrase or "") if server.auth_type == "key" else "",
     )
