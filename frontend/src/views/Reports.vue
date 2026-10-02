@@ -10,22 +10,26 @@
         <a-select-option v-for="t in allTags" :key="t" :value="t">{{ t }}</a-select-option>
       </a-select>
       <a-button size="small" @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
-      <a-button size="small" @click="exportCsv"><template #icon><DownloadOutlined /></template>导出 CSV</a-button>
+      <a-button size="small" :disabled="loading || !report || !!loadError" @click="exportCsv"><template #icon><DownloadOutlined /></template>导出 CSV</a-button>
     </div>
 
     <a-alert v-if="loadError" type="error" show-icon class="load-alert" :message="`数据加载失败：${loadError}`">
       <template #action><a-button size="small" danger @click="load">重试</a-button></template>
     </a-alert>
+    <a-alert v-if="report && report.card_time_complete === false" type="warning" show-icon class="load-alert"
+      message="部分历史聚合缺少卡时数据：保留原有数据，卡时和占比显示为 —，可重建的历史数据会由后台补齐。" />
+    <a-alert v-else-if="report?.card_time_estimated" type="info" show-icon class="load-alert"
+      message="部分旧采样未记录采样周期，卡时为估算值；新采样使用实际记录的周期计算。" />
 
     <a-row :gutter="14" class="report-kpis">
       <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
-        <a-statistic title="GPU 运行卡时" :value="report?.total_gpu_hours ?? 0" />
+        <a-statistic title="GPU 运行卡时" :value="report?.total_gpu_hours ?? '—'" />
       </a-card></a-col>
       <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
         <a-statistic title="空占卡时" :value="report?.total_idle_gpu_hours ?? 0" />
       </a-card></a-col>
       <a-col :span="8" :xs="24"><a-card class="report-kpi-card report-kpi-card--ratio">
-        <a-statistic title="空占占比" :value="idleRatio" suffix="%" />
+        <a-statistic title="空占占比" :value="idleRatio ?? '—'" :suffix="idleRatio == null ? '' : '%'" />
       </a-card></a-col>
     </a-row>
 
@@ -33,7 +37,7 @@
       <template #title>
         <div class="report-card-head">
           <span>按服务器利用率</span>
-          <span>{{ hours }}h 窗口 · 每小时聚合数据</span>
+          <span>{{ loadedQuery?.hours ?? hours }}h 窗口{{ loadedQuery?.tag ? ` · ${loadedQuery.tag}` : '' }} · 每小时聚合数据</span>
         </div>
       </template>
       <a-table class="desktop-only" :data-source="report?.servers || []" :loading="loading" :pagination="false" size="small" :scroll="{ x: 1000, y: 560 }" row-key="server_id">
@@ -57,7 +61,7 @@
         <a-table-column data-index="idle_held_gpu_hours" title="空占卡时" :width="120" :sorter="numberSorter('idle_held_gpu_hours')" default-sort-order="descend" />
         <a-table-column data-index="idle_ratio_pct" title="空占占比 %" :width="130" :sorter="numberSorter('idle_ratio_pct')">
           <template #default="{ record: row }">
-            <span :style="row.idle_ratio_pct > 30 ? 'color:var(--cred);font-weight:600' : ''">{{ row.idle_ratio_pct }}%</span>
+            <span :style="row.idle_ratio_pct > 30 ? 'color:var(--cred);font-weight:600' : ''">{{ row.idle_ratio_pct == null ? '—' : `${row.idle_ratio_pct}%` }}</span>
           </template>
         </a-table-column>
         <a-table-column data-index="success_rate" title="采集成功率 %" :width="130" :sorter="numberSorter('success_rate')" />
@@ -71,7 +75,7 @@
                 <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
               </div>
               <a-tag :color="row.idle_ratio_pct > 30 ? 'red' : row.idle_ratio_pct > 10 ? 'orange' : 'green'">
-                空占 {{ row.idle_ratio_pct }}%
+                空占 {{ row.idle_ratio_pct == null ? '—' : `${row.idle_ratio_pct}%` }}
               </a-tag>
             </div>
             <div v-if="row.tags?.length" class="report-server-tags">
@@ -101,11 +105,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { App as AntApp } from 'ant-design-vue'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { csvRow } from '../csv'
+import { createRequestScope } from '../requestState'
 
 const hours = ref(24)
 const { message } = AntApp.useApp()
@@ -114,11 +119,12 @@ const loading = ref(false)
 const loadError = ref('')
 const report = ref(null)
 const allTags = ref([])
+const loadedQuery = ref(null)
+const reportRequests = createRequestScope()
 
 const idleRatio = computed(() => {
   const r = report.value
-  if (!r || !r.total_gpu_hours) return 0
-  return Math.round(r.total_idle_gpu_hours / r.total_gpu_hours * 1000) / 10
+  return r?.idle_ratio_pct ?? null
 })
 
 const numberSorter = key => (a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0)
@@ -130,15 +136,20 @@ function utilColor(value) {
 }
 
 async function load() {
+  const request = reportRequests.begin()
+  const query = { hours: hours.value, tag: tag.value || undefined }
   loading.value = true
   loadError.value = ''
   try {
-    const { data } = await api.get('/cluster/utilization-report', { params: { hours: hours.value, tag: tag.value || undefined } })
+    const { data } = await api.get('/cluster/utilization-report', { params: query, signal: request.signal })
+    if (!request.current()) return
     report.value = data
+    loadedQuery.value = query
   } catch (e) {
+    if (!request.current()) return
     loadError.value = e.friendlyMessage || '加载失败'
   } finally {
-    loading.value = false
+    if (request.current()) loading.value = false
   }
 }
 
@@ -150,6 +161,7 @@ async function loadTags() {
 }
 
 function exportCsv() {
+  if (loading.value || loadError.value) return
   const rows = report.value?.servers || []
   if (!rows.length) return message.info('没有可导出的数据')
   const head = ['服务器', '标签', '覆盖小时', 'GPU平均利用率%', '平均功耗W', '空占卡时', '空占占比%', '采集成功率%']
@@ -163,12 +175,13 @@ function exportCsv() {
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = `gpu-utilization-${hours.value}h.csv`
+  a.download = `gpu-utilization-${loadedQuery.value.hours}h.csv`
   a.click()
   URL.revokeObjectURL(a.href)
 }
 
 onMounted(() => { load(); loadTags() })
+onUnmounted(() => reportRequests.dispose())
 </script>
 
 <style scoped>

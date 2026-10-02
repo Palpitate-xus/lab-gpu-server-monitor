@@ -22,3 +22,24 @@ export function compareGpuIdentity(a, b) {
     || Number(a.server_id || 0) - Number(b.server_id || 0)
     || Number(a.index) - Number(b.index)
 }
+
+/** A per-view request lifetime: cancel superseded work and guard all writes. */
+export function createRequestScope() {
+  let sequence = 0
+  let controller
+  let disposed = false
+  return {
+    begin() {
+      controller?.abort()
+      const request = ++sequence
+      controller = new AbortController()
+      if (disposed) controller.abort()
+      return { signal: controller.signal, current: () => !disposed && request === sequence }
+    },
+    dispose() {
+      disposed = true
+      sequence++
+      controller?.abort()
+    },
+  }
+}

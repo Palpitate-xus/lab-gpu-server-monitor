@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compareGpuIdentity, createLatestRequest } from '../src/requestState.js'
+import { compareGpuIdentity, createLatestRequest, createRequestScope } from '../src/requestState.js'
 
 const deferred = () => {
   let resolve, reject
@@ -41,4 +41,17 @@ test('GPU identity sort uses numeric server names and numeric GPU indices', () =
     { server_name: 'gpu-2', server_id: 2, index: 2 },
   ]
   assert.deepEqual(rows.sort(compareGpuIdentity).map(row => [row.server_id, row.index]), [[2, 2], [2, 10], [10, 0]])
+})
+
+test('request scopes cancel superseded work and invalidate on disposal', () => {
+  const scope = createRequestScope()
+  const old = scope.begin()
+  const current = scope.begin()
+  assert.equal(old.signal.aborted, true)
+  assert.equal(old.current(), false)
+  assert.equal(current.current(), true)
+  scope.dispose()
+  assert.equal(current.signal.aborted, true)
+  assert.equal(current.current(), false)
+  assert.equal(scope.begin().signal.aborted, true)
 })

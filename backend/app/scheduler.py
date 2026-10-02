@@ -657,6 +657,8 @@ def _poll_one(server: Server) -> None:
     if not _server_begin(server.id, "poll"):
         logger.info("server %s poll still in flight; skipping", server.id)
         return
+    with _state["lock"]:
+        sample_interval = _state["interval"]
     try:
         # SSH phase: no DB session held (collects run 30-120s on slow hosts)
         res = collect(
@@ -685,6 +687,7 @@ def _poll_one(server: Server) -> None:
         m = ServerMetric(
             server_id=server.id,
             collected_at=datetime.now(timezone.utc),
+            sample_interval_seconds=sample_interval,
             hostname=res.hostname,
             os=res.os,
             kernel=res.kernel,
@@ -1007,7 +1010,8 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
     rows = (
         db.query(ServerMetric)
         .options(load_only(
-            ServerMetric.server_id, ServerMetric.status, ServerMetric.cpu_percent,
+            ServerMetric.server_id, ServerMetric.collected_at,
+            ServerMetric.sample_interval_seconds, ServerMetric.status, ServerMetric.cpu_percent,
             ServerMetric.mem_used_mb, ServerMetric.mem_total_mb,
             ServerMetric.gpus, ServerMetric.net_rx_bytes, ServerMetric.net_tx_bytes,
         ))
@@ -1025,12 +1029,24 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
     aggregates = []
     for sid in server_ids:
         server_rows = rows_by_server[sid]
+        existing = existing_by_server.get(sid)
+        if not server_rows and existing is not None:
+            # Raw retention may have removed this hour. Never replace a
+            # legacy aggregate with an invented zero or guessed card count.
+            existing_by_server.pop(sid)
+            # Do not repeatedly queue an hour whose raw data is gone.
+            if existing.gpu_sample_minutes is None:
+                existing.gpu_time_estimated = False
+            continue
         ok = [row for row in server_rows if row.status == "ok"]
         agg = ServerMetricHourly(
             server_id=sid,
             hour=hour_start,
             samples=len(server_rows),
             ok_samples=len(ok),
+            gpu_sample_minutes=0,
+            idle_held_gpu_minutes=0,
+            gpu_time_estimated=any(row.sample_interval_seconds is None for row in ok),
         )
         if ok:
             cpus = [r.cpu_percent or 0 for r in ok]
@@ -1039,8 +1055,20 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
             mems = [r.mem_used_mb / r.mem_total_mb * 100 for r in ok if r.mem_total_mb]
             agg.mem_avg_pct = round(sum(mems) / len(mems), 1) if mems else 0
             utils, mem_pcts, powers = [], [], []
-            idle_samples = 0
+            # Successful samples cover at most their recorded period, capped
+            # by the following sample and hour boundary. Manual/duplicate
+            # collections therefore cannot double-count the same card time.
+            def utc_time(value):
+                return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+            ordered = sorted(server_rows, key=lambda row: (utc_time(row.collected_at), row.id))
+            seconds_by_id = {}
+            for index, row in enumerate(ordered):
+                next_time = utc_time(ordered[index + 1].collected_at) if index + 1 < len(ordered) else utc_time(hour_end)
+                remaining = (min(next_time, utc_time(hour_end)) - utc_time(row.collected_at)).total_seconds()
+                seconds_by_id[row.id] = max(0, min(row.sample_interval_seconds or interval, remaining))
             for r in ok:
+                minutes = seconds_by_id[r.id] / 60.0
+                agg.gpu_sample_minutes += len(r.gpus or []) * minutes
                 for g in (r.gpus or []):
                     u = g.get("utilization", 0) or 0
                     utils.append(u)
@@ -1048,7 +1076,7 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
                     if tot > 0:
                         mem_pcts.append(used / tot * 100)
                         if used / tot >= 0.30 and u <= 5:
-                            idle_samples += 1
+                            agg.idle_held_gpu_minutes += minutes
                     p = g.get("power_draw", 0) or 0
                     if p:
                         powers.append(p)
@@ -1058,8 +1086,7 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
             agg.gpu_power_avg = round(sum(powers) / len(powers), 1) if powers else 0
             agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
             agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
-            # approximate minutes of idle-but-held GPU samples
-            agg.idle_held_minutes = int(idle_samples * interval / 60)
+            agg.idle_held_minutes = int(agg.idle_held_gpu_minutes + 1e-9)
         aggregates.append(agg)
 
     for existing in existing_by_server.values():
@@ -1107,6 +1134,25 @@ def _hourly_aggregate() -> None:
             _roll_hour(db, hour, hour + timedelta(hours=1), server_ids, interval)
             hour += timedelta(hours=1)
             closed += 1
+        # Bounded, additive upgrade of old rollups whose raw samples are still
+        # retained. Older/unrecoverable rows stay NULL and are disclosed by
+        # the report instead of using the old, dimensionally incorrect formula.
+        first_raw = db.query(func.min(ServerMetric.collected_at)).scalar()
+        if first_raw is not None:
+            if first_raw.tzinfo is None:
+                first_raw = first_raw.replace(tzinfo=timezone.utc)
+            full_raw_hour = first_raw.replace(minute=0, second=0, microsecond=0)
+            if first_raw != full_raw_hour:
+                full_raw_hour += timedelta(hours=1)
+            legacy_hours = [row[0] for row in db.query(ServerMetricHourly.hour)
+                .filter(ServerMetricHourly.gpu_sample_minutes.is_(None),
+                        ServerMetricHourly.gpu_time_estimated.is_(True),
+                        ServerMetricHourly.server_id.in_(server_ids),
+                        ServerMetricHourly.hour >= full_raw_hour,
+                        ServerMetricHourly.hour <= prev_hour)
+                .distinct().order_by(ServerMetricHourly.hour.desc()).limit(96).all()]
+            for legacy_hour in legacy_hours:
+                _roll_hour(db, legacy_hour, legacy_hour + timedelta(hours=1), server_ids, interval)
         if closed:
             logger.info("hourly aggregate closed %d hour(s) up to %s", closed, prev_hour)
     except Exception:

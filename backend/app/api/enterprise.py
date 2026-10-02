@@ -386,7 +386,11 @@ def cluster_utilization_report(
         weighted = sum(r.gpu_util_avg * r.ok_samples for r in rows)
         power_w = sum(r.gpu_power_avg * r.ok_samples for r in rows)
         idle_min = sum(r.idle_held_minutes for r in rows)
-        gpu_hours = (ok / 60.0)  # ok samples are ~1 minute each at default interval
+        available = all(r.gpu_sample_minutes is not None for r in rows)
+        gpu_minutes = sum(r.gpu_sample_minutes or 0 for r in rows)
+        precise_idle = sum(r.idle_held_gpu_minutes if r.idle_held_gpu_minutes is not None
+                           else r.idle_held_minutes for r in rows)
+        gpu_hours = gpu_minutes / 60.0 if available else None
         out.append({
             "server_id": s.id,
             "server_name": s.name,
@@ -396,15 +400,25 @@ def cluster_utilization_report(
             "gpu_util_avg": round(weighted / ok, 1) if ok else 0,
             "gpu_power_avg_w": round(power_w / ok, 1) if ok else 0,
             "idle_held_minutes": idle_min,
-            "idle_held_gpu_hours": round(idle_min / 60.0, 1),
-            "gpu_hours": round(gpu_hours, 1),
-            "idle_ratio_pct": round(idle_min / (ok * 60) * 100, 1) if ok else 0,
+            "idle_held_gpu_hours": round(precise_idle / 60.0, 4),
+            "gpu_hours": round(gpu_hours, 4) if available else None,
+            "gpu_sample_minutes": gpu_minutes if available else None,
+            "idle_held_gpu_minutes": precise_idle,
+            "idle_ratio_pct": round(precise_idle / gpu_minutes * 100, 1) if available and gpu_minutes else (0 if available else None),
+            "card_time_available": available,
+            "card_time_estimated": any(r.gpu_time_estimated for r in rows),
         })
     out.sort(key=lambda x: -x["idle_held_minutes"])
+    complete = all(row["card_time_available"] for row in out)
+    total_minutes = sum(row["gpu_sample_minutes"] or 0 for row in out)
+    total_idle_minutes = sum(row["idle_held_gpu_minutes"] for row in out)
     return {
         "window_hours": hours,
-        "total_gpu_hours": round(sum(x["gpu_hours"] for x in out), 1),
-        "total_idle_gpu_hours": round(sum(x["idle_held_gpu_hours"] for x in out), 1),
+        "total_gpu_hours": round(total_minutes / 60.0, 4) if complete else None,
+        "total_idle_gpu_hours": round(total_idle_minutes / 60.0, 4),
+        "idle_ratio_pct": round(total_idle_minutes / total_minutes * 100, 1) if complete and total_minutes else (0 if complete else None),
+        "card_time_complete": complete,
+        "card_time_estimated": any(row["card_time_estimated"] for row in out),
         "servers": out,
     }
 

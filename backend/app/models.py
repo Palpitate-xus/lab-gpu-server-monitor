@@ -104,6 +104,9 @@ class ServerMetric(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
     # host-level
+    # Persist the period in force at collection time; later configuration
+    # changes must not reinterpret the duration of historical GPU samples.
+    sample_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     hostname: Mapped[str] = mapped_column(String(255), default="")
     os: Mapped[str] = mapped_column(String(255), default="")
     kernel: Mapped[str] = mapped_column(String(255), default="")
@@ -343,6 +346,10 @@ class ServerMetricHourly(Base):
     net_rx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
     net_tx_avg_bps: Mapped[float] = mapped_column(Float, default=0)
     idle_held_minutes: Mapped[int] = mapped_column(Integer, default=0)  # 空占样本分钟数
+    # NULL means a legacy rollup has not been rebuilt from retained raw data.
+    gpu_sample_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    idle_held_gpu_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gpu_time_estimated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class IpmiSnapshot(Base):
