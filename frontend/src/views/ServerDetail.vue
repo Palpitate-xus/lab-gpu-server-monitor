@@ -17,7 +17,7 @@
           {{ statusCn[server.status] }}<span v-if="server.status_reason">：{{ server.status_reason }}</span>
         </a-tag>
         <a-dropdown v-if="isAdmin" :trigger="['click']">
-          <a-button size="small">状态切换</a-button>
+          <a-button size="small" :disabled="actionSaving">状态切换</a-button>
           <template #overlay>
             <a-menu @click="onStatusMenu">
               <a-menu-item key="active">运行中</a-menu-item>
@@ -27,7 +27,7 @@
             </a-menu>
           </template>
         </a-dropdown>
-        <a-button size="small" @click="load"><ReloadOutlined />刷新</a-button>
+        <a-button size="small" @click="refreshAll"><ReloadOutlined />刷新</a-button>
       </div>
     </div>
 
@@ -40,6 +40,8 @@
     </nav>
 
     <template v-if="metric">
+      <a-alert v-if="loadError" :message="`刷新失败：${loadError}。当前显示上次成功读取的数据。`" type="warning" show-icon :closable="false" style="margin-bottom:14px" />
+      <a-alert v-if="panelErrors.overview" :message="`健康信息刷新失败：${panelErrors.overview}。已有健康信息可能已过期。`" type="warning" show-icon :closable="false" style="margin-bottom:14px" />
       <a-alert v-if="metric.status !== 'ok'" :message="`采集失败: ${metricErrorText}`" type="error" show-icon :closable="false" style="margin-bottom:14px" />
 
       <!-- ===== health model tree ===== -->
@@ -163,7 +165,7 @@
               </a-descriptions>
               <div v-if="g.processes?.length" style="margin-top:8px">
                 <div style="font-size:12px;color:var(--csub);margin-bottom:4px">GPU 进程</div>
-                <a-table class="desktop-only" :data-source="g.processes" size="small" :scroll="{ y: 220 }" :pagination="false">
+                <a-table class="desktop-only" :data-source="g.processes" row-key="pid" size="small" :scroll="{ y: 220 }" :pagination="false">
                   <a-table-column data-index="pid" title="PID" width="80" />
                   <a-table-column data-index="user" title="用户" width="100" :ellipsis="true" />
                   <a-table-column title="显存" width="100">
@@ -192,7 +194,7 @@
         <a-col :span="12" :xs="{ span: 24 }">
           <a-card class="page-card">
             <template #title><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
-            <a-table :data-source="metric.net_ifaces || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+            <a-table :data-source="metric.net_ifaces || []" row-key="iface" size="small" :scroll="{ y: 260 }" :pagination="false">
               <a-table-column data-index="iface" title="接口" width="110" />
               <a-table-column title="↓ 接收" width="120">
                 <template #default="{ record: row }"><span class="mono">{{ fmtNetRate(row.rx_bps) }}</span></template>
@@ -207,7 +209,7 @@
         <a-col :span="12" :xs="{ span: 24 }">
           <a-card class="page-card">
             <template #title><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
-            <a-table :data-source="metric.disk_io || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+            <a-table :data-source="metric.disk_io || []" row-key="device" size="small" :scroll="{ y: 260 }" :pagination="false">
               <a-table-column data-index="device" title="设备" width="90" />
               <a-table-column title="读" width="110">
                 <template #default="{ record: row }"><span class="mono">{{ fmtDiskRate(row.read_bps) }}</span></template>
@@ -232,7 +234,7 @@
         <a-col :span="16" :xs="{ span: 24 }">
           <a-card class="page-card">
             <template #title>磁盘分区</template>
-            <a-table :data-source="metric.disks || []" size="small" :scroll="{ y: 300 }" :pagination="false">
+            <a-table :data-source="metric.disks || []" :row-key="row => `${row.device}:${row.mount}`" size="small" :scroll="{ y: 300 }" :pagination="false">
               <a-table-column data-index="mount" title="挂载点" width="130" :ellipsis="true" />
               <a-table-column data-index="device" title="设备" width="110" :ellipsis="true" class-name="mono" />
               <a-table-column title="用量" width="200">
@@ -249,7 +251,7 @@
         <a-col :span="8" :xs="{ span: 24 }">
           <a-card class="page-card">
             <template #title>登录用户</template>
-            <a-table :data-source="metric.users || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+            <a-table :data-source="metric.users || []" :row-key="row => `${row.user}:${row.tty}:${row.login}`" size="small" :scroll="{ y: 260 }" :pagination="false">
               <a-table-column data-index="user" title="用户" width="90" />
               <a-table-column data-index="from" title="来源" width="110" :ellipsis="true" />
               <a-table-column data-index="login" title="登录时间" width="110" :ellipsis="true" />
@@ -275,7 +277,7 @@
             </div>
           </div>
         </template>
-        <a-table :data-source="filteredProcs" size="small" :scroll="{ y: 420 }" :loading="procsLoading" :pagination="false">
+        <a-table :data-source="filteredProcs" :row-key="row => `${row.pid}:${row.start_ticks}`" size="small" :scroll="{ y: 420 }" :loading="procsLoading" :pagination="false">
           <a-table-column data-index="pid" title="PID" width="80" :sorter="(a, b) => a.pid - b.pid" />
           <a-table-column data-index="user" title="用户" width="100" :ellipsis="true" :sorter="(a, b) => (a.user || '').localeCompare(b.user || '')" />
           <a-table-column data-index="cpu" title="CPU%" width="85" :sorter="(a, b) => a.cpu - b.cpu">
@@ -317,6 +319,7 @@
             </a-radio-group>
           </div>
         </template>
+        <a-alert v-if="historyError" :message="`趋势加载失败：${historyError}`" type="warning" show-icon :closable="false" style="margin-bottom:12px" />
         <a-row :gutter="14">
           <a-col v-if="isGpuServer" :span="12" :xs="{ span: 24 }">
             <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
@@ -343,6 +346,12 @@
 
       <!-- ===== enterprise: events / nvme / services / inventory ===== -->
       <a-card id="detail-enterprise" class="page-card detail-section enterprise-card">
+        <div class="enterprise-toolbar">
+          <a-button size="small" :loading="panelLoading[enterpriseGroup(entTab)]" @click="ensureEnterpriseTab(entTab, true)"><ReloadOutlined />刷新当前页签</a-button>
+          <span v-if="panelUpdated[enterpriseGroup(entTab)]" class="enterprise-toolbar__hint">最近读取：{{ fmtTime(panelUpdated[enterpriseGroup(entTab)]) }}</span>
+        </div>
+        <a-alert v-if="panelErrors[enterpriseGroup(entTab)]" type="warning" show-icon :closable="false" style="margin-bottom:12px"
+          :message="`刷新失败：${panelErrors[enterpriseGroup(entTab)]}。已有数据可能已过期，请稍后重试。`" />
         <a-tabs v-model:activeKey="entTab">
           <a-tab-pane tab="内核事件" key="events">
             <div class="enterprise-toolbar">
@@ -354,7 +363,7 @@
               <a-button size="small" @click="loadEvents"><ReloadOutlined />刷新</a-button>
               <span class="enterprise-toolbar__hint">XID / OOM / MCE / EDAC / AER / IO / NFS 错误（journalctl -k 增量）</span>
             </div>
-            <a-table class="desktop-only" :data-source="events" size="small" :scroll="{ y: 320 }" :pagination="false">
+            <a-table class="desktop-only" :data-source="events" row-key="id" size="small" :scroll="{ y: 320 }" :pagination="false">
               <a-table-column title="时间" width="160">
                 <template #default="{ record: row }"><span class="mono">{{ fmtTime(row.collected_at) }}</span></template>
               </a-table-column>
@@ -397,8 +406,8 @@
             <a-empty v-if="!events.length" description="24 小时内无内核异常事件" />
           </a-tab-pane>
 
-          <a-tab-pane tab="NVMe / 存储" key="nvme">
-            <a-table :data-source="slowHealth.nvme_smart || []" size="small" :scroll="{ y: 260 }" :pagination="false">
+          <a-tab-pane v-if="isAdmin" tab="NVMe / 存储" key="nvme">
+            <a-table :data-source="slowHealth.nvme_smart || []" row-key="device" size="small" :scroll="{ y: 260 }" :pagination="false">
               <a-table-column data-index="device" title="设备" width="110" />
               <a-table-column title="温度" width="80">
                 <template #default="{ record: row }">{{ row.temperature ? row.temperature + '°C' : '—' }}</template>
@@ -426,7 +435,7 @@
             <a-empty v-if="!(slowHealth.nvme_smart||[]).length" description="未检测到 NVMe 设备（或无 nvme-cli 权限）" />
             <template v-if="(slowHealth.mdraid?.arrays||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">RAID 阵列</div>
-              <a-table :data-source="slowHealth.mdraid.arrays" size="small" :scroll="{ y: 240 }" :pagination="false">
+              <a-table :data-source="slowHealth.mdraid.arrays" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                 <a-table-column data-index="name" title="阵列" width="100" />
                 <a-table-column data-index="level" title="级别" width="80" />
                 <a-table-column title="状态" width="120">
@@ -441,7 +450,7 @@
             </template>
             <template v-if="(slowHealth.nfs_mounts||[]).length">
               <div class="chart-sub-title" style="margin-top:14px">NFS / 共享存储挂载</div>
-              <a-table :data-source="slowHealth.nfs_mounts" size="small" :scroll="{ y: 240 }" :pagination="false">
+              <a-table :data-source="slowHealth.nfs_mounts" row-key="mount" size="small" :scroll="{ y: 240 }" :pagination="false">
                 <a-table-column data-index="server" title="服务器" width="140" />
                 <a-table-column data-index="export" title="导出路径" width="160" :ellipsis="true" />
                 <a-table-column data-index="mount" title="挂载点" width="140" :ellipsis="true" />
@@ -450,11 +459,11 @@
             </template>
           </a-tab-pane>
 
-          <a-tab-pane tab="服务 / MIG" key="services">
+          <a-tab-pane v-if="isAdmin" tab="服务 / MIG" key="services">
             <a-row :gutter="14">
               <a-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">关键服务状态</div>
-                <a-table :data-source="serviceRows" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table :data-source="serviceRows" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="name" title="服务" width="180" />
                   <a-table-column title="状态" width="110">
                     <template #default="{ record: row }">
@@ -464,7 +473,7 @@
                 </a-table>
                 <template v-if="(slowHealth.systemd_failed||[]).length">
                   <div class="chart-sub-title" style="color:var(--cred)">失败的 systemd 单元</div>
-                  <a-table :data-source="slowHealth.systemd_failed" size="small" :scroll="{ y: 240 }" :pagination="false">
+                  <a-table :data-source="slowHealth.systemd_failed" row-key="unit" size="small" :scroll="{ y: 240 }" :pagination="false">
                     <a-table-column data-index="unit" title="单元" width="200" />
                     <a-table-column data-index="active" title="状态" width="90" />
                   </a-table>
@@ -472,7 +481,7 @@
               </a-col>
               <a-col :span="12" :xs="{ span: 24 }">
                 <div class="chart-sub-title">MIG（多实例 GPU）</div>
-                <a-table :data-source="slowHealth.mig || []" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table :data-source="slowHealth.mig || []" row-key="gpu_index" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="gpu_index" title="GPU" width="70" />
                   <a-table-column title="MIG 模式" width="120">
                     <template #default="{ record: row }">
@@ -482,7 +491,7 @@
                 </a-table>
                 <a-empty v-if="!(slowHealth.mig||[]).length" description="无 MIG 支持 / 未启用" />
                 <div class="chart-sub-title" style="margin-top:10px">IPMI / BMC 传感器</div>
-                <a-table :data-source="(slowHealth.ipmi||[]).slice(0, 8)" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table :data-source="(slowHealth.ipmi||[]).slice(0, 8)" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="name" title="传感器" width="140" :ellipsis="true" />
                   <a-table-column data-index="value" title="值" width="90" />
                   <a-table-column data-index="unit" title="单位" width="80" />
@@ -492,7 +501,7 @@
             </a-row>
           </a-tab-pane>
 
-          <a-tab-pane tab="资产 / 拓扑" key="inventory">
+          <a-tab-pane v-if="isAdmin" tab="资产 / 拓扑" key="inventory">
             <a-descriptions v-if="inventory.machine_id" :column="3" bordered size="small">
               <a-descriptions-item label="Machine ID"><span class="mono" style="font-size:11px">{{ inventory.machine_id }}</span></a-descriptions-item>
               <a-descriptions-item label="厂商/型号">{{ (inventory.dmi||{}).sys_vendor }} {{ (inventory.dmi||{}).product_name }}</a-descriptions-item>
@@ -509,7 +518,7 @@
             <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
             <a-row :gutter="14">
               <a-col :span="12" :xs="{ span: 24 }">
-                <a-table :data-source="(inventory.disks||[]).slice(0, 12)" size="small" :scroll="{ y: 300 }" :pagination="false">
+                <a-table :data-source="(inventory.disks||[]).slice(0, 12)" row-key="name" size="small" :scroll="{ y: 300 }" :pagination="false">
                   <a-table-column data-index="name" title="磁盘" width="90" />
                   <a-table-column data-index="size" title="容量" width="90" />
                   <a-table-column data-index="type" title="类型" width="80" />
@@ -517,7 +526,7 @@
                 </a-table>
               </a-col>
               <a-col :span="12" :xs="{ span: 24 }">
-                <a-table :data-source="physicalNics" size="small" :scroll="{ y: 240 }" :pagination="false">
+                <a-table :data-source="physicalNics" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="name" title="网卡" width="110" />
                   <a-table-column data-index="mac" title="MAC" width="140">
                     <template #default="{ record: row }"><span class="mono" style="font-size:11px">{{ row.mac }}</span></template>
@@ -529,7 +538,7 @@
             </a-row>
           </a-tab-pane>
 
-          <a-tab-pane tab="带外 IPMI" key="ipmi">
+          <a-tab-pane v-if="isAdmin" tab="带外 IPMI" key="ipmi">
             <div v-if="!server?.has_bmc" style="padding:20px;text-align:center;color:var(--csub)">
               未配置带外管理。请在「编辑服务器」中填写 BMC 地址 / 账号，即可从监控主机直连 IPMI（关机 / 宕机也能监控）。
             </div>
@@ -563,7 +572,7 @@
                 </a-col>
                 <a-col :span="12" :xs="24">
                   <div class="chart-sub-title">全部传感器（sdr）</div>
-                  <a-table :data-source="ipmi.snapshot.sensors || []" size="small" :scroll="{ y: 300 }" :pagination="false">
+                  <a-table :data-source="ipmi.snapshot.sensors || []" :row-key="row => `${row.id}:${row.name}`" size="small" :scroll="{ y: 300 }" :pagination="false">
                     <a-table-column data-index="name" title="传感器" width="130" :ellipsis="true" />
                     <a-table-column data-index="reading" title="读数" width="130" :ellipsis="true" />
                     <a-table-column title="状态" width="80">
@@ -573,7 +582,7 @@
                     </a-table-column>
                   </a-table>
                   <div class="chart-sub-title" style="margin-top:10px">硬件事件日志（SEL，新→旧）</div>
-                  <a-table :data-source="(ipmi.snapshot.sel || []).slice().reverse()" size="small" :scroll="{ y: 260 }" :pagination="false">
+                  <a-table :data-source="(ipmi.snapshot.sel || []).slice().reverse()" :row-key="row => row.record || row.event" size="small" :scroll="{ y: 260 }" :pagination="false">
                     <a-table-column data-index="record" title="#" width="56" />
                     <a-table-column title="时间" width="150">
                       <template #default="{ record: row }"><span class="mono">{{ row.date }} {{ row.time }}</span></template>
@@ -602,7 +611,7 @@
               <a-input v-model:value="noteInput" size="small" placeholder="记录维护/维修信息，如：更换 /dev/nvme1，SN xxx" style="flex:1" @keyup.enter="addNote" />
               <a-button size="small" type="primary" :loading="noteSaving" @click="addNote">记录</a-button>
             </div>
-            <a-table :data-source="notes" size="small" :scroll="{ y: 320 }" :pagination="false">
+            <a-table :data-source="notes" row-key="id" size="small" :scroll="{ y: 320 }" :pagination="false">
               <a-table-column title="时间" width="160">
                 <template #default="{ record: row }"><span class="mono">{{ fmtTime(row.ts) }}</span></template>
               </a-table-column>
@@ -641,7 +650,7 @@
               </a-row>
               <template v-if="Object.keys(collectHealth.errors || {}).length">
                 <div class="chart-sub-title" style="margin-top:14px;color:var(--cyellow)">错误分布</div>
-                <a-table :data-source="Object.entries(collectHealth.errors).map(([code, n]) => ({ code, n }))" size="small" :scroll="{ y: 200 }" :pagination="false">
+                <a-table :data-source="Object.entries(collectHealth.errors).map(([code, n]) => ({ code, n }))" row-key="code" size="small" :scroll="{ y: 200 }" :pagination="false">
                   <a-table-column data-index="code" title="错误码" width="220" class-name="mono" />
                   <a-table-column data-index="n" title="次数" width="120" />
                 </a-table>
@@ -693,7 +702,12 @@
     :ok-button-props="{ danger: true }"
     ok-text="发送信号"
     cancel-text="取消"
+    :cancel-button-props="{ disabled: actionSaving }"
+    :closable="!actionSaving"
+    :mask-closable="!actionSaving"
+    :keyboard="!actionSaving"
     @ok="submitKill"
+    @cancel="clearProcessAction"
   >
     <a-alert
       :message="`将向进程 ${pendingProcess?.pid || '—'} 发送 ${pendingSignal}`"
@@ -714,11 +728,16 @@
     :confirm-loading="actionSaving"
     ok-text="确认调整"
     cancel-text="取消"
+    :cancel-button-props="{ disabled: actionSaving }"
+    :closable="!actionSaving"
+    :mask-closable="!actionSaving"
+    :keyboard="!actionSaving"
     @ok="submitRenice"
+    @cancel="clearProcessAction"
   >
     <a-form layout="vertical">
       <a-form-item :label="`进程 ${pendingProcess?.pid || '—'} 的 nice 值`" required>
-        <a-input-number v-model:value="reniceValue" :min="-20" :max="19" style="width:100%" />
+        <a-input-number v-model:value="reniceValue" :min="-20" :max="19" :precision="0" :step="1" style="width:100%" />
       </a-form-item>
       <a-form-item label="当前管理员密码" required>
         <a-input-password v-model:value="reauthPassword" placeholder="请输入当前密码" @keyup.enter="submitRenice" />
@@ -752,6 +771,11 @@ const serverId = computed(() => Number(route.params.id))
 const invalidId = computed(() => !Number.isFinite(serverId.value) || serverId.value <= 0)
 const applyHistory = useLatestOnly()
 const applyProcs = useLatestOnly()
+let requestEpoch = 0
+let disposed = false
+let mainInflight = null
+let procsInflight = null
+let procsToken = 0
 const loading = ref(false)
 const server = ref(null)
 const isGpuServer = computed(() => (server.value?.server_type ?? 'gpu') === 'gpu')
@@ -770,6 +794,7 @@ function loadFail(e) {
 const unitEpoch = ref(0)
 function onUnitChange() { unitEpoch.value++ }
 const history = ref([])
+const historyError = ref('')
 const hours = ref(3)
 
 const procs = ref([])
@@ -812,53 +837,91 @@ const pendingProcess = ref(null)
 const pendingSignal = ref('TERM')
 const reauthPassword = ref('')
 const reniceValue = ref(10)
-
-async function loadOverview() {
-  try {
-    const { data } = await api.get(`/servers/${serverId.value}/overview`)
-    health.value = data.health
-    riskGpus.value = data.gpus || []
-  } catch (e) {
-    loadFail(e)
-    health.value = null
-    riskGpus.value = []
-  }
-}
-async function loadEvents() {
-  try {
-    const { data } = await api.get(`/servers/${serverId.value}/kernel-events`, { params: { hours: 24, severity: evSev.value } })
-    events.value = data
-    return true
-  } catch (e) { loadFail(e); events.value = []; return false }
-}
-async function loadSlowHealth() {
-  try { slowHealth.value = (await api.get(`/servers/${serverId.value}/slow-health`)).data; return true } catch (e) { loadFail(e); slowHealth.value = {}; return false }
-}
 const ipmi = ref(null)
-async function loadIpmi() {
-  try { ipmi.value = (await api.get(`/servers/${serverId.value}/ipmi/latest`)).data; return true } catch { ipmi.value = null; return false }
-}
-async function loadInventory() {
-  try { inventory.value = (await api.get(`/servers/${serverId.value}/inventory`)).data; return true } catch (e) { loadFail(e); inventory.value = {}; return false }
-}
-async function loadNotes() {
-  try { notes.value = (await api.get(`/servers/${serverId.value}/notes`)).data; return true } catch (e) { loadFail(e); notes.value = []; return false }
-}
-async function loadCollectHealth() {
-  try { collectHealth.value = (await api.get(`/servers/${serverId.value}/collect-health`)).data; return true } catch { collectHealth.value = null; return false }
-}
-
-const enterpriseLoaded = new Set()
+const panelErrors = ref({})
+const panelUpdated = ref({})
+const panelLoading = ref({})
+const ENTERPRISE_TTL_MS = 60000
+const adminEnterpriseGroups = new Set(['slow-health', 'inventory', 'ipmi'])
 const enterpriseInflight = new Map()
+const enterpriseTokens = new Map()
 function enterpriseGroup(tab) {
   return tab === 'nvme' || tab === 'services' ? 'slow-health' : tab
 }
-async function ensureEnterpriseTab(tab) {
-  if (tab === 'events') return loadEvents()
+
+function canLoadPanel(group) {
+  return !invalidId.value && !document.hidden && !disposed &&
+    (!adminEnterpriseGroups.has(group) || isAdmin.value)
+}
+
+// Deduplicate identical polls, but allow a changed filter to supersede a slow request.
+// Scope every result to the route and component lifetime, including failures.
+async function loadPanel(group, path, apply, params) {
+  if (!canLoadPanel(group)) return false
+  const requestedServerId = serverId.value
+  const epoch = requestEpoch
+  const key = JSON.stringify([requestedServerId, params])
+  const existing = enterpriseInflight.get(group)
+  if (existing?.key === key) return existing.promise
+  const token = (enterpriseTokens.get(group) || 0) + 1
+  enterpriseTokens.set(group, token)
+  const isCurrent = () => !disposed && epoch === requestEpoch && requestedServerId === serverId.value && enterpriseTokens.get(group) === token
+  panelLoading.value[group] = true
+  const pending = Promise.resolve().then(async () => {
+    try {
+      if (!isCurrent()) return false
+      const { data } = await api.get(`/servers/${requestedServerId}/${path}`, params ? { params } : undefined)
+      if (!isCurrent()) return false
+      apply(data)
+      panelUpdated.value[group] = Date.now()
+      delete panelErrors.value[group]
+      return true
+    } catch (e) {
+      if (!isCurrent()) return false
+      panelErrors.value[group] = e?.friendlyMessage || '读取失败'
+      loadFail(e)
+      return false
+    } finally {
+      if (isCurrent()) panelLoading.value[group] = false
+      if (enterpriseInflight.get(group)?.promise === pending) enterpriseInflight.delete(group)
+    }
+  })
+  enterpriseInflight.set(group, { key, promise: pending })
+  return pending
+}
+
+function loadOverview() {
+  return loadPanel('overview', 'overview', (data) => {
+    health.value = data.health
+    riskGpus.value = data.gpus || []
+  })
+}
+function loadEvents() {
+  return loadPanel('events', 'kernel-events', (data) => { events.value = data }, { hours: 24, severity: evSev.value })
+}
+function loadSlowHealth() {
+  return loadPanel('slow-health', 'slow-health', (data) => { slowHealth.value = data || {} })
+}
+function loadIpmi() {
+  return loadPanel('ipmi', 'ipmi/latest', (data) => { ipmi.value = data })
+}
+function loadInventory() {
+  return loadPanel('inventory', 'inventory', (data) => { inventory.value = data || {} })
+}
+function loadNotes() {
+  return loadPanel('notes', 'notes', (data) => { notes.value = data || [] })
+}
+function loadCollectHealth() {
+  return loadPanel('collect', 'collect-health', (data) => { collectHealth.value = data })
+}
+
+async function ensureEnterpriseTab(tab, force = false) {
   const group = enterpriseGroup(tab)
-  if (enterpriseLoaded.has(group)) return true
-  if (enterpriseInflight.has(group)) return enterpriseInflight.get(group)
+  if (!canLoadPanel(group)) return false
+  if (!force && group !== 'events' && !panelErrors.value[group] &&
+      Date.now() - (panelUpdated.value[group] || 0) < ENTERPRISE_TTL_MS) return true
   const loaders = {
+    events: loadEvents,
     'slow-health': loadSlowHealth,
     inventory: loadInventory,
     notes: loadNotes,
@@ -866,35 +929,40 @@ async function ensureEnterpriseTab(tab) {
     ipmi: loadIpmi,
   }
   const loader = loaders[group]
-  if (!loader) return false
-  const requestedServerId = serverId.value
-  const pending = loader()
-    .then((ok) => {
-      if (ok && requestedServerId === serverId.value) enterpriseLoaded.add(group)
-      return ok
-    })
-    .finally(() => {
-      if (enterpriseInflight.get(group) === pending) enterpriseInflight.delete(group)
-    })
-  enterpriseInflight.set(group, pending)
-  return pending
+  return loader ? loader() : false
 }
-function loadEnterprise() {
-  loadOverview(); ensureEnterpriseTab(entTab.value)
+function loadEnterprise(force = false) {
+  return Promise.allSettled([loadOverview(), ensureEnterpriseTab(entTab.value, force)])
+}
+function refreshAll() {
+  return Promise.allSettled([load(), loadProcs(), loadEnterprise(true)])
+}
+
+function onVisibilityChange() {
+  if (!document.hidden) refreshAll()
+}
+
+function refreshNotesAfterWrite() {
+  // A read started before a mutation must not satisfy the post-mutation refresh.
+  enterpriseInflight.delete('notes')
+  return loadNotes()
 }
 
 async function updateStatus(status, reason = '') {
+  if (actionSaving.value || !isAdmin.value) return false
+  const epoch = requestEpoch
   actionSaving.value = true
   try {
     const { data } = await api.post(`/servers/${serverId.value}/status`, { status, reason })
+    if (disposed || epoch !== requestEpoch) return false
     server.value = data
     statusModalOpen.value = false
     statusReason.value = ''
     message.success(`已切换为「${statusCn[status]}」`)
-    loadNotes()
+    refreshNotesAfterWrite()
     return true
   } catch (e) {
-    message.error(e?.friendlyMessage || '状态变更失败')
+    if (!disposed && epoch === requestEpoch) message.error(e?.friendlyMessage || '状态变更失败')
     return false
   } finally {
     actionSaving.value = false
@@ -902,6 +970,7 @@ async function updateStatus(status, reason = '') {
 }
 
 function onStatusMenu({ key }) {
+  if (actionSaving.value) return
   if (key === 'active') {
     updateStatus(key)
     return
@@ -921,14 +990,16 @@ function submitStatus() {
 
 const noteSaving = ref(false)
 async function addNote() {
-  if (!noteInput.value.trim()) return
+  if (noteSaving.value || !isAdmin.value || !noteInput.value.trim()) return
+  const epoch = requestEpoch
   noteSaving.value = true
   try {
     await api.post(`/servers/${serverId.value}/notes`, { kind: noteKind.value, content: noteInput.value.trim() })
+    if (disposed || epoch !== requestEpoch) return
     noteInput.value = ''
-    loadNotes()
+    refreshNotesAfterWrite()
   } catch (e) {
-    message.error(e.friendlyMessage || '记录失败')
+    if (!disposed && epoch === requestEpoch) message.error(e.friendlyMessage || '记录失败')
   } finally {
     noteSaving.value = false
   }
@@ -1093,59 +1164,88 @@ const diskChartOption = computed(() => ({
 }))
 
 async function load() {
-  if (invalidId.value || document.hidden) return
+  if (invalidId.value || document.hidden || disposed) return
+  if (mainInflight) return mainInflight
+  const requestedServerId = serverId.value
+  const epoch = requestEpoch
+  const isCurrent = () => !disposed && epoch === requestEpoch && requestedServerId === serverId.value
   loading.value = !metric.value
-  try {
-    const [serverList, latest] = await Promise.allSettled([
-      api.get('/servers').then(r => r.data),
-      api.get(`/metrics/server/${serverId.value}/latest`).then(r => r.data),
-      loadHistory()
-    ])
-    server.value = serverList.status === 'fulfilled'
-      ? (serverList.value || []).find(s => s.id === serverId.value) || null
-      : server.value
-    if (latest.status === 'fulfilled') {
-      metric.value = latest.value
-      loadError.value = ''
-    } else {
-      metric.value = null
-      loadError.value = latest.reason?.friendlyMessage || '加载失败'
+  const pending = Promise.resolve().then(async () => {
+    try {
+      if (!isCurrent()) return
+      const [serverList, latest] = await Promise.allSettled([
+        api.get('/servers').then(r => r.data),
+        api.get(`/metrics/server/${requestedServerId}/latest`).then(r => r.data),
+        loadHistory(),
+      ])
+      if (!isCurrent()) return
+      if (serverList.status === 'fulfilled') server.value = (serverList.value || []).find(s => s.id === requestedServerId) || null
+      if (latest.status === 'fulfilled') {
+        metric.value = latest.value
+        loadError.value = ''
+      } else {
+        loadError.value = latest.reason?.friendlyMessage || '加载失败'
+      }
+    } catch (e) {
+      if (isCurrent()) loadError.value = e?.friendlyMessage || '加载失败'
+    } finally {
+      if (isCurrent()) loading.value = false
+      if (mainInflight === pending) mainInflight = null
     }
-  } catch (e) {
-    if (!metric.value) message.error(e.friendlyMessage || '加载失败')
-  } finally {
-    loading.value = false
-  }
+  })
+  mainInflight = pending
+  return pending
 }
 
 async function loadHistory() {
-  if (invalidId.value) return
+  if (invalidId.value || document.hidden || disposed) return
+  const requestedServerId = serverId.value
+  const epoch = requestEpoch
+  const isCurrent = () => !disposed && epoch === requestEpoch && requestedServerId === serverId.value
   try {
     await applyHistory(
-      api.get(`/metrics/server/${serverId.value}/history?hours=${hours.value}`).then(r => r.data),
-      (data) => { history.value = data }
+      api.get(`/metrics/server/${requestedServerId}/history?hours=${hours.value}`).then(r => r.data),
+      (data) => {
+        if (!isCurrent()) return
+        history.value = data || []
+        historyError.value = ''
+      }
     )
-  } catch {
-    history.value = []
+  } catch (e) {
+    if (isCurrent()) historyError.value = e?.friendlyMessage || '读取失败，请重试'
   }
 }
 
 async function loadProcs() {
-  if (invalidId.value || document.hidden || !isAdmin.value) return
+  if (invalidId.value || document.hidden || disposed || !isAdmin.value) return
+  const requestedServerId = serverId.value
+  const requestedSort = procSort.value
+  const epoch = requestEpoch
+  const key = `${epoch}:${requestedServerId}:${requestedSort}`
+  if (procsInflight?.key === key) return procsInflight.promise
+  const token = ++procsToken
+  const isCurrent = () => !disposed && epoch === requestEpoch && requestedServerId === serverId.value && token === procsToken
   procsLoading.value = true
-  try {
-    await applyProcs(
-      api.post(`/metrics/server/${serverId.value}/processes?sort=${procSort.value}`).then(r => r.data),
-      (data) => { procs.value = data.processes }
-    )
-  } catch (e) {
-    message.error(e.friendlyMessage || '获取进程失败')
-  } finally {
-    procsLoading.value = false
-  }
+  const pending = Promise.resolve().then(async () => {
+    try {
+      if (!isCurrent()) return
+      await applyProcs(
+        api.post(`/metrics/server/${requestedServerId}/processes?sort=${requestedSort}`).then(r => r.data),
+        (data) => { if (isCurrent()) procs.value = data.processes || [] }
+      )
+    } catch (e) {
+      if (isCurrent()) message.error(e?.friendlyMessage || '获取进程失败')
+    } finally {
+      if (isCurrent()) procsLoading.value = false
+      if (procsInflight?.promise === pending) procsInflight = null
+    }
+  })
+  procsInflight = { key, promise: pending }
+  return pending
 }
 
 function openKill(row, signal) {
+  if (actionSaving.value || !isAdmin.value) return
   pendingProcess.value = row
   pendingSignal.value = signal
   reauthPassword.value = ''
@@ -1153,6 +1253,7 @@ function openKill(row, signal) {
 }
 
 async function submitKill() {
+  if (actionSaving.value || !killModalOpen.value || !isAdmin.value) return
   if (!reauthPassword.value) {
     message.warning('请输入当前管理员密码')
     return
@@ -1162,6 +1263,7 @@ async function submitKill() {
     message.error('进程信息已失效，请刷新后重试')
     return
   }
+  const epoch = requestEpoch
   actionSaving.value = true
   try {
     const { data } = await api.post(`/metrics/server/${serverId.value}/processes/action`, {
@@ -1171,19 +1273,22 @@ async function submitKill() {
       signal: pendingSignal.value,
       reauth_password: reauthPassword.value,
     })
+    if (disposed || epoch !== requestEpoch) return
     killModalOpen.value = false
     reauthPassword.value = ''
+    pendingProcess.value = null
     message.success(`已发送 ${pendingSignal.value} 到 ${row.pid}: ${data.message}`)
     clearTimeout(killTimer)
     killTimer = setTimeout(loadProcs, 800)
   } catch (e) {
-    message.error(e?.friendlyMessage || '进程操作失败')
+    if (!disposed && epoch === requestEpoch) message.error(e?.friendlyMessage || '进程操作失败')
   } finally {
     actionSaving.value = false
   }
 }
 
 function openRenice(row) {
+  if (actionSaving.value || !isAdmin.value) return
   pendingProcess.value = row
   reniceValue.value = 10
   reauthPassword.value = ''
@@ -1191,6 +1296,13 @@ function openRenice(row) {
 }
 
 async function submitRenice() {
+  if (actionSaving.value || !reniceModalOpen.value || !isAdmin.value) return
+  const value = reniceValue.value
+  const nice = Number(value)
+  if (value === null || value === undefined || value === '' || !Number.isInteger(nice) || nice < -20 || nice > 19) {
+    message.warning('nice 值必须是 -20 到 19 之间的整数')
+    return
+  }
   if (!reauthPassword.value) {
     message.warning('请输入当前管理员密码')
     return
@@ -1200,7 +1312,7 @@ async function submitRenice() {
     message.error('进程信息已失效，请刷新后重试')
     return
   }
-  const nice = Math.max(-20, Math.min(19, Number(reniceValue.value)))
+  const epoch = requestEpoch
   actionSaving.value = true
   try {
     await api.post(`/metrics/server/${serverId.value}/processes/action`, {
@@ -1210,23 +1322,30 @@ async function submitRenice() {
       nice,
       reauth_password: reauthPassword.value,
     })
+    if (disposed || epoch !== requestEpoch) return
     reniceModalOpen.value = false
     reauthPassword.value = ''
+    pendingProcess.value = null
     message.success(`已 renice ${row.pid} -> ${nice}`)
   } catch (e) {
-    message.error(e?.friendlyMessage || '进程操作失败')
+    if (!disposed && epoch === requestEpoch) message.error(e?.friendlyMessage || '进程操作失败')
   } finally {
     actionSaving.value = false
   }
 }
 
+function clearProcessAction() {
+  if (actionSaving.value) return
+  reauthPassword.value = ''
+  pendingProcess.value = null
+  killModalOpen.value = false
+  reniceModalOpen.value = false
+}
+
 function startTimers() {
   stopTimers()
   liveTimer = setInterval(loadProcs, 15000)
-  entTimer = setInterval(() => {
-    loadOverview()
-    if (entTab.value === 'events') loadEvents()
-  }, 60000)
+  entTimer = setInterval(() => loadEnterprise(), ENTERPRISE_TTL_MS)
   mainTimer = setInterval(load, 30000)
 }
 function stopTimers() {
@@ -1236,10 +1355,17 @@ function stopTimers() {
 
 // re-initialize everything when the route param changes (component is reused)
 watch(serverId, () => {
+  requestEpoch++
+  mainInflight = null; procsInflight = null
+  clearTimeout(killTimer)
+  reauthPassword.value = ''; pendingProcess.value = null
+  killModalOpen.value = false; reniceModalOpen.value = false; statusModalOpen.value = false
   metric.value = null; history.value = []; procs.value = []; events.value = []
   server.value = null; health.value = null; riskGpus.value = []; slowHealth.value = {}
-  inventory.value = {}; notes.value = []; collectHealth.value = null; loadError.value = ''
-  enterpriseLoaded.clear(); enterpriseInflight.clear()
+  inventory.value = {}; notes.value = []; collectHealth.value = null; ipmi.value = null
+  loadError.value = ''; historyError.value = ''; procsLoading.value = false
+  panelUpdated.value = {}; panelErrors.value = {}; panelLoading.value = {}
+  enterpriseInflight.clear(); enterpriseTokens.clear()
   load(); loadProcs(); loadEnterprise(); startTimers()
 })
 
@@ -1247,12 +1373,19 @@ watch(entTab, (tab) => ensureEnterpriseTab(tab))
 
 onMounted(() => {
   if (invalidId.value) return
+  document.addEventListener('visibilitychange', onVisibilityChange)
   load()
   loadProcs()
   loadEnterprise()
   startTimers()
 })
-onUnmounted(() => { stopTimers(); clearTimeout(killTimer) })
+onUnmounted(() => {
+  disposed = true
+  requestEpoch++
+  reauthPassword.value = ''
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  stopTimers(); clearTimeout(killTimer)
+})
 </script>
 
 <style scoped>
