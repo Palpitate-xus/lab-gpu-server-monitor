@@ -286,7 +286,7 @@ import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } f
 import VChart from 'vue-echarts'
 import api from '../api'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
-import { diskAxisFormatter, fmtDiskRate, fmtNetRate, fmtSizeMB, fmtTime, netAxisFormatter } from '../format'
+import { diskAxisFormatter, fmtDiskRate, fmtNetRate, fmtSizeMB, fmtTime, netAxisFormatter, parseTime } from '../format'
 import { isAdminSession, useLatestOnly, usePoll } from '../composables'
 import { chartTheme } from '../theme'
 
@@ -461,7 +461,7 @@ function fmtPct(v) { return v == null ? '—' : (Math.round((Number(v) || 0) * 1
 
 // cluster-history now returns ISO UTC strings; show local time on the X axis
 function fmtAxisTime(iso) {
-  const d = new Date(iso)
+  const d = parseTime(iso)
   if (isNaN(d.getTime())) return iso
   const p = n => String(n).padStart(2, '0')
   const hm = `${p(d.getHours())}:${p(d.getMinutes())}`

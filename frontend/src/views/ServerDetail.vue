@@ -759,7 +759,7 @@ import VChart from 'vue-echarts'
 import api from '../api'
 import { isAdminSession, useLatestOnly } from '../composables'
 import RateUnitPicker from '../components/RateUnitPicker.vue'
-import { diskAxisFormatter, fmtDiskRate, fmtDuration, fmtFreq, fmtNetRate, fmtSizeMB, fmtTime, fmtUptime, netAxisFormatter, pct } from '../format'
+import { diskAxisFormatter, fmtDiskRate, fmtDuration, fmtFreq, fmtNetRate, fmtSizeMB, fmtTime, fmtUptime, netAxisFormatter, parseTime, pct } from '../format'
 import { chartTheme } from '../theme'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
@@ -1089,7 +1089,7 @@ function coreClass(util) {
 const _axisTime = computed(() => {
   const p = (n) => String(n).padStart(2, '0')
   return history.value.map((t) => {
-    const d = new Date(t.time)
+    const d = parseTime(t.time)
     return hours.value >= 24 ? `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
   })
 })

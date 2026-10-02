@@ -123,9 +123,18 @@ export function pct(v) {
   return Math.max(0, Math.min(100, Math.round(v * 10) / 10))
 }
 
+// The API/database contract is UTC. SQLite/MySQL legacy datetime values may
+// omit an offset; browsers must not reinterpret those values as local time.
+export function parseTime(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value)) {
+    return new Date(value.replace(' ', 'T') + 'Z')
+  }
+  return new Date(value)
+}
+
 export function fmtTime(t) {
   if (!t) return '—'
-  const d = new Date(t)
+  const d = parseTime(t)
   if (isNaN(d.getTime())) return t
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
