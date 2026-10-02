@@ -1,5 +1,6 @@
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
+import { createLatestRequest } from './requestState'
 
 /**
  * Auto-refreshing async loader.
@@ -14,28 +15,36 @@ export function usePoll(fetcher, intervalMs = 30000) {
   const lastUpdated = ref(null)
   let timer = null
   let busy = false
+  let stopped = false
 
   async function load() {
-    if (busy || document.hidden) return
+    if (stopped || busy || document.hidden) return
     busy = true
     loading.value = true
     try {
-      data.value = await fetcher()
+      const result = await fetcher()
+      if (stopped) return
+      data.value = result
       error.value = null
       lastUpdated.value = new Date()
     } catch (e) {
-      error.value = e?.friendlyMessage || String(e)
+      if (!stopped) error.value = e?.friendlyMessage || String(e)
     } finally {
       busy = false
-      loading.value = false
+      if (!stopped) loading.value = false
     }
   }
 
   onMounted(() => {
+    document.addEventListener('visibilitychange', load)
     load()
     if (intervalMs > 0) timer = setInterval(load, intervalMs)
   })
-  onUnmounted(() => timer && clearInterval(timer))
+  onUnmounted(() => {
+    stopped = true
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', load)
+  })
 
   return { data, loading, error, lastUpdated, reload: load }
 }
@@ -47,13 +56,7 @@ export function usePoll(fetcher, intervalMs = 30000) {
  *   applyLatest(api.get(...), (resp) => { history.value = resp.data }).catch(...)
  */
 export function useLatestOnly() {
-  let seq = 0
-  return async function applyLatest(promise, apply) {
-    const my = ++seq
-    const value = await promise
-    if (my !== seq) return undefined // stale response: drop silently
-    return apply ? apply(value) : value
-  }
+  return createLatestRequest()
 }
 
 /**
@@ -73,9 +76,9 @@ function storedUser() {
   }
 }
 
-const _session = {
+const _session = reactive({
   user: storedUser(),
-}
+})
 
 export function getSession() { return _session }
 export function setSession(user) {
