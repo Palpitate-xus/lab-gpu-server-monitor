@@ -75,6 +75,66 @@ def test_metadata_updates_do_not_decrypt_unavailable_credentials(server_db):
     assert server.passphrase == 'corrupted-passphrase'
 
 
+@pytest.mark.parametrize('auth_type', ['password', 'key'])
+def test_full_frontend_metadata_payload_preserves_unavailable_active_ciphertext(server_db, monkeypatch, auth_type):
+    db, admin, server = server_db
+    server.auth_type = auth_type
+    server.password = 'corrupted-password'
+    server.private_key = 'corrupted-key'
+    server.passphrase = 'corrupted-passphrase'
+    db.commit()
+    # Mirror buildServerPayload(form, true): auth_type is always present;
+    # blank active fields are omitted, while inactive fields explicitly clear.
+    payload = dict(name='metadata-renamed', host=server.host, port=server.port,
+                   auth_type=auth_type, enabled=False, server_type='gpu',
+                   tags=['repair'], note='Credentials will be repaired separately',
+                   bmc_host='', bmc_user='')
+    if auth_type == 'password':
+        payload.update(private_key='', passphrase='')
+    else:
+        payload.update(password='')
+    monkeypatch.setattr(servers, 'decrypt_text', lambda _: pytest.fail('metadata edit must not decrypt saved credentials'))
+    servers.update_server(server.id, ServerUpdate(**payload), db, admin)
+    assert server.name == 'metadata-renamed'
+    assert not server.enabled
+    assert server.tags == ['repair']
+    if auth_type == 'password':
+        assert server.password == 'corrupted-password'
+        assert server.private_key == server.passphrase == ''
+    else:
+        assert server.private_key == 'corrupted-key'
+        assert server.passphrase == 'corrupted-passphrase'
+        assert server.password == ''
+
+
+def test_same_auth_blank_active_fields_preserve_exact_ciphertext(server_db, monkeypatch):
+    db, admin, server = server_db
+    original = (server.private_key, server.passphrase)
+    monkeypatch.setattr(servers, 'decrypt_text', lambda _: pytest.fail('unchanged credentials must not be decrypted or reencrypted'))
+    servers.update_server(server.id, ServerUpdate(auth_type='key', private_key='', password=''), db, admin)
+    assert (server.private_key, server.passphrase) == original
+
+
+def test_same_auth_credential_replacement_repairs_corrupt_saved_key(server_db, monkeypatch):
+    db, admin, server = server_db
+    server.private_key = 'corrupted-key'
+    server.passphrase = 'corrupted-passphrase'
+    db.commit()
+    monkeypatch.setattr(servers, 'decrypt_text', lambda _: pytest.fail('replacement must not depend on old credentials'))
+    servers.update_server(server.id, ServerUpdate(auth_type='key', private_key='replacement-key'), db, admin)
+    assert decrypt_text(server.private_key) == 'replacement-key'
+    assert server.passphrase == ''
+
+
+def test_same_auth_full_edit_still_rejects_new_root_username(server_db, monkeypatch):
+    db, admin, server = server_db
+    monkeypatch.setattr(ssh_transport.settings, 'ALLOW_ROOT_SSH', 'no')
+    with pytest.raises(HTTPException) as exc:
+        servers.update_server(server.id, ServerUpdate(auth_type='key', username='root', password=''), db, admin)
+    assert exc.value.status_code == 400
+    assert server.username == 'gpumon'
+
+
 def test_create_discards_inactive_credentials(server_db):
     db, admin, _ = server_db
     result = servers.create_server(ServerCreate(name='password-only', host='192.0.2.11',

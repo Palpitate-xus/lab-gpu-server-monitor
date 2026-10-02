@@ -151,11 +151,37 @@ def update_server(
     server = db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    _reject_root_ssh(body.username)
     auth_changed = body.auth_type is not None and body.auth_type != server.auth_type
     credential_fields = body.model_fields_set.intersection({"auth_type", "password", "private_key", "passphrase"})
-    # Turning off a server or editing metadata must remain possible even if
-    # the stored credential keyring is unavailable or corrupt.
-    connection = _connection_body(body, server, require_credentials=auth_changed) if credential_fields else None
+    credential_updates = None
+    if auth_changed:
+        # Switching authentication requires fresh credentials for that mode;
+        # this never decrypts inactive credentials from the old mode.
+        connection = _connection_body(body, server)
+        credential_updates = {
+            "password": encrypt_text(connection.password or ""),
+            "private_key": encrypt_text(connection.private_key or ""),
+            "passphrase": encrypt_text(connection.passphrase or ""),
+        }
+    elif credential_fields:
+        # The full edit form includes the unchanged auth_type and empty
+        # inactive fields. Keep active ciphertext verbatim unless replacing
+        # it: metadata edits must work even when the old keyring is unavailable.
+        if server.auth_type == "password":
+            credential_updates = {
+                "password": encrypt_text(body.password) if body.password else server.password,
+                "private_key": "",
+                "passphrase": "",
+            }
+        else:
+            credential_updates = {
+                "password": "",
+                "private_key": encrypt_text(body.private_key) if body.private_key else server.private_key,
+                "passphrase": encrypt_text(body.passphrase or "") if body.private_key else (
+                    encrypt_text(body.passphrase) if body.passphrase is not None else server.passphrase
+                ),
+            }
     if body.name is not None and body.name != server.name:
         exists = db.query(Server).filter(Server.name == body.name).first()
         if exists:
@@ -178,12 +204,10 @@ def update_server(
     if body.auth_type is not None:
         server.auth_type = body.auth_type
     if body.username is not None:
-        _reject_root_ssh(body.username)
         server.username = body.username
-    if connection is not None:
-        server.password = encrypt_text(connection.password or "")
-        server.private_key = encrypt_text(connection.private_key or "")
-        server.passphrase = encrypt_text(connection.passphrase or "")
+    if credential_updates is not None:
+        for field, value in credential_updates.items():
+            setattr(server, field, value)
     if body.enabled is not None:
         server.enabled = body.enabled
     if body.server_type is not None:
