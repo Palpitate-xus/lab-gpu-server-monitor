@@ -353,7 +353,9 @@ def test_hourly_rollup_batches_server_metric_reads(monkeypatch):
 
         db.expire_all()
         rows = db.query(ServerMetricHourly).order_by(ServerMetricHourly.server_id).all()
-        assert len(metric_selects) == 1
+        # One batch reads this hour; one indexed batch reads carry-in samples.
+        # This remains constant as the number of servers increases.
+        assert len(metric_selects) == 2
         assert len(rows) == 2
         assert (rows[0].samples, rows[0].ok_samples, rows[0].cpu_avg) == (2, 2, 20.0)
         assert rows[0].mem_avg_pct == 60.0

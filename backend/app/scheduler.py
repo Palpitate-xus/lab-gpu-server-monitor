@@ -1026,6 +1026,33 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
     for row in rows:
         rows_by_server[row.server_id].append(row)
 
+    # The last sample before the boundary may still cover the beginning of
+    # this hour. Indexed per-server scalar lookups stay in one batch query;
+    # they do not scan all retained history or issue an ORM query per server.
+    previous_id = (
+        db.query(ServerMetric.id)
+        .filter(ServerMetric.server_id == Server.id,
+                ServerMetric.collected_at < hour_start)
+        .order_by(ServerMetric.collected_at.desc(), ServerMetric.id.desc())
+        .limit(1)
+        .correlate(Server)
+        .scalar_subquery()
+    )
+    previous_by_server = {
+        row.server_id: row
+        for row in db.query(ServerMetric)
+        .options(load_only(ServerMetric.server_id, ServerMetric.collected_at,
+                           ServerMetric.sample_interval_seconds, ServerMetric.status,
+                           ServerMetric.gpus))
+        .filter(ServerMetric.id.in_(
+            db.query(previous_id).select_from(Server).filter(Server.id.in_(server_ids))))
+        .all()
+    }
+
+    def utc_time(value):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+    begin, end = utc_time(hour_start), utc_time(hour_end)
     aggregates = []
     for sid in server_ids:
         server_rows = rows_by_server[sid]
@@ -1048,6 +1075,32 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
             idle_held_gpu_minutes=0,
             gpu_time_estimated=any(row.sample_interval_seconds is None for row in ok),
         )
+        # Carry-in affects only time integration. Sample counts and all
+        # existing averages remain based strictly on samples in this hour.
+        integration_rows = list(server_rows)
+        if sid in previous_by_server:
+            integration_rows.append(previous_by_server[sid])
+        ordered = sorted(integration_rows, key=lambda row: (utc_time(row.collected_at), row.id))
+        for index, row in enumerate(ordered):
+            if row.status != "ok":
+                continue
+            sampled_at = utc_time(row.collected_at)
+            next_time = utc_time(ordered[index + 1].collected_at) if index + 1 < len(ordered) else end
+            expires_at = sampled_at + timedelta(seconds=row.sample_interval_seconds or interval)
+            seconds = max(0, (min(next_time, expires_at, end) - max(sampled_at, begin)).total_seconds())
+            if not seconds:
+                continue
+            minutes = seconds / 60.0
+            agg.gpu_sample_minutes += len(row.gpus or []) * minutes
+            if row.sample_interval_seconds is None:
+                agg.gpu_time_estimated = True
+            for g in (row.gpus or []):
+                total = g.get("mem_total_mb", 0) or 0
+                used = g.get("mem_used_mb", 0) or 0
+                utilization = g.get("utilization", 0) or 0
+                if total > 0 and used / total >= 0.30 and utilization <= 5:
+                    agg.idle_held_gpu_minutes += minutes
+        agg.idle_held_minutes = int(agg.idle_held_gpu_minutes + 1e-9)
         if ok:
             cpus = [r.cpu_percent or 0 for r in ok]
             agg.cpu_avg = round(sum(cpus) / len(cpus), 1)
@@ -1055,28 +1108,13 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
             mems = [r.mem_used_mb / r.mem_total_mb * 100 for r in ok if r.mem_total_mb]
             agg.mem_avg_pct = round(sum(mems) / len(mems), 1) if mems else 0
             utils, mem_pcts, powers = [], [], []
-            # Successful samples cover at most their recorded period, capped
-            # by the following sample and hour boundary. Manual/duplicate
-            # collections therefore cannot double-count the same card time.
-            def utc_time(value):
-                return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
-            ordered = sorted(server_rows, key=lambda row: (utc_time(row.collected_at), row.id))
-            seconds_by_id = {}
-            for index, row in enumerate(ordered):
-                next_time = utc_time(ordered[index + 1].collected_at) if index + 1 < len(ordered) else utc_time(hour_end)
-                remaining = (min(next_time, utc_time(hour_end)) - utc_time(row.collected_at)).total_seconds()
-                seconds_by_id[row.id] = max(0, min(row.sample_interval_seconds or interval, remaining))
             for r in ok:
-                minutes = seconds_by_id[r.id] / 60.0
-                agg.gpu_sample_minutes += len(r.gpus or []) * minutes
                 for g in (r.gpus or []):
                     u = g.get("utilization", 0) or 0
                     utils.append(u)
                     tot, used = g.get("mem_total_mb", 0) or 0, g.get("mem_used_mb", 0) or 0
                     if tot > 0:
                         mem_pcts.append(used / tot * 100)
-                        if used / tot >= 0.30 and u <= 5:
-                            agg.idle_held_gpu_minutes += minutes
                     p = g.get("power_draw", 0) or 0
                     if p:
                         powers.append(p)
@@ -1086,7 +1124,6 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
             agg.gpu_power_avg = round(sum(powers) / len(powers), 1) if powers else 0
             agg.net_rx_avg_bps = round(sum(r.net_rx_bytes or 0 for r in ok) / len(ok), 1)
             agg.net_tx_avg_bps = round(sum(r.net_tx_bytes or 0 for r in ok) / len(ok), 1)
-            agg.idle_held_minutes = int(agg.idle_held_gpu_minutes + 1e-9)
         aggregates.append(agg)
 
     for existing in existing_by_server.values():
