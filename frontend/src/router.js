@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getSession } from './composables'
+import { ensureSessionReady } from './session-bootstrap'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { public: true } },
@@ -19,6 +20,7 @@ const routes = [
       { path: 'reports', name: 'reports', component: () => import('./views/Reports.vue'), meta: { title: '利用率报表' } },
       { path: 'mfa-setup', name: 'mfa-setup', component: () => import('./views/MfaSetup.vue'), meta: { title: '管理员 MFA 设置' } },
       { path: 'help', name: 'help', component: () => import('./views/Help.vue'), meta: { title: '帮助与 MCP' } },
+      { path: 'account/password', name: 'personal-password', component: () => import('./views/PersonalPassword.vue'), meta: { title: '修改我的密码' } },
       { path: 'users', name: 'users', component: () => import('./views/Users.vue'), meta: { title: '用户管理', admin: true } },
       { path: 'settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { title: '系统设置', admin: true } }
     ]
@@ -28,13 +30,18 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  // Status is public, including when a cached administrator needs MFA enrollment.
+  // Do not make public availability depend on the /auth/me timeout.
+  if (to.name === 'status') return true
+  await ensureSessionReady()
   const authenticated = Boolean(getSession().user)
   if (!to.meta.public && !authenticated) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.name === 'login' && authenticated) return { name: 'cockpit' }
   if (authenticated && getSession().user?.mfa_required && !getSession().user?.mfa_enrolled && to.name !== 'mfa-setup') {
     return { name: 'mfa-setup' }
   }
+  if (to.name === 'mfa-setup' && getSession().user?.role !== 'admin') return { name: 'cockpit' }
   if (to.name === 'mfa-setup' && getSession().user?.mfa_enrolled) return { name: 'cockpit' }
   if (to.meta.admin && getSession().user?.role !== 'admin') return { name: 'cockpit' }
   return true

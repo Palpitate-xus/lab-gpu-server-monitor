@@ -41,7 +41,6 @@ import {
 import 'ant-design-vue/dist/reset.css'
 import App from './App.vue'
 import router from './router'
-import { bootstrapSession } from './composables'
 import './styles.css'
 import './cockpit.css'
 import './theme'
@@ -86,7 +85,6 @@ app.use(AntTag)
 app.use(AntSwitch)
 app.use(AntTooltip)
 
-bootstrapSession().finally(() => {
-  app.use(router)
-  app.mount('#app')
-})
+// Public status renders immediately; authenticated navigation waits in the guard.
+app.use(router)
+app.mount('#app')

@@ -56,10 +56,14 @@ test('contains no Element Plus compatibility layer', () => {
   assert.doesNotMatch(packageJson, /element-plus|@element-plus/)
 })
 
-test('starts the router only after session bootstrap completes', () => {
+test('public status renders immediately and protected navigation awaits bootstrap', () => {
   const main = readFileSync(join(sourceRoot, 'main.js'), 'utf8')
-  assert.match(
-    main,
-    /bootstrapSession\(\)\.finally\(\(\) => \{\s*app\.use\(router\)\s*app\.mount\('#app'\)\s*\}\)/,
-  )
+  const router = readFileSync(join(sourceRoot, 'router.js'), 'utf8')
+  assert.match(main, /app\.use\(router\)\s*app\.mount\('#app'\)/)
+  assert.doesNotMatch(main, /bootstrapSession\(\)/)
+  assert.match(router, /router\.beforeEach\(async/)
+  const status = router.indexOf("if (to.name === 'status') return true")
+  const wait = router.indexOf('await ensureSessionReady()')
+  const auth = router.indexOf('const authenticated = Boolean(getSession().user)')
+  assert.ok(status >= 0 && status < wait && wait < auth)
 })

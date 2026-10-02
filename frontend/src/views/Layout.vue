@@ -48,6 +48,7 @@
             </a-button>
             <template #overlay>
               <a-menu @click="onUserMenuClick">
+                <a-menu-item key="password">修改我的密码</a-menu-item>
                 <a-menu-item key="logout">退出登录</a-menu-item>
               </a-menu>
             </template>
@@ -98,6 +99,20 @@
       </div>
     </a-drawer>
   </a-layout>
+  <a-modal
+    v-model:open="logoutOpen"
+    title="确定要退出登录吗？"
+    ok-text="退出登录"
+    cancel-text="取消"
+    ok-type="danger"
+    :confirm-loading="logoutSaving"
+    :cancel-button-props="{ disabled: logoutSaving }"
+    :mask-closable="!logoutSaving"
+    :keyboard="!logoutSaving"
+    @ok="logout"
+  >
+    <p>退出后需要重新登录才能继续访问监控控制台。</p>
+  </a-modal>
 </template>
 
 <script setup>
@@ -125,7 +140,7 @@ import { clearSession, getSession, isAdminSession } from '../composables'
 
 const route = useRoute()
 const router = useRouter()
-const { message, modal } = AntApp.useApp()
+const { message } = AntApp.useApp()
 const user = computed(() => getSession().user)
 const isAdmin = computed(() => isAdminSession())
 const active = computed(() => route.path.startsWith('/servers') ? '/servers' : route.path)
@@ -134,6 +149,8 @@ const avatarChar = computed(() => (user.value?.username || '?').charAt(0).toUppe
 const openAlerts = ref(0)
 const idleHeldCount = ref(0)
 const drawer = ref(false)
+const logoutOpen = ref(false)
+const logoutSaving = ref(false)
 const drawerBodyStyle = { padding: 0, position: 'relative' }
 let alertTimer = null
 
@@ -161,7 +178,7 @@ async function loadOpenAlerts() {
     openAlerts.value = data.open_alerts || 0
     idleHeldCount.value = data.idle_held_count || 0
   } catch {
-    openAlerts.value = 0
+    // Preserve the last successful badge; a failed request is not zero alerts.
   }
 }
 
@@ -171,24 +188,34 @@ function onNavigate({ key }) {
 }
 
 function onUserMenuClick({ key }) {
+  if (key === 'password') {
+    router.push('/account/password')
+    return
+  }
   if (key !== 'logout') return
-  modal.confirm({
-    title: '确定要退出登录吗？',
-    content: '退出后需要重新登录才能继续访问监控控制台。',
-    okText: '退出登录',
-    cancelText: '取消',
-    okType: 'danger',
-    async onOk() {
-      try {
-        await api.post('/auth/logout')
-      } catch (e) {
-        if (e?.friendlyMessage) message.error(e.friendlyMessage)
-      } finally {
-        clearSession()
-        await router.push('/login')
+  logoutOpen.value = true
+}
+
+async function logout() {
+  if (logoutSaving.value) return
+  logoutSaving.value = true
+  try {
+    try {
+      await api.post('/auth/logout')
+    } catch (e) {
+      // Only a 401 proves the session is already gone. Other failures cannot
+      // confirm server-side revocation, so leave the modal open for a retry.
+      if (e?.response?.status !== 401) {
+        message.error(e?.friendlyMessage || '退出失败，请重试')
+        return
       }
-    },
-  })
+    }
+    clearSession()
+    logoutOpen.value = false
+    await router.push('/login')
+  } finally {
+    logoutSaving.value = false
+  }
 }
 
 onMounted(() => {
