@@ -13,6 +13,7 @@ from sqlalchemy import and_, func as sa_func
 from sqlalchemy.orm import Session, load_only
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import Server, ServerMetric, ServerMetricHourly, Setting, User
 from ..security import require_admin
 
@@ -105,6 +106,36 @@ def preview_payload(db: Session = Depends(get_db), _: User = Depends(require_adm
     return _build_public_payload(db, cfg)
 
 
+@router.post("/status-page/preview")
+def preview_draft(body: StatusPageConfig, db: Session = Depends(get_db),
+                  _: User = Depends(require_admin)):
+    """Render an authorized draft without saving or publishing any settings.
+
+    Cookie-authenticated POSTs also pass the application's CSRF middleware.
+    """
+    return _build_public_payload(db, body.model_dump())
+
+
+def _iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=tz.utc)
+    return value.astimezone(tz.utc).isoformat().replace("+00:00", "Z")
+
+
+def _freshness_limit(db: Session) -> int:
+    """Allow three configured collection cycles, with a 3-minute minimum."""
+    interval = get_settings().POLL_INTERVAL_SECONDS
+    row = db.get(Setting, "poll_interval")
+    if row and row.value:
+        try:
+            interval = max(10, int(row.value))
+        except (TypeError, ValueError):
+            pass
+    return max(180, interval * 3)
+
+
 # ---------------- public data ----------------
 def _bucketize(days: int, now):
     """Return list of (start, end) UTC day buckets, oldest first."""
@@ -131,6 +162,7 @@ def status_public(db: Session = Depends(get_db)):
 def _build_public_payload(db: Session, cfg: dict) -> dict:
     days = int(cfg.get("show_history_days", 45))
     now = datetime.now(tz.utc).replace(tzinfo=None)
+    freshness_limit = _freshness_limit(db)
     buckets = _bucketize(days, now)
 
     q = db.query(Server).filter(Server.enabled.is_(True))
@@ -242,6 +274,16 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
         ok = summary.get("ok", 0)
         avg_latency = summary.get("avg_latency", 0)
         latest = latest_by_server.get(s.id)
+        state = "unknown"
+        if latest:
+            checked_at = latest.collected_at
+            if checked_at.tzinfo is not None:
+                checked_at = checked_at.astimezone(tz.utc).replace(tzinfo=None)
+            age = (now - checked_at).total_seconds()
+            if age > freshness_limit or age < -60:
+                state = "stale"
+            else:
+                state = "online" if latest.status == "ok" else "offline"
 
         history = []
         for start, _end in buckets:
@@ -257,7 +299,7 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
             })
 
         gpus = []
-        if latest and latest.status == "ok" and s.server_type != "cpu":
+        if state == "online" and s.server_type != "cpu":
             for g in (latest.gpus or []):
                 mem_total = g.get("mem_total_mb") or 0
                 mem_used = g.get("mem_used_mb") or 0
@@ -272,16 +314,17 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
             "id": s.id,
             "name": s.name,
             "server_type": s.server_type,
-            "online": bool(latest and latest.status == "ok"),
+            "online": state == "online",
+            "state": state,
             "uptime_30d": round(ok / total * 100, 2) if total else None,
             "avg_latency_ms": round((avg_latency or 0) * 1000, 0),
-            "last_check": latest.collected_at.isoformat() if latest else None,
+            "last_check": _iso_utc(latest.collected_at) if latest else None,
             "history": history,
             "gpus": gpus,
         })
 
     overall = {
-        "all_operational": all(r["online"] for r in result) if result else True,
+        "all_operational": bool(result) and all(r["online"] for r in result),
         "servers_total": len(result),
         "servers_online": sum(1 for r in result if r["online"]),
     }
@@ -297,5 +340,6 @@ def _build_public_payload(db: Session, cfg: dict) -> dict:
         "show_gpu": cfg.get("show_gpu", True),
         "overall": overall,
         "servers": result,
-        "generated_at": now.isoformat(),
+        "generated_at": _iso_utc(now),
+        "freshness_limit_seconds": freshness_limit,
     }

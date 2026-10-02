@@ -4,7 +4,7 @@
       <div class="status-container">
         <header class="status-header">
           <div class="status-title">
-            <a-badge v-if="data?.overall" :status="data.overall.all_operational ? 'success' : 'error'" />
+            <a-badge v-if="data?.overall" :status="overallState === 'online' ? 'success' : overallState === 'offline' ? 'error' : 'warning'" />
             <h1>{{ data?.title || '服务状态' }}</h1>
           </div>
           <p>{{ data?.description || '集群可用性与 GPU 资源状态' }}</p>
@@ -19,7 +19,7 @@
           type="error"
           show-icon
           message="暂时无法获取服务状态"
-          description="请稍后重试，或联系平台管理员确认监控服务是否可用。"
+          :description="loadError"
         >
           <template #action><a-button size="small" danger @click="load">重新加载</a-button></template>
         </a-alert>
@@ -41,17 +41,17 @@
 
         <a-alert
           v-if="data?.published"
-          :type="data.overall?.all_operational ? 'success' : 'error'"
+          :type="overallState === 'online' ? 'success' : overallState === 'offline' ? 'error' : 'warning'"
           show-icon
-          :message="data.overall?.all_operational ? '全部系统正常运行' : '部分系统异常'"
-          :description="`${data.overall?.servers_online || 0}/${data.overall?.servers_total || 0} 台服务器在线`"
+          :message="overallState === 'online' ? '全部系统正常运行' : overallState === 'offline' ? '部分系统异常' : '部分系统状态未知，等待有效探测'"
+          :description="`${data.overall?.servers_online || 0}/${data.overall?.servers_total || 0} 台服务器具有有效在线探测`"
         />
 
         <section v-if="data?.published" class="server-list" aria-label="服务器状态">
           <a-card v-for="server in data.servers" :key="server.id" size="small" class="server-status-card">
             <template #title>
               <div class="server-title">
-                <a-badge :status="server.online ? 'success' : 'error'" />
+                <a-badge :status="serverState(server) === 'online' ? 'success' : serverState(server) === 'offline' ? 'error' : 'warning'" />
                 <b>{{ server.name }}</b>
                 <a-tag :color="server.server_type === 'cpu' ? undefined : 'blue'">
                   {{ server.server_type === 'cpu' ? 'CPU' : 'GPU' }}
@@ -62,9 +62,11 @@
               <div class="server-meta">
                 <span v-if="data.show_latency && server.online">{{ server.avg_latency_ms }} ms</span>
                 <b>{{ server.uptime_30d == null ? '—' : server.uptime_30d + '%' }}</b>
-                <a-tag :color="server.online ? 'green' : 'red'">{{ server.online ? '正常' : '离线' }}</a-tag>
+                <a-tag :color="serverState(server) === 'online' ? 'green' : serverState(server) === 'offline' ? 'red' : 'orange'">{{ stateLabel(server) }}</a-tag>
               </div>
             </template>
+
+            <p class="server-last-check">最近 SSH 探测：{{ server.last_check ? fmtTime(server.last_check) : '暂无探测' }}<span v-if="serverState(server) === 'stale'">（数据已过期）</span></p>
 
             <div v-if="data.show_gpu && server.gpus?.length" class="gpu-list">
               <a-card v-for="gpu in server.gpus" :key="gpu.index" size="small" class="gpu-card">
@@ -107,7 +109,7 @@
 
         <footer v-if="data?.footer" class="status-footer">{{ data.footer }}</footer>
         <footer v-if="data?.generated_at" class="status-footer secondary">
-          数据实时来自 SSH 探测 · 更新于 {{ fmtTime(data.generated_at) }}
+          状态查询时间：{{ fmtTime(data.generated_at) }} · 服务器最近探测时间见各卡片
         </footer>
       </div>
     </main>
@@ -119,24 +121,44 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { theme as antTheme } from 'ant-design-vue'
 import axios from 'axios'
+import api from '../api'
 import { fmtTime } from '../format'
+import { useTheme } from '../theme'
 
 const route = useRoute()
 const preview = computed(() => route.query.preview === '1')
 const data = ref(null)
 const loaded = ref(false)
-const loadError = ref(false)
+const loadError = ref('')
+const { resolved } = useTheme()
+const refreshing = ref(false)
 let timer = null
+let disposed = false
 
 const selectedTheme = computed(() => {
   const configured = data.value?.theme || 'auto'
   if (configured === 'dark' || configured === 'light') return configured
-  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  return resolved.value
 })
 const themeClass = computed(() => `status-page--${selectedTheme.value}`)
 const statusThemeConfig = computed(() => ({
   algorithm: selectedTheme.value === 'dark' ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
 }))
+
+function serverState(server) {
+  return server.state || (server.online ? 'online' : 'offline')
+}
+
+function stateLabel(server) {
+  return { online: '正常', offline: '异常', stale: '探测已过期', unknown: '暂无探测' }[serverState(server)] || '状态未知'
+}
+
+const overallState = computed(() => {
+  const servers = data.value?.servers || []
+  if (!servers.length) return 'unknown'
+  if (servers.some(server => serverState(server) === 'offline')) return 'offline'
+  return servers.every(server => serverState(server) === 'online') ? 'online' : 'unknown'
+})
 
 function gpuColor(value) {
   if (value >= 90) return '#ff4d4f'
@@ -163,28 +185,35 @@ function axisLabel(history, position) {
 }
 
 async function load() {
-  loadError.value = false
+  if (refreshing.value || disposed) return
+  refreshing.value = true
+  loadError.value = ''
   try {
     let response
     if (preview.value) {
-      try {
-        response = await axios.get('/api/status-page/preview', { withCredentials: true })
-      } catch (error) {
-        if (error?.response?.status === 401 || error?.response?.status === 403) {
-          response = await axios.get('/api/status-public')
-        } else {
-          throw error
-        }
+      const token = route.query.draft
+      if (token) {
+        if (typeof token !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(token)) throw new Error('预览草稿标识无效，请重新打开预览。')
+        const stored = sessionStorage.getItem(`gpumon:status-preview:${token}`)
+        if (!stored) throw new Error('预览草稿不存在或已关闭，请从配置页重新打开预览。')
+        response = await api.post('/status-page/preview', JSON.parse(stored))
+      } else {
+        response = await axios.get('/api/status-page/preview', { withCredentials: true, timeout: 30000 })
       }
     } else {
-      response = await axios.get('/api/status-public')
+      response = await axios.get('/api/status-public', { timeout: 30000 })
     }
-    data.value = response.data
-  } catch {
+    if (!disposed) data.value = response.data
+  } catch (error) {
+    if (disposed) return
+    // An unavailable monitor cannot assert that an old green snapshot is live.
     data.value = null
-    loadError.value = true
+    loadError.value = error?.response?.status === 401 || error?.response?.status === 403
+      ? '预览需要管理员登录和相应权限，请从系统设置重新打开。'
+      : error?.friendlyMessage || error?.message || '请稍后重试，或联系平台管理员。'
   } finally {
-    loaded.value = true
+    refreshing.value = false
+    if (!disposed) loaded.value = true
   }
 }
 
@@ -194,7 +223,10 @@ onMounted(() => {
     if (!document.hidden) load()
   }, 60000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  disposed = true
+  clearInterval(timer)
+})
 </script>
 
 <style scoped>
@@ -255,6 +287,7 @@ onUnmounted(() => clearInterval(timer))
   font-size: 12px;
 }
 .server-meta b { color: var(--ctext); font-variant-numeric: tabular-nums; }
+.server-last-check { margin: 0 0 12px; color: var(--csub); font-size: 12px; }
 .gpu-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

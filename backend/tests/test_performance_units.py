@@ -151,7 +151,7 @@ def test_public_status_uses_fixed_bulk_query_count():
         payload = _build_public_payload(db, {"show_history_days": 2})
         event.remove(engine, "before_cursor_execute", record_select)
 
-        assert len(selects) == 4
+        assert len(selects) == 5  # also reads the configured freshness period once
         assert payload["overall"] == {
             "all_operational": False,
             "servers_total": 2,
