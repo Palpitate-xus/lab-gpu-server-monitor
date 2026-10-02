@@ -13,7 +13,7 @@
         <template #icon><ThunderboltOutlined /></template>
         立即采集
       </a-button>
-      <a-button @click="load()">
+      <a-button :loading="loading" @click="load()">
         <template #icon><ReloadOutlined /></template>
         刷新数据
       </a-button>
@@ -180,6 +180,7 @@ import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { fmtSizeMB, fmtTime, pct } from '../format'
 import { isAdminSession } from '../composables'
+import { createRequestScope } from '../requestState'
 
 const router = useRouter()
 const { message } = AntApp.useApp()
@@ -192,6 +193,8 @@ const servers = ref([])
 const lastUpdate = computed(() => metrics.value.length ? metrics.value.map(m => m.collected_at).sort().pop() : null)
 let timer = null
 let refreshTimer = null
+let busy = false
+const requests = createRequestScope()
 
 const rows = computed(() => metrics.value.map(m => {
   const server = servers.value.find(s => s.id === m.server_id)
@@ -260,26 +263,33 @@ function customRow(row) {
 }
 
 async function load(silent = false) {
+  if (busy || document.hidden) return
+  busy = true
+  const request = requests.begin()
   if (!silent) loading.value = true
   try {
     const [a, b, c] = await Promise.allSettled([
-      api.get('/metrics/dashboard'),
-      api.get('/metrics/latest?slim=1'),
-      api.get('/servers'),
+      api.get('/metrics/dashboard', { signal: request.signal }),
+      api.get('/metrics/latest?slim=1', { signal: request.signal }),
+      api.get('/servers', { signal: request.signal }),
     ])
+    if (!request.current()) return
     if (a.status === 'fulfilled') stats.value = a.value.data
     if (b.status === 'fulfilled') metrics.value = b.value.data
     if (c.status === 'fulfilled') servers.value = c.value.data
     const failed = [a, b, c].filter(result => result.status === 'rejected').length
     loadError.value = failed ? `${failed} 项数据暂时不可用，页面保留已加载内容` : ''
   } catch (e) {
+    if (!request.current()) return
     loadError.value = e.friendlyMessage || '加载失败'
   } finally {
-    if (!silent) loading.value = false
+    busy = false
+    if (request.current()) loading.value = false
   }
 }
 
 async function refreshNow() {
+  if (refreshing.value) return
   refreshing.value = true
   try {
     await api.post('/metrics/refresh')
@@ -293,13 +303,17 @@ async function refreshNow() {
   }
 }
 
+function onVisibilityChange() { if (!document.hidden) load(true) }
 onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
   load()
   timer = setInterval(() => {
     if (!document.hidden) load(true)
   }, 30000)
 })
 onUnmounted(() => {
+  requests.dispose()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(timer)
   if (refreshTimer) clearTimeout(refreshTimer)
 })
