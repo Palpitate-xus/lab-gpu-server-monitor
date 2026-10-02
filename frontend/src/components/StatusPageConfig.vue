@@ -1,5 +1,5 @@
 <template>
-  <a-card class="page-card status-config-card">
+  <a-card class="page-card status-config-card" :loading="loading">
     <template #title>
       <div class="status-config-head">
         <div>
@@ -7,20 +7,24 @@
           <small>面向访客的精简服务状态视图</small>
         </div>
         <div class="status-config-head__actions">
-          <a-tag v-if="cfg.published" color="green">已发布</a-tag>
+          <a-tag v-if="savedPublished" color="green">已发布</a-tag>
           <a-tag v-else>未发布</a-tag>
-          <a-button type="link" size="small" href="/status" target="_blank">访问 /status ↗</a-button>
+          <a-tag v-if="hasDraft" color="orange">有未保存修改</a-tag>
+          <a-button type="link" size="small" href="/status" target="_blank" rel="noopener noreferrer">访问 /status ↗</a-button>
         </div>
       </div>
     </template>
 
-    <a-form class="status-config-form" :label-col="{ style: { width: '116px' } }">
+    <a-alert v-if="loadError" type="error" show-icon :message="loadError" class="config-error">
+      <template #action><a-button size="small" @click="load">重试</a-button></template>
+    </a-alert>
+    <a-form ref="formRef" :model="cfg" :rules="rules" class="status-config-form" :label-col="{ style: { width: '116px' } }">
       <a-form-item label="发布状态">
         <a-switch v-model:checked="cfg.published" checked-children="对外可见" un-checked-children="仅管理员" />
         <div class="sp-hint">关闭时访问者会看到「未发布」提示，不暴露任何服务器数据</div>
       </a-form-item>
 
-      <a-form-item label="页面标题">
+      <a-form-item label="页面标题" name="title">
         <a-input v-model:value="cfg.title" maxlength="120" placeholder="如：实验室 GPU 集群状态" />
       </a-form-item>
 
@@ -38,12 +42,12 @@
         <div class="sp-hint">只勾选适合对外展示的机器；未启用的服务器不可选</div>
       </a-form-item>
 
-      <a-form-item label="历史天数">
+      <a-form-item label="历史天数" name="show_history_days">
         <div class="history-days-control">
-          <a-slider v-model:value="cfg.show_history_days" :min="7" :max="90" :step="1" />
-          <a-input-number v-model:value="cfg.show_history_days" :min="7" :max="90" :step="1" />
+          <a-slider v-model:value="cfg.show_history_days" :min="1" :max="365" :step="1" />
+          <a-input-number v-model:value="cfg.show_history_days" :min="1" :max="365" :step="1" :precision="0" />
         </div>
-        <div class="sp-hint">每台服务器下方可用率条形图的时间窗口（7-90 天）</div>
+        <div class="sp-hint">每台服务器下方可用率条形图的时间窗口（1–365 天）</div>
       </a-form-item>
 
       <a-form-item label="显示延迟">
@@ -69,17 +73,19 @@
       </a-form-item>
 
       <a-form-item class="status-config-actions">
-        <a-button type="primary" :loading="saving" @click="save">保存配置</a-button>
-        <a-button :loading="previewing" @click="openPreview">预览状态页</a-button>
+        <a-button type="primary" :loading="saving" :disabled="!ready || previewing" @click="save">保存配置</a-button>
+        <a-button :loading="previewing" :disabled="!ready || saving" @click="openPreview">预览草稿</a-button>
       </a-form-item>
+      <div class="sp-hint">预览不会保存或发布配置；只有点击「保存配置」才会改变线上状态页。</div>
     </a-form>
   </a-card>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { App as AntApp } from 'ant-design-vue'
 import api from '../api'
+import { openStatusPreview } from '../status-preview'
 
 const { message } = AntApp.useApp()
 
@@ -90,38 +96,75 @@ const cfg = ref({
 const available = ref([])
 const saving = ref(false)
 const previewing = ref(false)
+const formRef = ref()
+const loading = ref(false)
+const ready = ref(false)
+const loadError = ref('')
+const savedConfig = ref('')
+const savedPublished = ref(false)
+const hasDraft = computed(() => ready.value && JSON.stringify(cfg.value) !== savedConfig.value)
+const rules = {
+  title: [{ max: 120, message: '标题最多 120 个字符', trigger: 'blur' }],
+  show_history_days: [{ validator: (_, value) => Number.isInteger(value) && value >= 1 && value <= 365
+    ? Promise.resolve() : Promise.reject(new Error('历史天数须为 1–365 的整数')), trigger: 'change' }],
+}
+
+function markSaved() {
+  savedConfig.value = JSON.stringify(cfg.value)
+  savedPublished.value = cfg.value.published
+}
 
 async function load() {
+  if (loading.value) return
+  loading.value = true
+  loadError.value = ''
   try {
     const { data } = await api.get('/status-page/config')
     cfg.value = { ...cfg.value, ...data.config }
     available.value = data.available_servers || []
+    markSaved()
+    ready.value = true
   } catch (e) {
-    message.error(e.friendlyMessage || '加载失败')
+    ready.value = false
+    loadError.value = e.friendlyMessage || '配置加载失败，请重试后再编辑'
+  } finally {
+    loading.value = false
   }
 }
 
 async function save() {
+  if (saving.value || previewing.value || !ready.value) return false
   saving.value = true
   try {
-    await api.put('/status-page/config', cfg.value)
+    await formRef.value.validate()
+    const submitted = JSON.parse(JSON.stringify(cfg.value))
+    await api.put('/status-page/config', submitted)
+    savedConfig.value = JSON.stringify(submitted)
+    savedPublished.value = submitted.published
     message.success('已保存')
+    return true
   } catch (e) {
-    message.error(e.friendlyMessage || '保存失败')
+    if (!e.errorFields) message.error(e.friendlyMessage || '保存失败')
+    return false
   } finally {
     saving.value = false
   }
 }
 
-async function openPreview() {
+function openPreview() {
+  if (previewing.value || saving.value || !ready.value) return
+  if (!Number.isInteger(cfg.value.show_history_days) || cfg.value.show_history_days < 1 || cfg.value.show_history_days > 365) {
+    message.warning('历史天数须为 1–365 的整数')
+    return
+  }
   previewing.value = true
   try {
-    await save()
+    openStatusPreview(cfg.value)
+  } catch (e) {
+    message.error(e.message || '打开预览失败')
   } finally {
     previewing.value = false
   }
-  // preview mode renders regardless of the publish toggle (admin-only endpoint)
-  window.open('/status?preview=1', '_blank')
 }
 
 onMounted(load)
@@ -129,6 +172,7 @@ onMounted(load)
 
 <style scoped>
 .sp-hint { font-size: 12px; color: var(--csub); line-height: 1.6; margin-top: 2px; }
+.config-error { margin-bottom: 16px; }
 .sp-inline-hint { margin-left: 10px; }
 .status-config-head {
   display: flex;
