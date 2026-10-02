@@ -24,7 +24,7 @@
         <a-card><a-statistic title="集群 GPU 总数" :value="summary.total_gpus" suffix="卡" /></a-card>
       </a-col>
       <a-col :span="6" :xs="12">
-        <a-card><a-statistic title="空占（占卡不计算）" :value="summary.idle_held_count" suffix="卡" /></a-card>
+        <a-card><a-statistic title="已确认空占" :value="summary.idle_held_count" suffix="卡" /></a-card>
       </a-col>
       <a-col :span="6" :xs="12">
         <a-card><a-statistic title="风险关注（≥30 分）" :value="summary.high_risk_count" suffix="卡" /></a-card>
@@ -207,6 +207,7 @@ import { ReloadOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { fmtDuration, pct } from '../format'
 import { chartTheme } from '../theme'
+import { createRequestScope } from '../requestState'
 
 const loading = ref(false)
 const summary = ref({ total_gpus: 0, idle_held_count: 0, high_risk_count: 0, gpus: [] })
@@ -214,19 +215,23 @@ const viewMode = ref('idle')
 const lastUpdated = ref(null)
 const loadError = ref('')
 let timer = null
+const requests = createRequestScope()
 
 async function load() {
   if (document.hidden) return
+  const request = requests.begin()
   loading.value = true
   try {
-    const { data } = await api.get('/cluster/gpu-analysis')
+    const { data } = await api.get('/cluster/gpu-analysis', { signal: request.signal })
+    if (!request.current()) return
     summary.value = data
     lastUpdated.value = new Date()
     loadError.value = ''
   } catch (e) {
+    if (!request.current()) return
     loadError.value = e?.friendlyMessage || String(e)
   } finally {
-    loading.value = false
+    if (request.current()) loading.value = false
   }
 }
 
@@ -245,11 +250,11 @@ const filtered = computed(() => {
 })
 
 const viewTitle = computed(() => ({
-  idle: '空占 GPU（占卡不计算）', risk: '风险 GPU（故障预测）', all: '全部 GPU',
+  idle: '空占检测：已确认与疑似候选', risk: '风险 GPU（故障预测）', all: '全部 GPU',
 }[viewMode.value]))
 
 const viewHint = computed(() => ({
-  idle: '显存占用≥30% 且利用率≈0 —— 疑似僵尸进程，可联系用户或清理',
+  idle: '疑似候选仍在观察，不计入「已确认空占」；确认状态由后端持续检测判定',
   risk: '基于 24h Xid/ECC/热降频/高温/PCIe 信号的加权评分',
   all: '集群全部 GPU 当前状态与风险',
 }[viewMode.value]))
@@ -290,11 +295,17 @@ function utilColor(v) {
   return T.green
 }
 
+function onVisibilityChange() { if (!document.hidden) load() }
 onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
   load()
   timer = setInterval(load, 60000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  requests.dispose()
+  clearInterval(timer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 </script>
 
 <style scoped>
