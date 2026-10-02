@@ -17,7 +17,7 @@
       <template #action><a-button size="small" danger @click="load">重试</a-button></template>
     </a-alert>
     <a-alert v-if="report && report.card_time_complete === false" type="warning" show-icon class="load-alert"
-      message="部分历史聚合缺少卡时数据：保留原有数据，卡时和占比显示为 —，可重建的历史数据会由后台补齐。" />
+      message="部分历史聚合缺少运行卡时：运行卡时和空占占比显示为 —，空占卡时保留历史值；可重建的数据会由后台补齐。" />
     <a-alert v-else-if="report?.card_time_estimated" type="info" show-icon class="load-alert"
       message="部分旧采样未记录采样周期，卡时为估算值；新采样使用实际记录的周期计算。" />
 
@@ -26,7 +26,7 @@
         <a-statistic title="GPU 运行卡时" :value="report?.total_gpu_hours ?? '—'" />
       </a-card></a-col>
       <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
-        <a-statistic title="空占卡时" :value="report?.total_idle_gpu_hours ?? 0" />
+        <a-statistic title="空占卡时" :value="report?.total_idle_gpu_hours ?? '—'" />
       </a-card></a-col>
       <a-col :span="8" :xs="24"><a-card class="report-kpi-card report-kpi-card--ratio">
         <a-statistic title="空占占比" :value="idleRatio ?? '—'" :suffix="idleRatio == null ? '' : '%'" />
@@ -74,7 +74,7 @@
               <div class="mobile-data-card__title">
                 <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
               </div>
-              <a-tag :color="row.idle_ratio_pct > 30 ? 'red' : row.idle_ratio_pct > 10 ? 'orange' : 'green'">
+              <a-tag :color="idleRatioColor(row.idle_ratio_pct)">
                 空占 {{ row.idle_ratio_pct == null ? '—' : `${row.idle_ratio_pct}%` }}
               </a-tag>
             </div>
@@ -128,6 +128,11 @@ const idleRatio = computed(() => {
 })
 
 const numberSorter = key => (a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0)
+
+function idleRatioColor(value) {
+  if (value == null) return undefined
+  return value > 30 ? 'red' : value > 10 ? 'orange' : 'green'
+}
 
 function utilColor(value) {
   if (value >= 60) return 'var(--cgreen)'

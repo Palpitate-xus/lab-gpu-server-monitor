@@ -14,7 +14,7 @@ const deferred = () => {
 
 function view(get) {
   let dispose, filename
-  const state = vm.runInNewContext(`${script}\n;({ load, report, hours, tag, loading, loadError, loadedQuery, idleRatio, exportCsv })`, {
+  const state = vm.runInNewContext(`${script}\n;({ load, report, hours, tag, loading, loadError, loadedQuery, idleRatio, idleRatioColor, exportCsv })`, {
     ref: value => ({ value }), computed: fn => ({ get value() { return fn() } }),
     onMounted: () => {}, onUnmounted: callback => { dispose = callback },
     createRequestScope, api: { get }, AntApp: { useApp: () => ({ message: { info() {}, error() {} } }) },
@@ -74,6 +74,10 @@ test('unknown legacy card time stays unknown instead of showing a fabricated rat
   const { state } = view(() => {})
   state.report.value = { total_gpu_hours: null, total_idle_gpu_hours: 8, idle_ratio_pct: null }
   assert.equal(state.idleRatio.value, null)
+  assert.equal(state.idleRatioColor(null), undefined, 'unknown ratios must not appear healthy')
+  assert.equal(state.idleRatioColor(0), 'green')
+  assert.equal(state.idleRatioColor(20), 'orange')
+  assert.equal(state.idleRatioColor(40), 'red')
   state.report.value = { total_gpu_hours: 8, total_idle_gpu_hours: 8, idle_ratio_pct: 100 }
   assert.equal(state.idleRatio.value, 100)
 })
