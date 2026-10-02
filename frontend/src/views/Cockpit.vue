@@ -6,7 +6,7 @@
     <!-- ===== header ===== -->
     <div class="cockpit-page-head">
       <div class="cockpit-page-identity">
-        <a-badge :status="hasError ? 'error' : 'success'" />
+        <a-badge :status="error ? 'warning' : hasError ? 'error' : lastUpdated ? 'success' : 'default'" />
         <span class="cockpit-page-title">GPU 集群驾驶舱</span>
       </div>
       <div class="cockpit-page-actions">
@@ -24,7 +24,7 @@
 
     <!-- ===== KPI band ===== -->
     <div class="kpi-band">
-      <a-card><a-statistic title="在线服务器" :value="nServers" :suffix="`/${stats.servers_total || 0}`" /></a-card>
+      <a-card><a-statistic title="在线服务器" :value="nServers" :suffix="`/${stats.servers_total ?? '—'}`" /></a-card>
       <a-card><a-statistic title="GPU 总数" :value="nGpus" suffix="卡" /><div class="kpi-note">空闲 {{ nIdle }} 卡</div></a-card>
       <a-card>
         <a-statistic title="GPU 平均利用率" :value="avgGpuUtil" :precision="1" suffix="%" />
@@ -182,6 +182,7 @@
               <a-radio-button value="power">功率</a-radio-button>
             </a-radio-group>
           </div></template>
+          <a-alert v-if="historyError" type="warning" show-icon :message="`趋势刷新失败：${historyError}，保留上次数据`" />
           <v-chart :option="trendOption" class="cockpit-chart-lg" autoresize />
         </a-card>
 
@@ -302,7 +303,9 @@ const history = ref([])
 const stats = ref({})
 const healthSummary = ref([])
 const gpuMatrix = ref([])
-const clusterPowerW = ref(0)
+const clusterPowerW = ref(null)
+const navSummary = ref(null)
+const matrixLoaded = ref(false)
 const energy = ref(null)
 const showEnergy = ref(false)
 
@@ -318,6 +321,7 @@ function energyGrad(kwh) {
   return '#52c41a'
 }
 function fmtPower(w) {
+  if (w == null) return '—'
   return w >= 1000 ? (w / 1000).toFixed(2) + 'k' : Math.round(w)
 }
 const matrixSort = ref('server')
@@ -345,21 +349,21 @@ const latest = ref([])
 
 const { lastUpdated, reload, error } = usePoll(loadAll, 30000)
 
-const nServers = computed(() => stats.value.servers_online ?? 0)
+const nServers = computed(() => stats.value.servers_online ?? '—')
 const hasError = computed(() => (stats.value.servers_error ?? 0) > 0 || openAlerts.value > 0)
 const allGpus = computed(() => gpuMatrix.value.flatMap(s => s.gpus.map(g => ({ ...g, server: s.server_name }))))
-const nGpus = computed(() => allGpus.value.length)
-const nIdle = computed(() => allGpus.value.filter(g => g.utilization < 10 && (g.mem_used_mb / (g.mem_total_mb || 1)) < 0.15).length)
-const avgGpuUtil = computed(() => stats.value.avg_gpu_util ?? 0)
-const gpuMemTotal = computed(() => stats.value.gpu_mem_total_mb ?? 0)
-const gpuMemUsed = computed(() => stats.value.gpu_mem_used_mb ?? 0)
-const gpuMemPct = computed(() => (gpuMemTotal.value ? (gpuMemUsed.value / gpuMemTotal.value) * 100 : 0))
-const avgCpu = computed(() => stats.value.avg_cpu_percent ?? 0)
-const memPct = computed(() => (stats.value.mem_total_mb ? (stats.value.mem_used_mb / stats.value.mem_total_mb) * 100 : 0))
+const nGpus = computed(() => matrixLoaded.value ? allGpus.value.length : '—')
+const nIdle = computed(() => matrixLoaded.value ? allGpus.value.filter(g => g.utilization < 10 && (g.mem_used_mb / (g.mem_total_mb || 1)) < 0.15).length : '—')
+const avgGpuUtil = computed(() => stats.value.avg_gpu_util ?? '—')
+const gpuMemTotal = computed(() => stats.value.gpu_mem_total_mb ?? null)
+const gpuMemUsed = computed(() => stats.value.gpu_mem_used_mb ?? null)
+const gpuMemPct = computed(() => gpuMemTotal.value == null ? '—' : (gpuMemTotal.value ? (gpuMemUsed.value / gpuMemTotal.value) * 100 : 0))
+const avgCpu = computed(() => stats.value.avg_cpu_percent ?? '—')
+const memPct = computed(() => stats.value.mem_total_mb == null ? null : (stats.value.mem_total_mb ? (stats.value.mem_used_mb / stats.value.mem_total_mb) * 100 : 0))
 const gpuUtilDisplay = computed(() => normalizedPercent(avgGpuUtil.value))
 const gpuMemoryDisplay = computed(() => normalizedPercent(gpuMemPct.value))
 const cpuDisplay = computed(() => normalizedPercent(avgCpu.value))
-const openAlerts = computed(() => alerts.value.filter(a => !a.recovered_at).length)
+const openAlerts = computed(() => navSummary.value?.open_alerts ?? '—')
 
 const gpuMemRank = computed(() =>
   allGpus.value
@@ -453,7 +457,7 @@ function shortName(n) {
   return n.replace('NVIDIA ', '').replace('GeForce ', '')
 }
 
-function fmtPct(v) { return (Math.round((Number(v) || 0) * 10) / 10).toFixed(1) }
+function fmtPct(v) { return v == null ? '—' : (Math.round((Number(v) || 0) * 10) / 10).toFixed(1) }
 
 // cluster-history now returns ISO UTC strings; show local time on the X axis
 function fmtAxisTime(iso) {
@@ -501,9 +505,9 @@ function gpuCellClass(g) {
 }
 
 async function loadAll() {
-  // allSettled: one failing endpoint must never blank the whole cockpit;
-  // each panel degrades independently with its own fallback value
-  const [dash, gpus, energyData, powerNow, evts, latestAll, health] = await Promise.allSettled([
+  // Each failed panel retains its last successful value. A rejected aggregate
+  // informs usePoll that this was not a successful refresh.
+  const [dash, gpus, energyData, powerNow, evts, latestAll, health, summary] = await Promise.allSettled([
     api.get('/metrics/dashboard'),
     api.get('/metrics/cluster-gpus'),
     api.get('/metrics/cluster-energy?days=7'),
@@ -511,18 +515,23 @@ async function loadAll() {
     api.get('/alerts/events?limit=20'),
     api.get('/metrics/latest?slim=1'),
     api.get('/cluster/health-summary'),
+    api.get('/cluster/nav-summary'),
   ])
   const val = (r, fb) => (r.status === 'fulfilled' ? r.value.data : fb)
-  stats.value = val(dash, { servers_online: 0, servers_total: 0 })
-  gpuMatrix.value = val(gpus, [])
-  alerts.value = val(evts, [])
-  latest.value = val(latestAll, [])
-  healthSummary.value = val(health, [])
-  energy.value = val(energyData, null)
+  stats.value = val(dash, stats.value)
+  gpuMatrix.value = val(gpus, gpuMatrix.value)
+  if (gpus.status === 'fulfilled') matrixLoaded.value = true
+  alerts.value = val(evts, alerts.value)
+  latest.value = val(latestAll, latest.value)
+  healthSummary.value = val(health, healthSummary.value)
+  energy.value = val(energyData, energy.value)
+  navSummary.value = val(summary, navSummary.value)
   const pw = val(powerNow, null)
-  clusterPowerW.value = pw?.total_w ?? 0
-  const failed = [dash, gpus, evts, latestAll].filter(r => r.status === 'rejected')
-  if (failed.length) console.warn('[cockpit] endpoints failed:', failed.length)
+  if (powerNow.status === 'fulfilled') clusterPowerW.value = pw?.total_w ?? 0
+  const panels = ['资源总览', 'GPU 矩阵', '能耗', '当前功率', '告警事件', '服务器指标', '健康摘要', '告警计数']
+  const failed = [dash, gpus, energyData, powerNow, evts, latestAll, health, summary]
+    .flatMap((result, index) => result.status === 'rejected' ? [panels[index]] : [])
+  if (failed.length) throw new Error(`${failed.join('、')}读取失败；已有数据可能过期`)
 }
 
 const FAULT_LABELS = {
@@ -533,18 +542,24 @@ const FAULT_LABELS = {
 function faultLabel(code) { return FAULT_LABELS[code] || code }
 
 const applyHistory = useLatestOnly()
+const historyError = ref('')
 
 async function loadHistory() {
   // only the newest request may write (fast 1H/6H/24H switching race guard)
-  await applyHistory(
-    api.get(`/metrics/cluster-history?hours=${rangeHours.value}`).catch(() => ({ data: [] })),
-    ({ data }) => { history.value = data }
-  )
+  try {
+    await applyHistory(
+      api.get(`/metrics/cluster-history?hours=${rangeHours.value}`),
+      ({ data }) => { history.value = data; historyError.value = '' }
+    )
+  } catch (e) {
+    historyError.value = e?.friendlyMessage || '趋势读取失败'
+  }
 }
 
 let reloadTimer = null
 
 async function refreshNow() {
+  if (refreshing.value) return
   refreshing.value = true
   try {
     await api.post('/metrics/refresh')
@@ -559,7 +574,7 @@ async function refreshNow() {
 }
 
 onMounted(loadHistory)
-onUnmounted(() => { if (reloadTimer) clearTimeout(reloadTimer) })
+onUnmounted(() => { applyHistory.invalidate(); if (reloadTimer) clearTimeout(reloadTimer) })
 </script>
 
 <style scoped>
