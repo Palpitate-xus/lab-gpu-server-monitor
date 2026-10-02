@@ -13,10 +13,10 @@
         <a-card class="page-card settings-card" title="采集与数据">
           <a-form class="settings-form" :label-col="{ style: { width: '136px' } }">
             <a-form-item label="采集间隔 (秒)">
-              <a-input-number v-model:value="pollInterval" :min="10" :max="3600" />
+              <a-input-number v-model:value="pollInterval" :min="10" :max="86400" :precision="0" />
             </a-form-item>
             <a-form-item label="数据保留 (天)">
-              <a-input-number v-model:value="retentionDays" :min="0" :max="3650" />
+              <a-input-number v-model:value="retentionDays" :min="0" :max="3650" :precision="0" />
               <div class="settings-hint">0 = 永久保存全部历史数据</div>
             </a-form-item>
             <a-form-item label="电价 (¥/kWh)">
@@ -40,11 +40,11 @@
         <a-card class="page-card settings-card" title="告警通知 (Webhook)">
           <a-form class="settings-form webhook-form" :label-col="{ style: { width: '126px' } }">
             <a-form-item label="Webhook URL">
-              <a-input v-model:value="webhookUrl" :placeholder="webhookConfigured ? '已加密保存；留空表示保持不变' : 'https://example.com/hook'" />
+              <a-input v-model:value="webhookUrl" :maxlength="2048" :placeholder="webhookConfigured ? '已加密保存；留空表示保持不变' : 'https://example.com/hook'" />
               <div v-if="webhookConfigured" class="settings-hint">已配置，出于安全原因不回显 URL/令牌。</div>
             </a-form-item>
             <a-form-item label="消息模板">
-              <a-textarea v-model:value="webhookTemplate" :rows="4" class="mono"
+              <a-textarea v-model:value="webhookTemplate" :rows="4" :maxlength="65536" class="mono"
                 placeholder='{"text": "[{{level}}] {{server_name}}: {{metric}}={{value}} {{op}} {{threshold}}"}' />
               <div class="settings-hint settings-template-hint">
                 <span v-pre>变量: {{level}} {{server_name}} {{metric}} {{value}} {{op}} {{threshold}} {{rule_name}} {{time}}</span><br>
@@ -52,8 +52,8 @@
               </div>
             </a-form-item>
             <a-form-item class="settings-form-actions">
-              <a-button :loading="testing" @click="testWebhook">发送测试</a-button>
-              <a-button type="primary" :loading="savingWebhook" @click="saveWebhook">保存</a-button>
+              <a-button :loading="testing" :disabled="savingWebhook" @click="testWebhook">发送测试</a-button>
+              <a-button type="primary" :loading="savingWebhook" :disabled="testing" @click="saveWebhook">保存</a-button>
               <a-button v-if="webhookConfigured" danger @click="clearWebhook">清除</a-button>
             </a-form-item>
           </a-form>
@@ -181,13 +181,13 @@
     <a-modal v-model:open="channelDlg" class="responsive-dialog" title="新增通知通道" :width="500">
       <a-form ref="channelFormRef" class="responsive-form" :model="channelForm" :rules="channelRules" :label-col="{ style: { width: '106px' } }">
         <a-form-item label="名称" name="name">
-          <a-input v-model:value="channelForm.name" placeholder="如 运维群机器人" />
+          <a-input v-model:value="channelForm.name" :maxlength="128" placeholder="如 运维群机器人" />
         </a-form-item>
         <a-form-item label="URL" name="url">
-          <a-input v-model:value="channelForm.url" placeholder="https://example.com/hook" />
+          <a-input v-model:value="channelForm.url" :maxlength="2048" placeholder="https://example.com/hook" />
         </a-form-item>
-        <a-form-item label="消息模板">
-          <a-textarea v-model:value="channelForm.template" :rows="3" class="mono"
+        <a-form-item label="消息模板" name="template">
+          <a-textarea v-model:value="channelForm.template" :rows="3" :maxlength="65536" class="mono"
             placeholder="留空则使用全局默认模板" />
         </a-form-item>
         <a-form-item label="最低严重度">
@@ -215,6 +215,7 @@ import api from '../api'
 import StatusPageConfig from '../components/StatusPageConfig.vue'
 import { isAdminSession } from '../composables'
 import { fmtTime } from '../format'
+import { validateCollectionSettings, validateThresholdSettings } from '../settings-form'
 
 const isAdmin = computed(() => isAdminSession())
 const { message, modal } = AntApp.useApp()
@@ -239,8 +240,9 @@ const savingChannel = ref(false)
 const channelFormRef = ref()
 const channelForm = reactive({ name: '', url: '', template: '', min_severity: 'info', enabled: true })
 const channelRules = {
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  url: [{ required: true, message: '请输入 URL', trigger: 'blur' }]
+  name: [{ required: true, whitespace: true, max: 128, message: '名称须为 1–128 个字符', trigger: 'blur' }],
+  url: [{ required: true, max: 2048, message: '请输入 URL（最多 2048 个字符）', trigger: 'blur' }],
+  template: [{ max: 65536, message: '模板最多 65536 个字符', trigger: 'blur' }],
 }
 const SEVERITIES = [
   { value: 'info', label: '信息 (info)' },
@@ -290,11 +292,16 @@ async function loadLogs() {
 }
 
 async function saveSettings() {
+  if (savingSettings.value) return
+  const payload = { poll_interval: pollInterval.value, retention_days: retentionDays.value, energy_price: energyPrice.value }
+  const invalid = validateCollectionSettings(payload)
+  if (invalid) return message.warning(invalid)
   savingSettings.value = true
   try {
-    await api.put('/settings', { poll_interval: pollInterval.value, retention_days: retentionDays.value, energy_price: energyPrice.value })
+    await api.put('/settings', payload)
     message.success('已保存，下一轮采集生效')
-    load()
+    // Do not overwrite an unrelated, unsaved webhook draft on this page.
+    try { status.value = (await api.get('/settings')).data.scheduler || {} } catch { /* saved settings remain valid */ }
   } catch (e) {
     message.error(e.friendlyMessage || '保存失败')
   } finally {
@@ -303,6 +310,7 @@ async function saveSettings() {
 }
 
 async function saveWebhook() {
+  if (savingWebhook.value || testing.value) return
   savingWebhook.value = true
   try {
     const payload = { webhook_template: webhookTemplate.value }
@@ -321,6 +329,7 @@ async function saveWebhook() {
 }
 
 async function testWebhook() {
+  if (testing.value || savingWebhook.value) return
   if (!webhookUrl.value.trim() && !webhookConfigured.value) return message.warning('请先填写 Webhook URL')
   testing.value = true
   try {
@@ -376,12 +385,14 @@ function openChannelDialog() {
 }
 
 async function saveChannel() {
+  if (savingChannel.value) return
+  savingChannel.value = true
   try {
     await channelFormRef.value.validate()
   } catch {
+    savingChannel.value = false
     return
   }
-  savingChannel.value = true
   try {
     await api.post('/alerts/channels', { ...channelForm })
     message.success('已添加')
@@ -417,6 +428,9 @@ async function loadThresholds() {
 }
 
 async function saveThresholds() {
+  if (savingThresholds.value) return
+  const invalid = validateThresholdSettings(thresholds)
+  if (invalid) return message.warning(invalid)
   savingThresholds.value = true
   try {
     await api.put('/settings/thresholds', { ...thresholds })

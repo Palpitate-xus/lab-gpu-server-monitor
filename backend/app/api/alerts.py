@@ -216,6 +216,13 @@ def test_webhook(
     }
     if url:
         ok, msg = notifier.send_webhook(url, template or notifier.DEFAULT_TEMPLATE, ctx)
+    elif body is not None:
+        # Settings keep the stored URL write-only. A blank URL means reuse
+        # that target, not broadcast through all channels with the old template.
+        stored_url, _stored_template = notifier.get_webhook_config()
+        if not stored_url:
+            raise HTTPException(status_code=400, detail="未配置主 Webhook URL")
+        ok, msg = notifier.send_webhook(stored_url, template or notifier.DEFAULT_TEMPLATE, ctx)
     else:
         ok, msg = notifier.notify_alert("test-server", "gpu_temp", 88.0, ">", 80, "测试规则")
     if not ok:
