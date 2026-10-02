@@ -96,6 +96,7 @@ import { SearchOutlined } from '@ant-design/icons-vue'
 import api from '../api'
 import { fmtSizeMB } from '../format'
 import { usePoll } from '../composables'
+import { compareGpuIdentity } from '../requestState'
 
 const matrix = ref([])
 const search = ref('')
@@ -146,6 +147,7 @@ const sorted = computed(() => {
       (g.name || '').toLowerCase().includes(q) || (g.server_name || '').toLowerCase().includes(q))
   }
   const dir = asc.value ? 1 : -1
+  if (sortBy.value === 'server') return [...list].sort((a, b) => compareGpuIdentity(a, b) * dir)
   const keyOf = {
     util: g => g.utilization,
     mem: g => memPct(g),
