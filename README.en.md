@@ -149,6 +149,16 @@ privileged operations are accepted.
 The settings page also supports data retention days (0 = forever), a webhook URL, and a message
 template. Webhook URLs are encrypted at rest and their full tokens are never returned by the API.
 
+## Page Logic Regression and Upgrades
+
+- Frontend regressions: `pnpm --dir frontend test`; production build: `pnpm --dir frontend build`.
+- Backend regressions: `pytest -q backend/tests`. Tests use isolated temporary databases, not deployed monitoring databases or SSH hosts.
+- Apply `016_gpu_card_time.sql` through the explicit migration procedure in [the deployment guide](DEPLOYMENT.en.md) before updating the backend and frontend together. The new collector requires the updated schema.
+- GPU card-hours use successful sample coverage multiplied by the observed GPU count. The collector records the period in effect for each sample; duplicate/manual samples do not double-count time. Sampling granularity, detector thresholds and hourly rollup granularity are unchanged.
+- Retained raw data is used to rebuild legacy rollups in bounded background batches. Legacy samples without a recorded period are marked as estimates; unrecoverable card-hours and ratios remain unavailable (`—`) rather than inventing historical card counts.
+- Status drafts are previewed without saving or publishing. Public status distinguishes failures, stale probes and missing probes, and separates query time from probe time.
+- The pre-change tag is `frontend-logic-baseline-20261002`. The migration only adds columns; retain them and historical data when rolling back code, without destructive schema rollback.
+
 ## Repository Layout
 
 ```
