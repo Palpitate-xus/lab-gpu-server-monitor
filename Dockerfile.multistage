@@ -76,7 +76,8 @@ FROM ${WOLFI_BASE}
 ARG IPMITOOL_VERSION
 ARG IPMITOOL_COMMIT
 WORKDIR /app
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
         gdbm \
         libbz2-1 \
         libexpat1 \
