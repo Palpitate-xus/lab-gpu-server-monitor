@@ -990,6 +990,8 @@ def _expire_maintenance() -> None:
 
 
 _ROLLUP_BACKFILL_HOURS = 24 * 45  # how far back a missing rollup hour is still closed
+_legacy_backfill_lock = threading.Lock()
+_legacy_backfill_thread: threading.Thread | None = None
 
 
 def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
@@ -1134,6 +1136,65 @@ def _roll_hour(db, hour_start, hour_end, server_ids, interval) -> None:
     db.commit()
 
 
+def _upgrade_legacy_gpu_card_time(server_ids, interval, before_hour) -> None:
+    """Rebuild retained legacy hours on a separate, session-owning worker."""
+    from .models import ServerMetricHourly
+
+    db = SessionLocal()
+    try:
+        if _stop_event.is_set():
+            return
+        first_raw = db.query(func.min(ServerMetric.collected_at)).scalar()
+        if first_raw is None:
+            return
+        if first_raw.tzinfo is None:
+            first_raw = first_raw.replace(tzinfo=timezone.utc)
+        full_raw_hour = first_raw.replace(minute=0, second=0, microsecond=0)
+        if first_raw != full_raw_hour:
+            full_raw_hour += timedelta(hours=1)
+        legacy_hours = [row[0] for row in db.query(ServerMetricHourly.hour)
+            .filter(ServerMetricHourly.gpu_sample_minutes.is_(None),
+                    ServerMetricHourly.gpu_time_estimated.is_(True),
+                    ServerMetricHourly.server_id.in_(server_ids),
+                    ServerMetricHourly.hour >= full_raw_hour,
+                    # Never compete with the foreground late-sample refresh.
+                    ServerMetricHourly.hour < before_hour)
+            .distinct().order_by(ServerMetricHourly.hour.desc()).limit(96).all()]
+        if legacy_hours:
+            logger.info("legacy GPU card-time backfill started: %d retained hour(s)", len(legacy_hours))
+        closed = 0
+        for legacy_hour in legacy_hours:
+            if _stop_event.is_set():
+                break
+            _roll_hour(db, legacy_hour, legacy_hour + timedelta(hours=1), server_ids, interval)
+            closed += 1
+        if closed:
+            logger.info("legacy GPU card-time backfill rebuilt %d hour(s)", closed)
+    except Exception:
+        logger.exception("legacy GPU card-time backfill failed")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _start_legacy_backfill(server_ids, interval, before_hour) -> None:
+    """At most one legacy rebuild may run; never join it from live polling."""
+    global _legacy_backfill_thread
+    with _legacy_backfill_lock:
+        if _stop_event.is_set():
+            return
+        if _legacy_backfill_thread is not None and _legacy_backfill_thread.is_alive():
+            return
+        worker = threading.Thread(
+            target=_upgrade_legacy_gpu_card_time,
+            args=(tuple(server_ids), interval, before_hour),
+            name="gpumon-legacy-card-time",
+            daemon=True,
+        )
+        worker.start()
+        _legacy_backfill_thread = worker
+
+
 def _hourly_aggregate() -> None:
     """Close every rollup hour that is still missing (idempotent).
 
@@ -1146,6 +1207,7 @@ def _hourly_aggregate() -> None:
 
     now = datetime.now(timezone.utc)
     prev_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    legacy_job = None
     db = SessionLocal()
     try:
         server_ids = [
@@ -1172,25 +1234,16 @@ def _hourly_aggregate() -> None:
             _roll_hour(db, hour, hour + timedelta(hours=1), server_ids, interval)
             hour += timedelta(hours=1)
             closed += 1
-        # Bounded, additive upgrade of old rollups whose raw samples are still
-        # retained. Older/unrecoverable rows stay NULL and are disclosed by
-        # the report instead of using the old, dimensionally incorrect formula.
-        first_raw = db.query(func.min(ServerMetric.collected_at)).scalar()
-        if first_raw is not None:
-            if first_raw.tzinfo is None:
-                first_raw = first_raw.replace(tzinfo=timezone.utc)
-            full_raw_hour = first_raw.replace(minute=0, second=0, microsecond=0)
-            if first_raw != full_raw_hour:
-                full_raw_hour += timedelta(hours=1)
-            legacy_hours = [row[0] for row in db.query(ServerMetricHourly.hour)
-                .filter(ServerMetricHourly.gpu_sample_minutes.is_(None),
-                        ServerMetricHourly.gpu_time_estimated.is_(True),
-                        ServerMetricHourly.server_id.in_(server_ids),
-                        ServerMetricHourly.hour >= full_raw_hour,
-                        ServerMetricHourly.hour <= prev_hour)
-                .distinct().order_by(ServerMetricHourly.hour.desc()).limit(96).all()]
-            for legacy_hour in legacy_hours:
-                _roll_hour(db, legacy_hour, legacy_hour + timedelta(hours=1), server_ids, interval)
+        # This additive upgrade can take minutes on a retained production DB.
+        # Only a cheap existence check belongs in the foreground; the worker
+        # selects/rebuilds up to 96 hours without stalling collection/heartbeat.
+        if db.query(ServerMetricHourly.id).filter(
+            ServerMetricHourly.gpu_sample_minutes.is_(None),
+            ServerMetricHourly.gpu_time_estimated.is_(True),
+            ServerMetricHourly.server_id.in_(server_ids),
+            ServerMetricHourly.hour < prev_hour,
+        ).first() is not None:
+            legacy_job = (server_ids, interval, prev_hour)
         if closed:
             logger.info("hourly aggregate closed %d hour(s) up to %s", closed, prev_hour)
     except Exception:
@@ -1198,6 +1251,8 @@ def _hourly_aggregate() -> None:
         db.rollback()
     finally:
         db.close()
+    if legacy_job is not None:
+        _start_legacy_backfill(*legacy_job)
 
 
 def _scheduler_loop() -> None:
@@ -1235,6 +1290,8 @@ def start_scheduler() -> None:
     with _state["lock"]:
         if _state["running"]:
             return
+        # The first sample must record the saved cadence, not the env default.
+        _state["interval"] = _load_interval()
         _state["running"] = True
     _stop_event.clear()
     t = threading.Thread(target=_scheduler_loop, name="gpumon-scheduler", daemon=True)
