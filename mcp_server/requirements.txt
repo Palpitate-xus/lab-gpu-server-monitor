@@ -1,3 +1,4 @@
 # Direct dependency declaration. Production installs use requirements.lock,
 # which pins and hashes the complete transitive dependency graph.
 mcp==2.1.1
+PyJWT==2.15.1
