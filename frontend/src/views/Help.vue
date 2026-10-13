@@ -452,9 +452,9 @@ async function copyText(text, label) {
 .hero-copy h1 {
   margin: 0 0 12px;
   color: var(--ctext);
-  font-size: clamp(27px, 3vw, 37px);
-  line-height: 1.18;
-  letter-spacing: -0.025em;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .hero-copy p {
@@ -589,7 +589,10 @@ async function copyText(text, label) {
   display: flex;
   align-items: center;
   gap: 14px;
+  white-space: normal;
 }
+.section-heading > div { min-width: 0; }
+.section-heading p { overflow-wrap: anywhere; }
 
 .section-number {
   display: grid;
@@ -729,11 +732,12 @@ async function copyText(text, label) {
 }
 
 .code-block {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  border: 1px solid #24324a;
-  border-radius: 10px;
-  background: #0b1220;
-  box-shadow: 0 8px 22px rgba(2, 8, 23, 0.14);
+  border: 1px solid var(--cborder);
+  border-radius: 8px;
+  background: var(--cpanel2);
 }
 
 .code-block.compact {
@@ -745,9 +749,9 @@ async function copyText(text, label) {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #24324a;
-  background: #111b2e;
-  color: #8da2c1;
+  border-bottom: 1px solid var(--cborder);
+  background: var(--cpanel);
+  color: var(--csub);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -756,17 +760,17 @@ async function copyText(text, label) {
 
 .code-toolbar button {
   padding: 3px 8px;
-  border: 1px solid #31425f;
+  border: 1px solid var(--cborder);
   border-radius: 5px;
   background: transparent;
-  color: #b9c8dc;
+  color: var(--cprimary);
   cursor: pointer;
 }
 
 .code-toolbar button:hover,
 .code-toolbar button:focus-visible {
-  border-color: #1677ff;
-  color: #69b1ff;
+  border-color: var(--cprimary);
+  color: var(--cprimary);
   outline: none;
 }
 
@@ -778,7 +782,7 @@ async function copyText(text, label) {
 }
 
 .code-block code {
-  color: #d7e3f4;
+  color: var(--ctext);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.65;
