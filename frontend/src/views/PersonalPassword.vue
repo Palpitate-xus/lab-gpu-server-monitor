@@ -63,5 +63,9 @@ onUnmounted(clearPasswords)
 </script>
 
 <style scoped>
-.password-card { max-width: 560px; }
+.password-card { width: 100%; max-width: 560px; margin-inline: auto; }
+@media (max-width: 768px) {
+  .password-card :deep(.ant-card-body) { padding: 16px; }
+  .password-card :deep(.ant-form .ant-btn) { width: 100%; }
+}
 </style>
