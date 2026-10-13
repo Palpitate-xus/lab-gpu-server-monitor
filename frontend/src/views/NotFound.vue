@@ -17,4 +17,13 @@
   padding: 24px;
   background: var(--cbg);
 }
+.not-found-page :deep(.ant-result) { width: 100%; min-width: 0; }
+.not-found-page :deep(.ant-result-image) { max-width: 100%; }
+.not-found-page :deep(.ant-result-image svg) { max-width: 100%; height: auto; }
+
+@media (max-width: 480px) {
+  .not-found-page { padding: 16px; }
+  .not-found-page :deep(.ant-result) { padding-inline: 16px; }
+  .not-found-page :deep(.ant-result-image) { height: auto; }
+}
 </style>
