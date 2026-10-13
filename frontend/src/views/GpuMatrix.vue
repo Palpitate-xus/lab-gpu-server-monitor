@@ -16,19 +16,19 @@
         </a-tag>
       </div>
       <div class="gm-toolbar-right">
-        <a-input v-model:value="search" placeholder="搜索 GPU 型号 / 服务器" allow-clear size="small"
+        <a-input v-model:value="search" placeholder="搜索 GPU 型号 / 服务器" allow-clear
           class="gm-filter gm-filter-search" aria-label="搜索 GPU 型号或服务器">
           <template #prefix><SearchOutlined /></template>
         </a-input>
-        <a-select v-model:value="serverFilter" size="small" class="gm-filter gm-filter-server" placeholder="全部服务器" allow-clear aria-label="按服务器筛选">
+        <a-select v-model:value="serverFilter" class="gm-filter gm-filter-server" placeholder="全部服务器" allow-clear aria-label="按服务器筛选">
           <a-select-option v-for="s in servers" :key="s.server_id" :value="s.server_id">{{ s.server_name }}</a-select-option>
         </a-select>
-        <a-select v-model:value="stateFilter" size="small" class="gm-filter gm-filter-state" aria-label="按忙闲状态筛选">
+        <a-select v-model:value="stateFilter" class="gm-filter gm-filter-state" aria-label="按忙闲状态筛选">
           <a-select-option value="all">全部状态</a-select-option>
           <a-select-option value="busy">繁忙</a-select-option>
           <a-select-option value="idle">空闲</a-select-option>
         </a-select>
-        <a-button-group size="small" class="gm-sort-group" aria-label="GPU 排序方式">
+        <a-button-group class="gm-sort-group" aria-label="GPU 排序方式">
           <a-button v-for="opt in sortOptions" :key="opt.value"
             :type="sortBy === opt.value ? 'primary' : 'default'" @click="pickSort(opt.value)">
             {{ opt.label }}<span v-if="sortBy === opt.value" class="gm-dir">{{ asc ? ' ↑' : ' ↓' }}</span>
@@ -50,7 +50,7 @@
         <div class="gm-rank">#{{ i + 1 }}</div>
         <div class="gm-head">
           <div class="gm-id">
-            <b>{{ g.server_name }}</b>
+            <b :title="g.server_name">{{ g.server_name }}</b>
             <span class="gm-idx">GPU {{ g.index }}</span>
           </div>
           <span class="gm-model" :title="g.name">{{ shortName(g.name) }}</span>
@@ -187,13 +187,13 @@ function ringColor(u) {
 </script>
 
 <style scoped>
-.gm-page { display: flex; flex-direction: column; gap: 14px; }
+.gm-page { display: flex; flex-direction: column; gap: 16px; }
 
 .gm-toolbar {
   display: flex; justify-content: space-between; align-items: center;
   flex-wrap: wrap; gap: 10px;
 }
-.gm-toolbar-left, .gm-toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gm-toolbar-left, .gm-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .gm-title { font-size: 15px; }
 .gm-dir { font-weight: 700; }
 .gm-updated { font-size: 12px; color: var(--csub); }
@@ -235,9 +235,9 @@ function ringColor(u) {
 }
 
 .gm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding-right: 28px; }
-.gm-id { min-width: 0; }
-.gm-id b { font-size: 14px; }
-.gm-idx { margin-left: 6px; font-size: 11px; color: var(--csub); }
+.gm-id { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 6px; }
+.gm-id b { min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-idx { flex: 0 0 auto; font-size: 11px; color: var(--csub); }
 .gm-model {
   font-size: 11px; color: var(--csub); max-width: 110px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
