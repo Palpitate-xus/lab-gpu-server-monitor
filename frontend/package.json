@@ -16,7 +16,7 @@
     "ant-design-vue": "4.2.6",
     "axios": "1.20.0",
     "echarts": "^6.1.0",
-    "vue": "^3.5.13",
+    "vue": "3.5.42",
     "vue-echarts": "^8.3.0",
     "vue-router": "^4.5.0"
   },

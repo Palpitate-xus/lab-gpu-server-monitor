@@ -4,3 +4,7 @@ allowBuilds:
   core-js: false
   esbuild: true
   vue-demi: true
+
+overrides:
+  # Keep compiler/source-map consumers on the audited security patch.
+  source-map-js: 1.2.2
