@@ -164,6 +164,7 @@ onMounted(setup)
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .mfa-card-head > div {
   min-width: 0;
@@ -209,6 +210,8 @@ onMounted(setup)
   .mfa-steps { padding: 16px; }
   .mfa-code,
   .mfa-submit { max-width: none; width: 100%; }
+  .mfa-card-head :deep(.ant-tag) { margin-inline-end: 0; }
+  .mfa-page :deep(.ant-card-body) { padding: 16px; }
 }
 
 @media (max-width: 480px) {
