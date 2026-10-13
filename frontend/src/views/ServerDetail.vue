@@ -17,7 +17,7 @@
           {{ statusCn[server.status] }}<span v-if="server.status_reason">：{{ server.status_reason }}</span>
         </a-tag>
         <a-dropdown v-if="isAdmin" :trigger="['click']">
-          <a-button size="small" :disabled="actionSaving">状态切换</a-button>
+          <a-button :disabled="actionSaving">状态切换</a-button>
           <template #overlay>
             <a-menu @click="onStatusMenu">
               <a-menu-item key="active">运行中</a-menu-item>
@@ -27,7 +27,7 @@
             </a-menu>
           </template>
         </a-dropdown>
-        <a-button size="small" @click="refreshAll"><ReloadOutlined />刷新</a-button>
+        <a-button @click="refreshAll"><ReloadOutlined />刷新</a-button>
       </div>
     </div>
 
