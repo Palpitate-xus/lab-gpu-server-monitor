@@ -8,8 +8,8 @@
       <a-button type="text" size="small" @click="scrollToSection('settings-logs')">操作日志</a-button>
     </nav>
 
-    <a-row :gutter="14" class="settings-grid">
-      <a-col id="settings-collection" :span="12" :xs="24" class="settings-section">
+    <a-row :gutter="16" class="settings-grid">
+      <a-col id="settings-collection" :xs="24" :xl="12" class="settings-section">
         <a-card class="page-card settings-card" title="采集与数据">
           <a-form class="settings-form" :label-col="{ style: { width: '136px' } }">
             <a-form-item label="采集间隔 (秒)">
@@ -23,11 +23,11 @@
               <a-input-number v-model:value="energyPrice" :min="0" :max="100" :step="0.05" :precision="2" />
               <div class="settings-hint">电量费用估算，0 = 不计算</div>
             </a-form-item>
-            <a-form-item>
+            <a-form-item class="settings-form-actions">
               <a-button type="primary" :loading="savingSettings" @click="saveSettings">保存</a-button>
             </a-form-item>
           </a-form>
-          <a-descriptions :column="1" border style="max-width:560px">
+          <a-descriptions :column="1" bordered size="small" style="max-width:560px">
             <a-descriptions-item label="调度器状态">
               <a-tag :color="status.running ? 'green' : 'red'">{{ status.running ? '运行中' : '停止' }}</a-tag>
             </a-descriptions-item>
@@ -36,9 +36,9 @@
           </a-descriptions>
         </a-card>
       </a-col>
-      <a-col id="settings-webhook" :span="12" :xs="24" class="settings-section">
+      <a-col id="settings-webhook" :xs="24" :xl="12" class="settings-section">
         <a-card class="page-card settings-card" title="告警通知 (Webhook)">
-          <a-form class="settings-form webhook-form" :label-col="{ style: { width: '126px' } }">
+          <a-form class="settings-form webhook-form" :label-col="{ style: { width: '126px' } }" style="--settings-label-width:126px">
             <a-form-item label="Webhook URL">
               <a-input v-model:value="webhookUrl" :maxlength="2048" :placeholder="webhookConfigured ? '已加密保存；留空表示保持不变' : 'https://example.com/hook'" />
               <div v-if="webhookConfigured" class="settings-hint">已配置，出于安全原因不回显 URL/令牌。</div>
@@ -60,8 +60,8 @@
         </a-card>
       </a-col>
     </a-row>
-    <a-row :gutter="14" class="settings-grid">
-      <a-col id="settings-channels" :span="12" :xs="24" class="settings-section">
+    <a-row :gutter="16" class="settings-grid">
+      <a-col id="settings-channels" :xs="24" :xl="12" class="settings-section">
         <a-card v-if="isAdmin" class="page-card settings-card">
           <template #title>
             <div class="settings-card-head">
@@ -92,7 +92,7 @@
               </template>
             </a-table-column>
           </a-table>
-          <a-spin class="mobile-only" :spinning="loadingChannels">
+          <a-spin wrapper-class-name="mobile-only" :spinning="loadingChannels">
             <div v-if="channels.length" class="mobile-card-list">
               <article v-for="row in channels" :key="row.id" class="mobile-data-card">
                 <div class="mobile-data-card__head">
@@ -114,10 +114,10 @@
           </a-spin>
         </a-card>
       </a-col>
-      <a-col id="settings-thresholds" :span="12" :xs="24" class="settings-section">
+      <a-col id="settings-thresholds" :xs="24" :xl="12" class="settings-section">
         <a-card class="page-card settings-card" title="检测阈值">
           <a-spin :spinning="loadingThresholds">
-          <a-form class="settings-form" :label-col="{ style: { width: '156px' } }">
+          <a-form class="settings-form" :label-col="{ style: { width: '156px' } }" style="--settings-label-width:156px">
             <a-form-item label="空占显存阈值 (%)">
               <a-input-number v-model:value="thresholds.gpu_idle_vram_pct" :min="1" :max="95" />
             </a-form-item>
@@ -133,7 +133,7 @@
             <a-form-item label="磁盘健康阈值 (%)">
               <a-input-number v-model:value="thresholds.health_disk_pct" :min="50" :max="100" />
             </a-form-item>
-            <a-form-item>
+            <a-form-item class="settings-form-actions">
               <a-button type="primary" :loading="savingThresholds" @click="saveThresholds">保存</a-button>
             </a-form-item>
           </a-form>
@@ -161,7 +161,7 @@
         <a-table-column data-index="action" title="操作" :width="160" />
         <a-table-column data-index="detail" title="详情" ellipsis />
       </a-table>
-      <a-spin class="mobile-only" :spinning="loadingLogs">
+      <a-spin wrapper-class-name="mobile-only" :spinning="loadingLogs">
         <div v-if="logs.length" class="mobile-card-list">
           <article v-for="(row, index) in logs" :key="`${row.ts}-${index}`" class="mobile-data-card settings-log-item">
             <div class="mobile-data-card__head">
@@ -465,7 +465,9 @@ onMounted(() => { load(); loadLogs(); loadChannels(); loadThresholds() })
 }
 .settings-section { scroll-margin-top: 62px; }
 .settings-card { height: calc(100% - 16px); }
-.settings-form { max-width: 560px; }
+.settings-form { --settings-label-width: 136px; max-width: 560px; }
+.settings-form :deep(.ant-input-number) { width: 160px; max-width: 100%; }
+.settings-form-actions :deep(.ant-form-item-control) { margin-inline-start: var(--settings-label-width); }
 .settings-hint {
   width: 100%;
   margin-top: 2px;
@@ -512,6 +514,7 @@ onMounted(() => { load(); loadLogs(); loadChannels(); loadThresholds() })
     line-height: 1.4;
   }
   .settings-form :deep(.ant-form-item-control) { margin-left: 0 !important; }
+  .settings-form-actions :deep(.ant-form-item-control) { margin-inline-start: 0 !important; }
   .settings-form :deep(.ant-input-number) { width: 100%; }
   .settings-form-actions :deep(.ant-btn) { min-width: calc(50% - 4px); flex: 1; }
   .settings-card-head { flex-wrap: wrap; }
