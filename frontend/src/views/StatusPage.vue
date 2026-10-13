@@ -232,6 +232,7 @@ onUnmounted(() => {
 <style scoped>
 .status-page {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 48px 20px 40px;
 }
 .status-page--light {
@@ -266,6 +267,8 @@ onUnmounted(() => {
   margin: 0;
   font-size: 28px;
   line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .status-header p {
   margin: 6px 0 0;
@@ -286,6 +289,9 @@ onUnmounted(() => {
   color: var(--csub);
   font-size: 12px;
 }
+.server-title { min-width: 0; }
+.server-title > span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.server-title :deep(.ant-badge) { flex: 0 0 auto; }
 .server-meta b { color: var(--ctext); font-variant-numeric: tabular-nums; }
 .server-last-check { margin: 0 0 12px; color: var(--csub); font-size: 12px; }
 .gpu-list {
