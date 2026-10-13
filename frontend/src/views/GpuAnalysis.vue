@@ -7,29 +7,29 @@
       </div>
       <div class="analysis-controls">
         <span v-if="lastUpdated" class="analysis-updated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
-        <a-radio-group v-model:value="viewMode" size="small">
+        <a-radio-group v-model:value="viewMode">
           <a-radio-button value="idle">空占检测</a-radio-button>
           <a-radio-button value="risk">故障预测</a-radio-button>
           <a-radio-button value="all">全部 GPU</a-radio-button>
         </a-radio-group>
-        <a-button size="small" @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
+        <a-button @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
       </div>
     </div>
 
     <a-alert v-if="loadError" :message="`数据加载失败：${loadError}（保留上次数据，1 分钟后重试）`" type="error" show-icon class="load-alert" />
 
     <!-- ===== summary cards ===== -->
-    <a-row :gutter="14" class="analysis-kpis">
-      <a-col :span="6" :xs="12">
+    <a-row :gutter="[16, 16]" class="analysis-kpis kpi-row">
+      <a-col :xs="12" :lg="6">
         <a-card><a-statistic title="集群 GPU 总数" :value="summary.total_gpus" suffix="卡" /></a-card>
       </a-col>
-      <a-col :span="6" :xs="12">
+      <a-col :xs="12" :lg="6">
         <a-card><a-statistic title="已确认空占" :value="summary.idle_held_count" suffix="卡" /></a-card>
       </a-col>
-      <a-col :span="6" :xs="12">
+      <a-col :xs="12" :lg="6">
         <a-card><a-statistic title="风险关注（≥30 分）" :value="summary.high_risk_count" suffix="卡" /></a-card>
       </a-col>
-      <a-col :span="6" :xs="12">
+      <a-col :xs="12" :lg="6">
         <a-card><a-statistic title="健康（低风险无空占）" :value="healthyCount" suffix="卡" /></a-card>
       </a-col>
     </a-row>
@@ -45,7 +45,7 @@
       <a-table class="desktop-only" :data-source="filtered" size="small" :loading="loading" :pagination="false" :row-class-name="rowClass" :scroll="{ x: 1180, y: 560 }" :row-key="rowKey">
         <a-table-column title="服务器 / GPU" :width="210" ellipsis>
           <template #default="{ record: row }">
-            <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
+            <a-button type="link" size="small" class="table-link" :title="row.server_name" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
             <div class="analysis-server-meta">GPU {{ row.gpu_index }} · {{ row.name }}</div>
           </template>
         </a-table-column>
@@ -104,7 +104,7 @@
         </a-table-column>
       </a-table>
 
-      <a-spin class="mobile-only" :spinning="loading">
+      <a-spin wrapper-class-name="mobile-only" :spinning="loading">
         <div v-if="filtered.length" class="mobile-card-list">
           <article
             v-for="row in filtered"
@@ -327,9 +327,10 @@ onUnmounted(() => {
 .analysis-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.analysis-kpis { margin-bottom: 14px; }
+.analysis-kpis { margin-bottom: 16px; }
 .load-alert { margin-bottom: 12px; }
 .table-link { height: auto; padding: 0; }
 .analysis-card-head {
@@ -337,7 +338,10 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
+.analysis-card-head > span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.analysis-card-head > span:last-child { flex: 1; line-height: 1.6; font-weight: 400; }
 .analysis-server-meta {
   margin-top: 3px;
   overflow: hidden;
@@ -443,8 +447,8 @@ onUnmounted(() => {
   .analysis-updated { order: 3; width: 100%; text-align: right; }
   .analysis-controls .ant-radio-group { min-width: 0; flex: 1; display: flex; }
   .analysis-controls :deep(.ant-radio-button-wrapper) { flex: 1; padding-inline: 8px; text-align: center; }
-  .analysis-kpis .ant-col { margin-bottom: 10px; }
-  .analysis-kpis { margin-bottom: 4px; }
+  .analysis-kpis :deep(.ant-card-body) { padding: 16px 12px; }
+  .analysis-kpis :deep(.ant-statistic-title) { min-height: 44px; }
   .analysis-card-head { align-items: flex-start; flex-direction: column; gap: 5px; }
   .analysis-gpu-card .ant-tag { max-width: 48%; }
 }
