@@ -71,23 +71,23 @@
       </a-card>
 
       <!-- ===== btop-style overview stats ===== -->
-      <a-row id="detail-resources" :gutter="14" class="detail-kpis detail-section">
-        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
+      <a-row id="detail-resources" :gutter="16" class="detail-kpis detail-section kpi-row">
+        <a-col :xs="12" :lg="6"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value" :style="{color: utilColor(metric.cpu_percent)}">{{ metric.cpu_percent }}%</div>
           <div class="stat-label">CPU ({{ metric.cpu_count }} 核 {{ fmtFreq(metric.cpu_freq_avg) }})</div>
           <div class="stat-sub">{{ metric.cpu_model || '—' }}</div>
         </a-card></a-col>
-        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
+        <a-col :xs="12" :lg="6"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value detail-capacity-value">{{ fmtSizeMB(metric.mem_used_mb) }} <i>/</i> {{ fmtSizeMB(metric.mem_total_mb) }}</div>
           <div class="stat-label">内存 ({{ memPct }}%)</div>
           <div class="stat-sub">可用 {{ fmtSizeMB(metric.mem_available_mb) }} · 缓存 {{ fmtSizeMB(metric.mem_cached_mb) }} · Swap {{ fmtSizeMB(metric.swap_used_mb) }}/{{ fmtSizeMB(metric.swap_total_mb) }}</div>
         </a-card></a-col>
-        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
+        <a-col :xs="12" :lg="6"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value detail-capacity-value">{{ (metric.disk_used_gb ?? 0).toFixed(0) }} <i>/</i> {{ (metric.disk_total_gb ?? 0).toFixed(0) }} GB</div>
           <div class="stat-label">磁盘 ({{ diskPct }}%)</div>
           <div class="stat-sub">{{ (metric.disks||[]).length }} 个挂载点</div>
         </a-card></a-col>
-        <a-col :span="6" :xs="{ span: 12 }"><a-card class="stat-card detail-kpi-card">
+        <a-col :xs="12" :lg="6"><a-card class="stat-card detail-kpi-card">
           <div class="stat-value">{{ fmtUptime(metric.uptime_seconds) }}</div>
           <div class="stat-label">运行时长</div>
           <div class="stat-sub">{{ metric.os }} · {{ metric.kernel }}</div>
@@ -128,8 +128,8 @@
           </div>
         </template>
         <a-empty v-if="!gpus.length" description="未检测到 GPU（nvidia-smi 不可用）" />
-        <a-row :gutter="14" v-else>
-          <a-col :span="12" :xs="{ span: 24 }" v-for="g in gpus" :key="g.uuid + g.index">
+        <a-row :gutter="16" v-else>
+          <a-col :xs="24" :lg="12" v-for="g in gpus" :key="g.uuid + g.index">
             <a-card class="gpu-card">
               <div class="gpu-card-head">
                 <b>GPU {{ g.index }} · {{ g.name }}</b>
@@ -190,8 +190,8 @@
       </a-card>
 
       <!-- ===== network & disk IO rates ===== -->
-      <a-row :gutter="14">
-        <a-col :span="12" :xs="{ span: 24 }">
+      <a-row :gutter="16">
+        <a-col :xs="24" :lg="12">
           <a-card class="page-card">
             <template #title><div style="display:flex;justify-content:space-between;align-items:center">网络速率 (实时)<RateUnitPicker kind="net" @change="onUnitChange" /></div></template>
             <a-table :data-source="metric.net_ifaces || []" row-key="iface" size="small" :scroll="{ y: 260 }" :pagination="false">
@@ -206,7 +206,7 @@
             <a-empty v-if="!(metric.net_ifaces||[]).length" description="暂无活动接口" />
           </a-card>
         </a-col>
-        <a-col :span="12" :xs="{ span: 24 }">
+        <a-col :xs="24" :lg="12">
           <a-card class="page-card">
             <template #title><div style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (实时)<RateUnitPicker kind="disk" @change="onUnitChange" /></div></template>
             <a-table :data-source="metric.disk_io || []" row-key="device" size="small" :scroll="{ y: 260 }" :pagination="false">
@@ -230,8 +230,8 @@
       </a-row>
 
       <!-- ===== disks + logged users ===== -->
-      <a-row :gutter="14">
-        <a-col :span="16" :xs="{ span: 24 }">
+      <a-row :gutter="16">
+        <a-col :xs="24" :lg="16">
           <a-card class="page-card">
             <template #title>磁盘分区</template>
             <a-table :data-source="metric.disks || []" :row-key="row => `${row.device}:${row.mount}`" size="small" :scroll="{ y: 300 }" :pagination="false">
@@ -248,7 +248,7 @@
             </a-table>
           </a-card>
         </a-col>
-        <a-col :span="8" :xs="{ span: 24 }">
+        <a-col :xs="24" :lg="8">
           <a-card class="page-card">
             <template #title>登录用户</template>
             <a-table :data-source="metric.users || []" :row-key="row => `${row.user}:${row.tty}:${row.login}`" size="small" :scroll="{ y: 260 }" :pagination="false">
@@ -320,24 +320,24 @@
           </div>
         </template>
         <a-alert v-if="historyError" :message="`趋势加载失败：${historyError}`" type="warning" show-icon :closable="false" style="margin-bottom:12px" />
-        <a-row :gutter="14">
-          <a-col v-if="isGpuServer" :span="12" :xs="{ span: 24 }">
+        <a-row :gutter="16">
+          <a-col v-if="isGpuServer" :xs="24" :lg="12">
             <div class="chart-sub-title">GPU 利用率 / 显存 / 温度 / 功耗</div>
             <v-chart v-if="history.length" :option="gpuChartOption" class="chart-box" autoresize />
             <a-empty v-else description="暂无历史数据" />
           </a-col>
-          <a-col :span="isGpuServer ? 12 : 24" :xs="{ span: 24 }">
+          <a-col :xs="24" :lg="isGpuServer ? 12 : 24">
             <div class="chart-sub-title">CPU / 内存 / Swap / 每核负载</div>
             <v-chart v-if="history.length" :option="sysChartOption" class="chart-box" autoresize />
             <a-empty v-else description="暂无历史数据" />
           </a-col>
         </a-row>
-        <a-row :gutter="14" style="margin-top:8px">
-          <a-col :span="12" :xs="{ span: 24 }">
+        <a-row :gutter="16" style="margin-top:8px">
+          <a-col :xs="24" :lg="12">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">网络吞吐 (接收 / 发送)<RateUnitPicker kind="net" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="netChartOption" class="chart-box-sm" autoresize />
           </a-col>
-          <a-col :span="12" :xs="{ span: 24 }">
+          <a-col :xs="24" :lg="12">
             <div class="chart-sub-title" style="display:flex;justify-content:space-between;align-items:center">磁盘 IO (读 / 写)<RateUnitPicker kind="disk" @change="onUnitChange" /></div>
             <v-chart v-if="history.length" :option="diskChartOption" class="chart-box-sm" autoresize />
           </a-col>
@@ -460,8 +460,8 @@
           </a-tab-pane>
 
           <a-tab-pane v-if="isAdmin" tab="服务 / MIG" key="services">
-            <a-row :gutter="14">
-              <a-col :span="12" :xs="{ span: 24 }">
+            <a-row :gutter="16">
+              <a-col :xs="24" :lg="12">
                 <div class="chart-sub-title">关键服务状态</div>
                 <a-table :data-source="serviceRows" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="name" title="服务" width="180" />
@@ -479,7 +479,7 @@
                   </a-table>
                 </template>
               </a-col>
-              <a-col :span="12" :xs="{ span: 24 }">
+              <a-col :xs="24" :lg="12">
                 <div class="chart-sub-title">MIG（多实例 GPU）</div>
                 <a-table :data-source="slowHealth.mig || []" row-key="gpu_index" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="gpu_index" title="GPU" width="70" />
@@ -516,8 +516,8 @@
             <div v-if="inventory.gpu_topology" class="chart-sub-title" style="margin-top:14px">GPU 拓扑（nvidia-smi topo -m）</div>
             <pre v-if="inventory.gpu_topology" class="topo-pre">{{ inventory.gpu_topology }}</pre>
             <div class="chart-sub-title" style="margin-top:14px">磁盘 / 网卡</div>
-            <a-row :gutter="14">
-              <a-col :span="12" :xs="{ span: 24 }">
+            <a-row :gutter="16">
+              <a-col :xs="24" :lg="12">
                 <a-table :data-source="(inventory.disks||[]).slice(0, 12)" row-key="name" size="small" :scroll="{ y: 300 }" :pagination="false">
                   <a-table-column data-index="name" title="磁盘" width="90" />
                   <a-table-column data-index="size" title="容量" width="90" />
@@ -525,7 +525,7 @@
                   <a-table-column data-index="model" title="型号" width="140" :ellipsis="true" />
                 </a-table>
               </a-col>
-              <a-col :span="12" :xs="{ span: 24 }">
+              <a-col :xs="24" :lg="12">
                 <a-table :data-source="physicalNics" row-key="name" size="small" :scroll="{ y: 240 }" :pagination="false">
                   <a-table-column data-index="name" title="网卡" width="110" />
                   <a-table-column data-index="mac" title="MAC" width="140">
@@ -546,13 +546,13 @@
               <a-alert v-if="!ipmi.snapshot.ok" type="error" :closable="false" show-icon
                 :message="`BMC 连接失败：${ipmi.snapshot.error}`" style="margin-bottom:12px" />
               <a-row :gutter="12" style="margin-bottom:12px">
-                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></a-col>
+                <a-col :xs="12" :lg="6"><div class="ipmi-kpi"><b :style="{ color: ipmi.summary?.power_on ? 'var(--cgreen)' : 'var(--cred)' }">{{ ipmi.summary?.power_on ? '开启' : '关闭' }}</b><span>机箱电源</span></div></a-col>
+                <a-col :xs="12" :lg="6"><div class="ipmi-kpi"><b>{{ ipmi.summary?.power_w || '—' }} W</b><span>整机功耗（DCMI）</span></div></a-col>
+                <a-col :xs="12" :lg="6"><div class="ipmi-kpi"><b>{{ (ipmi.snapshot.sensors || []).length }}</b><span>传感器</span></div></a-col>
+                <a-col :xs="12" :lg="6"><div class="ipmi-kpi"><b class="mono" style="font-size:13px">{{ fmtTime(ipmi.snapshot.collected_at) }}</b><span>最近采集（每 5 分钟）</span></div></a-col>
               </a-row>
               <a-row :gutter="12">
-                <a-col :span="12" :xs="24">
+                <a-col :xs="24" :lg="12">
                   <div class="chart-sub-title">BMC 信息（mc info）</div>
                   <a-descriptions :column="1" bordered size="small">
                     <a-descriptions-item v-for="(v, k) in ipmi.snapshot.mc_info" :key="k" :label="k">{{ v }}</a-descriptions-item>
@@ -570,7 +570,7 @@
                     <a-descriptions-item v-for="(v, k) in ipmi.snapshot.lan" :key="k" :label="k">{{ v }}</a-descriptions-item>
                   </a-descriptions>
                 </a-col>
-                <a-col :span="12" :xs="24">
+                <a-col :xs="24" :lg="12">
                   <div class="chart-sub-title">全部传感器（sdr）</div>
                   <a-table :data-source="ipmi.snapshot.sensors || []" :row-key="row => `${row.id}:${row.name}`" size="small" :scroll="{ y: 300 }" :pagination="false">
                     <a-table-column data-index="name" title="传感器" width="130" :ellipsis="true" />
@@ -630,20 +630,20 @@
 
           <a-tab-pane tab="采集健康" key="collect">
             <template v-if="collectHealth">
-              <a-row :gutter="14">
-                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+              <a-row :gutter="16">
+                <a-col :xs="12" :lg="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value" :style="{ color: collectHealth.success_rate >= 95 ? 'var(--cgreen)' : 'var(--cred)' }">{{ collectHealth.success_rate }}%</div>
                   <div class="stat-label">24h 采集成功率</div>
                 </div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <a-col :xs="12" :lg="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.ok }}/{{ collectHealth.total }}</div>
                   <div class="stat-label">成功/总次数</div>
                 </div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <a-col :xs="12" :lg="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_ssh_latency }}s</div>
                   <div class="stat-label">平均 SSH 延迟</div>
                 </div></a-col>
-                <a-col :span="6" :xs="{ span: 12 }"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
+                <a-col :xs="12" :lg="6"><div class="stat-card" style="padding:12px;border:1px solid var(--cborder);border-radius:8px">
                   <div class="stat-value">{{ collectHealth.avg_duration }}s</div>
                   <div class="stat-label">平均采集耗时</div>
                 </div></a-col>
@@ -1395,6 +1395,8 @@ onUnmounted(() => {
   gap: 10px;
 }
 .detail-toolbar { justify-content: space-between; }
+.detail-toolbar :deep(.ant-page-header) { min-width: 0; flex: 1; padding: 0; }
+.detail-toolbar :deep(.ant-page-header-heading-title) { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: 20px; }
 .detail-toolbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .inline-link { height: auto; padding: 0 3px; }
 .detail-jump-nav {
@@ -1427,11 +1429,13 @@ onUnmounted(() => {
 }
 .detail-jump-nav button:hover { background: var(--ctable-hover); color: var(--cprimary); }
 .detail-section { scroll-margin-top: 52px; }
-.detail-kpis { row-gap: 14px; }
+.detail-kpis { row-gap: 16px; }
 .detail-kpi-card { min-height: 128px; }
+.detail-kpi-card .stat-sub { overflow-wrap: anywhere; }
+.gpu-card { margin-bottom: 16px; }
 .detail-capacity-value { white-space: normal; font-size: clamp(18px, 1.8vw, 25px); }
 .detail-capacity-value i { margin: 0 3px; color: var(--csub); font-size: .72em; font-style: normal; }
-.detail-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.detail-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .process-card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .gpu-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
 .gpu-card-head > b { min-width: 0; overflow-wrap: anywhere; }
@@ -1578,7 +1582,7 @@ onUnmounted(() => {
 .ipmi-kpi span { font-size: 11px; color: var(--csub, rgba(0, 0, 0, 0.45)); }
 @media (max-width: 768px) {
   .detail-toolbar { align-items: flex-start; }
-  .detail-toolbar :deep(.ant-page-header) { flex-basis: 100%; }
+  .detail-toolbar :deep(.ant-page-header) { flex: 1 1 100%; }
   .detail-toolbar-actions { width: 100%; }
   .detail-jump-nav { width: 100%; }
   .detail-jump-nav button { flex: 1 0 auto; }
