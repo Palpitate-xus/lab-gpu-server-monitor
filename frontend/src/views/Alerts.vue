@@ -4,7 +4,7 @@
       <a-button v-if="isAdmin" type="primary" @click="openCreate"><template #icon><PlusOutlined /></template>新建规则</a-button>
       <a-button @click="loadAll()"><template #icon><ReloadOutlined /></template>刷新</a-button>
       <span class="alerts-toolbar__spacer"></span>
-      <a-radio-group v-model:value="eventFilter" size="small" @change="onFilterChange">
+      <a-radio-group v-model:value="eventFilter" @change="onFilterChange">
         <a-radio-button :value="false">全部事件</a-radio-button>
         <a-radio-button :value="true">未恢复</a-radio-button>
       </a-radio-group>
@@ -44,7 +44,7 @@
             </a-table-column>
           </a-table>
 
-          <a-spin class="mobile-only" :spinning="loadingRules">
+          <a-spin wrapper-class-name="mobile-only" :spinning="loadingRules">
             <div v-if="rules.length" class="mobile-card-list">
               <article v-for="row in rules" :key="row.id" class="mobile-data-card">
                 <div class="mobile-data-card__head">
@@ -114,7 +114,7 @@
             </a-table-column>
           </a-table>
 
-          <a-spin class="mobile-only" :spinning="loadingEvents">
+          <a-spin wrapper-class-name="mobile-only" :spinning="loadingEvents">
             <div v-if="events.length" class="mobile-card-list">
               <article
                 v-for="row in events"
@@ -478,7 +478,7 @@ defineExpose({ eventFilter, loadAll })
 
 .alerts-toolbar__spacer { flex: 1; }
 .poll-alert { margin-bottom: 12px; }
-.table-actions { display: flex; gap: 8px; }
+.table-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .alerts-pagination {
   margin-top: 10px;
   justify-content: flex-end;
