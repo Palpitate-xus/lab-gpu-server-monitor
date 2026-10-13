@@ -42,4 +42,3 @@ function payload(path, authUser) {
 }
 
 module.exports = { payload, admin, servers, metrics };
-
