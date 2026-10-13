@@ -40,3 +40,11 @@ test('conditional unit controls have a real DOM visibility wrapper', () => {
   assert.match(cockpit, /<span v-show="trendMetric === 'net'"><RateUnitPicker/)
   assert.match(cockpit, /<span v-show="trendMetric === 'disk'"><RateUnitPicker/)
 })
+
+test('empty optional filter values render native placeholders without changing filter state', () => {
+  for (const [name, fields] of [['Reports.vue', ['tag']], ['Servers.vue', ['tagFilter', 'statusFilter']]]) {
+    for (const field of fields) {
+      assert.ok(source(name).includes(`:value="${field} || undefined" @update:value="${field} = $event"`), `${name}: ${field}`)
+    }
+  }
+})

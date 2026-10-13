@@ -164,3 +164,26 @@ test('cockpit shows only the unit picker relevant to the active chart', async ({
   await page.getByText('网络', { exact: true }).first().click();
   await expect(page.locator('.cockpit-page-actions .unit-pick-text:visible')).toHaveCount(1);
 });
+
+test('empty filters show native hints and preserve selection and clear behavior', async ({ page }, info) => {
+  await isolate(page, info.project.use.colorScheme);
+  for (const [path, filters] of [
+    ['/servers', [['按服务器标签筛选', '按标签筛选', '研发'], ['按服务器运行状态筛选', '按状态筛选', '维护中']]],
+    ['/reports', [['按服务器标签筛选', '按标签筛选', '研发']]],
+  ]) {
+    await open(page, path);
+    for (const [name, hint, label] of filters) {
+      const select = page.locator(`.ant-select[aria-label="${name}"]`);
+      await expect(select.locator('.ant-select-selection-placeholder')).toHaveText(hint);
+      await select.click();
+      await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+        .filter({ hasText: new RegExp(`^${label}$`) }).click();
+      await expect(select.locator('.ant-select-selection-item')).toHaveText(label);
+      if (path === '/reports') await expect(page.locator('.report-card-head')).toContainText(` · ${label}`);
+      await select.hover();
+      await select.locator('.ant-select-clear').click();
+      await expect(select.locator('.ant-select-selection-placeholder')).toHaveText(hint);
+      if (path === '/reports') await expect(page.locator('.report-card-head')).not.toContainText(` · ${label}`);
+    }
+  }
+});
