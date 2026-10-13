@@ -6,7 +6,7 @@
         <a-radio-button :value="72">3天</a-radio-button>
         <a-radio-button :value="168">7天</a-radio-button>
       </a-radio-group>
-      <a-select v-model:value="tag" class="report-tag-filter" placeholder="按标签筛选" allow-clear aria-label="按服务器标签筛选" @change="load">
+      <a-select :value="tag || undefined" @update:value="tag = $event" class="report-tag-filter" placeholder="按标签筛选" allow-clear aria-label="按服务器标签筛选" @change="load">
         <a-select-option v-for="t in allTags" :key="t" :value="t">{{ t }}</a-select-option>
       </a-select>
       <a-button @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
