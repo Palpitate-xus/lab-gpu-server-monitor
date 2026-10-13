@@ -290,7 +290,8 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .server-title { min-width: 0; }
-.server-title > span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.server-title > b { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.server-title :deep(.ant-tag) { flex: 0 0 auto; margin-inline-end: 0; }
 .server-title :deep(.ant-badge) { flex: 0 0 auto; }
 .server-meta b { color: var(--ctext); font-variant-numeric: tabular-nums; }
 .server-last-check { margin: 0 0 12px; color: var(--csub); font-size: 12px; }
