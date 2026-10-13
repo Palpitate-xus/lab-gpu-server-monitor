@@ -21,7 +21,7 @@
       <a-table class="desktop-only" :data-source="filtered" :loading="loading" :pagination="false" :scroll="{ x: 1180, y: 640 }" row-key="id" size="middle">
         <a-table-column data-index="name" title="名称" :width="150" ellipsis>
           <template #default="{ record: row }">
-            <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</a-button>
+            <a-button type="link" size="small" class="table-link" :title="row.name" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</a-button>
           </template>
         </a-table-column>
         <a-table-column title="类型" :width="80">
@@ -72,7 +72,7 @@
           </template>
         </a-table-column>
       </a-table>
-      <a-spin class="mobile-only" :spinning="loading">
+      <a-spin wrapper-class-name="mobile-only" :spinning="loading">
         <div v-if="filtered.length" class="mobile-card-list">
           <article v-for="row in filtered" :key="row.id" class="mobile-data-card server-mobile-card">
             <div class="mobile-data-card__head">
@@ -432,11 +432,11 @@ onMounted(load)
 
 <style scoped>
 .table-link { height: auto; padding: 0; }
-.table-actions { display: flex; gap: 8px; }
+.table-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .host-row { width: 100%; }
 .port-form-item { margin-bottom: 0; }
 .bmc-fields { display: flex; gap: 8px; flex-wrap: wrap; width: 100%; }
-.server-card-status { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.server-card-status { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 42%; }
 .server-address { margin-top: 5px; color: var(--csub); font-size: 11px; font-weight: 400; }
 .server-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 12px; }
 .server-mobile-card :deep(.ant-switch) { justify-self: start; }
