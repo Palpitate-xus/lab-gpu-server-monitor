@@ -6,10 +6,10 @@
       <a-input v-model:value="keyword" placeholder="搜索名称 / IP" allow-clear style="width:220px">
         <template #prefix><SearchOutlined /></template>
       </a-input>
-      <a-select v-model:value="tagFilter" placeholder="按标签筛选" allow-clear style="width:160px">
+      <a-select :value="tagFilter || undefined" @update:value="tagFilter = $event" placeholder="按标签筛选" allow-clear style="width:160px" aria-label="按服务器标签筛选">
         <a-select-option v-for="t in allTags" :key="t" :value="t">{{ t }}</a-select-option>
       </a-select>
-      <a-select v-model:value="statusFilter" placeholder="按状态筛选" allow-clear style="width:150px">
+      <a-select :value="statusFilter || undefined" @update:value="statusFilter = $event" placeholder="按状态筛选" allow-clear style="width:150px" aria-label="按服务器运行状态筛选">
         <a-select-option value="active">运行中</a-select-option>
         <a-select-option value="maintenance">维护中</a-select-option>
         <a-select-option value="drained">已排空</a-select-option>
