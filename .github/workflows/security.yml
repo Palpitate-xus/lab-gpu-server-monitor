@@ -61,6 +61,8 @@ jobs:
       - run: pnpm audit --prod
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:layout
 
   image:
     runs-on: ubuntu-latest

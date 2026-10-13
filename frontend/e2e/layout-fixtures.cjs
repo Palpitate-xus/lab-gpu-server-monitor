@@ -1,0 +1,45 @@
+const now = new Date().toISOString();
+const admin = { id: 1, username: 'review_admin', display_name: '布局检查', email: 'review@example.invalid', role: 'admin', is_active: true, mfa_required: true, mfa_enrolled: true, created_at: now };
+const servers = Array.from({ length: 5 }, (_, index) => ({ id: index + 1, name: ['gpu-node-01', 'gpu-training-long-server-name-02', 'gpu-node-03', 'cpu-node-01', 'gpu-node-05'][index], host: `192.0.2.${index + 1}`, port: 22, username: 'monitor', auth_type: 'key', has_password: false, has_ssh_key: true, enabled: index !== 4, server_type: index === 3 ? 'cpu' : 'gpu', tags: index % 2 ? ['训练集群', 'team-research'] : ['研发'], status: index === 2 ? 'maintenance' : 'active', description: '示例服务器，仅用于隔离布局检查', ssh_host_key_verified: true, status_until: null }));
+const gpu = (index) => ({ index, uuid: `GPU-review-${index}`, name: 'NVIDIA A100-SXM4-80GB', utilization: [87, 0, 35, 9][index % 4], mem_total_mb: 81920, mem_used_mb: [65536, 32768, 40960, 5120][index % 4], temperature: 55 + index, power_draw: 230 + index * 10, power_limit: 400, pstate: 'P0', processes: index % 2 ? [] : [{ pid: 4100 + index, gpu_mem_mb: 32768, name: 'python', command: 'python train.py', user: 'research' }] });
+const metrics = servers.map(s => ({ server_id: s.id, server_name: s.name, collected_at: now, hostname: s.name, status: s.id === 5 ? 'error' : 'ok', cpu_percent: 18 + s.id * 9, cpu_count: 128, load1: 12, load5: 11, load15: 10, mem_total_mb: 524288, mem_used_mb: 262144, swap_total_mb: 8192, swap_used_mb: 0, gpus: s.server_type === 'cpu' ? [] : Array.from({ length: 4 }, (_, i) => gpu(i)), disks: [{ mount: '/', percent: 47, used_gb: 470, total_gb: 1000 }], net_rx_bytes: 12340000, net_tx_bytes: 4000000, net_interfaces: [], processes: [], uptime_seconds: 864000, gpu_idle_since: {} }));
+const matrix = servers.filter(s => s.server_type !== 'cpu').map(s => ({ server_id: s.id, server_name: s.name, online: s.id !== 5, collected_at: now, gpus: s.id !== 5 ? metrics[s.id - 1].gpus : [] }));
+const analysis = matrix.flatMap(s => s.gpus.map(g => ({ ...g, server_id: s.server_id, server_name: s.server_name, gpu_index: g.index, gpu_uuid: g.uuid, util: g.utilization, mem_pct: g.mem_used_mb / g.mem_total_mb * 100, idle_held: g.index === 1, idle_seconds: g.index === 1 ? 7200 : 0, idle_duration_seconds: 7200, idle_since: now, risk: g.index === 2 ? 45 : 10, risk_factors: g.index === 2 ? ['高温'] : [], risk_details: [], temperature: g.temperature, name: g.name, processes: g.processes })));
+metrics.forEach(m => { m.gpu_count = m.gpus.length; m.disk_used_gb = 470; m.disk_total_gb = 1000; m.cpu_model = 'AMD EPYC'; m.os = 'Ubuntu'; m.kernel = '6.8.0'; });
+analysis.forEach(g => { g.mem_used_gb = g.mem_used_mb / 1024; g.idle_minutes = g.idle_held ? 120 : 0; g.risk_label = g.risk >= 30 ? '关注' : '健康'; });
+matrix.forEach(s => { s.enabled = servers.find(row => row.id === s.server_id).enabled; s.hostname = s.server_name; });
+const history = Array.from({ length: 20 }, (_, i) => ({ time: new Date(Date.now() - (20 - i) * 1800000).toISOString(), collected_at: new Date(Date.now() - (20 - i) * 1800000).toISOString(), ts: new Date(Date.now() - (20 - i) * 1800000).toISOString(), cpu_percent: 30 + i, mem_percent: 50, gpu_util: 40 + i, gpu_mem_percent: 65, gpu_temp: 55, gpu_power: 240, net_bps: 12000000, disk_bps: 5000000, gpus: [gpu(0)] }));
+const report = { total_gpu_hours: 1920, total_idle_gpu_hours: 240, idle_ratio_pct: 12.5, card_time_complete: true, card_time_estimated: false, servers: servers.map(s => ({ server_id: s.id, server_name: s.name, tags: s.tags, hours_covered: 24, gpu_util_avg: 46 + s.id, gpu_power_avg_w: 238, idle_held_gpu_hours: 48, idle_ratio_pct: 12.5, success_rate: 99.8 })) };
+const config = { published: true, title: 'GPU 集群服务状态', description: '隔离页面布局检查 · 示例数据', theme: 'auto', show_history_days: 7, show_gpu: true, show_resources: true, server_ids: servers.map(s => s.id) };
+function payload(path, authUser) {
+  if (path === '/api/auth/me') return authUser;
+  if (path === '/api/auth/mfa/setup') return { secret: 'LAYOUTONLYDEMO00', uri: 'otpauth://totp/LayoutReview?secret=LAYOUTONLYDEMO00' };
+  if (path === '/api/servers') return servers;
+  if (path === '/api/users') return [admin, { ...admin, id: 2, username: 'viewer_demo', display_name: '研发团队', role: 'viewer', mfa_required: false }, { ...admin, id: 3, username: 'disabled_user', is_active: false }];
+  if (path === '/api/metrics/latest') return metrics;
+  if (path === '/api/metrics/dashboard') return { servers_total: 5, servers_online: 4, servers_error: 0, servers_disabled: 1, gpus_total: 12, avg_gpu_util: 42.3, avg_cpu_percent: 35.2, gpu_mem_used_mb: 589824, gpu_mem_total_mb: 983040, mem_used_mb: 1048576, mem_total_mb: 2097152 };
+  if (path === '/api/metrics/cluster-gpus') return matrix;
+  if (path === '/api/metrics/cluster-history' || /\/history$/.test(path)) return history;
+  if (/\/metrics\/server\/\d+\/latest$/.test(path)) return metrics[0];
+  if (/\/processes$/.test(path)) return { processes: [] };
+  if (path === '/api/metrics/cluster-energy') return { days: Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${String(i+2).padStart(2,'0')}`, kwh: 40 + i * 2, avg_w: 1800, peak_w: 2600, coverage: 0.97 })), total_kwh: 322, total_cost: 225.4, price: 0.7 };
+  if (path === '/api/metrics/cluster-power-now') return { total_w: 2680, servers: 4, gpu_count: 12 };
+  if (path === '/api/cluster/nav-summary') return { open_alerts: 7, idle_held_count: 3 };
+  if (path === '/api/cluster/health-summary') return servers.map(s => ({ server_id: s.id, name: s.name, overall: 'ok', critical: 0, warning: 0, categories: {} }));
+  if (path === '/api/cluster/gpu-analysis') return { total_gpus: analysis.length, idle_held_count: 3, high_risk_count: 3, gpus: analysis };
+  if (path === '/api/cluster/utilization-report') return report;
+  if (path === '/api/alerts/events') return [{ id: 1, server_id: 1, server_name: servers[0].name, rule_name: 'GPU 高温', metric: 'gpu_temp', value: 82, severity: 'warning', fired_at: now, recovered_at: null, acked_at: null, message: 'GPU 温度超过阈值' }];
+  if (path === '/api/alerts/rules') return [{ id: 1, name: 'GPU 高温', metric: 'gpu_temp', op: '>', threshold: 80, duration_minutes: 5, enabled: true, server_id: null }];
+  if (path === '/api/alerts/channels') return [{ id: 1, name: '运维群', url: 'https://example.invalid/***', min_severity: 'warning', enabled: true }];
+  if (path === '/api/audit-logs') return [{ ts: now, username: 'review_admin', action: 'settings.update', detail: '示例操作记录' }];
+  if (path === '/api/settings') return { poll_interval: 30, retention_days: 30, energy_price: 0.7, webhook_url_configured: true, webhook_url: '', webhook_template: '', scheduler: { running: true, interval: 30, last_run: now, last_duration: 6.3 } };
+  if (path === '/api/settings/thresholds') return { gpu_idle_vram_pct: 30, gpu_idle_minutes: 30, health_cpu_pct: 90, health_mem_pct: 90, health_disk_pct: 90 };
+  if (path === '/api/status-page/config') return { config, available_servers: servers };
+  if (path === '/api/status-public') return { ...config, overall: { all_operational: true, servers_total: 4, servers_online: 4 }, servers: servers.slice(0,4).map(s => ({ ...s, server_id: s.id, server_name: s.name, online: true, uptime_30d: 99.9, cpu_percent: 34, mem_percent: 50, gpu_count: 4, gpu_util: 43, history: [], resources: { cpu_percent: 34, mem_percent: 50 } })), generated_at: now };
+  if (/\/health$/.test(path)) return { overall: 'healthy', categories: { cpu: { status: 'ok', checks: [] }, memory: { status: 'ok', checks: [] }, gpu: { status: 'ok', checks: [] } } };
+  if (/\/health-history$|\/notes$|\/events$/.test(path)) return [];
+  return [];
+}
+
+module.exports = { payload, admin, servers, metrics };
+
