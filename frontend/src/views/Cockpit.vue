@@ -11,14 +11,14 @@
       </div>
       <div class="cockpit-page-actions">
         <span v-if="lastUpdated">更新于 {{ lastUpdated.toLocaleTimeString('zh-CN') }}</span>
-        <a-radio-group v-model:value="rangeHours" size="small" @change="loadHistory">
+        <a-radio-group v-model:value="rangeHours" @change="loadHistory">
           <a-radio-button :value="1">1H</a-radio-button>
           <a-radio-button :value="6">6H</a-radio-button>
           <a-radio-button :value="24">24H</a-radio-button>
         </a-radio-group>
-        <RateUnitPicker v-show="trendMetric === 'net'" kind="net" @change="onUnitChange" />
-        <RateUnitPicker v-show="trendMetric === 'disk'" kind="disk" @change="onUnitChange" />
-        <a-button v-if="isAdminSession()" size="small" :loading="refreshing" @click="refreshNow"><template #icon><ThunderboltOutlined /></template>立即采集</a-button>
+        <span v-show="trendMetric === 'net'"><RateUnitPicker kind="net" size="middle" @change="onUnitChange" /></span>
+        <span v-show="trendMetric === 'disk'"><RateUnitPicker kind="disk" size="middle" @change="onUnitChange" /></span>
+        <a-button v-if="isAdminSession()" :loading="refreshing" @click="refreshNow"><template #icon><ThunderboltOutlined /></template>立即采集</a-button>
       </div>
     </div>
 
@@ -133,7 +133,7 @@
 
         <!-- grouped-by-server view (default) -->
         <div v-for="srv in gpuMatrix" v-show="matrixSort === 'server'" :key="srv.server_id" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
+          <div class="matrix-server-heading">
             <a-badge :status="srv.online ? 'success' : 'error'" />
             <b style="cursor:pointer" @click="$router.push(`/servers/${srv.server_id}`)">{{ srv.server_name }}</b>
             <span style="color:var(--csub);font-size:11px">{{ srv.hostname }}</span>
@@ -583,10 +583,11 @@ onUnmounted(() => { applyHistory.invalidate(); if (reloadTimer) clearTimeout(rel
 .kpi-band {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 16px;
+  margin-bottom: 16px;
 }
-.kpi-band :deep(.ant-card-body) { min-height: 126px; }
+.kpi-band > .ant-card { min-width: 0; height: 100%; }
+.kpi-band :deep(.ant-card-body) { min-height: 140px; padding: 16px; }
 .kpi-note { margin-top: 4px; color: var(--csub); font-size: 12px; }
 .energy-link { height: auto; margin-top: 2px; padding: 0; }
 .cockpit-page-head {
@@ -595,23 +596,28 @@ onUnmounted(() => { applyHistory.invalidate(); if (reloadTimer) clearTimeout(rel
   align-items: center;
   gap: 20px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 .cockpit-page-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.cockpit-page-title { font-size: 20px; font-weight: 700; letter-spacing: .035em; white-space: nowrap; }
+.cockpit-page-title { font-size: 20px; font-weight: 600; white-space: normal; }
 .cockpit-page-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   color: var(--csub);
   font-size: 12px;
+  flex-wrap: wrap;
 }
+.matrix-server-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+.matrix-server-heading > b, .matrix-server-heading > span { min-width: 0; overflow-wrap: anywhere; }
 .matrix-panel-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .panel-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .gpu-cell { padding: 0; }
 .gpu-cell :deep(.ant-card-body) { padding: 8px 10px; }
@@ -630,15 +636,15 @@ onUnmounted(() => { applyHistory.invalidate(); if (reloadTimer) clearTimeout(rel
 .stack :deep(.ant-card-body) { flex: 1; display: flex; flex-direction: column; }
 .main-grid {
   display: grid;
-  grid-template-columns: 1.25fr 1fr;
-  gap: 14px;
-  margin-bottom: 14px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
   align-items: stretch;
 }
 .bottom-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 0.8fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 16px;
 }
 .cockpit-chart-lg { height: 320px; width: 100%; }
 .io-rows { display: flex; flex-direction: column; gap: 10px; justify-content: space-evenly; }
