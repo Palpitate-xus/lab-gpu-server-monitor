@@ -1,16 +1,16 @@
 <template>
   <div class="cockpit">
     <div class="toolbar report-toolbar">
-      <a-radio-group v-model:value="hours" size="small" @change="load">
+      <a-radio-group v-model:value="hours" @change="load">
         <a-radio-button :value="24">24小时</a-radio-button>
         <a-radio-button :value="72">3天</a-radio-button>
         <a-radio-button :value="168">7天</a-radio-button>
       </a-radio-group>
-      <a-select v-model:value="tag" class="report-tag-filter" placeholder="按标签筛选" allow-clear size="small" aria-label="按服务器标签筛选" @change="load">
+      <a-select v-model:value="tag" class="report-tag-filter" placeholder="按标签筛选" allow-clear aria-label="按服务器标签筛选" @change="load">
         <a-select-option v-for="t in allTags" :key="t" :value="t">{{ t }}</a-select-option>
       </a-select>
-      <a-button size="small" @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
-      <a-button size="small" :disabled="loading || !report || !!loadError" @click="exportCsv"><template #icon><DownloadOutlined /></template>导出 CSV</a-button>
+      <a-button @click="load"><template #icon><ReloadOutlined /></template>刷新</a-button>
+      <a-button :disabled="loading || !report || !!loadError" @click="exportCsv"><template #icon><DownloadOutlined /></template>导出 CSV</a-button>
     </div>
 
     <a-alert v-if="loadError" type="error" show-icon class="load-alert" :message="`数据加载失败：${loadError}`">
@@ -21,14 +21,14 @@
     <a-alert v-else-if="report?.card_time_estimated" type="info" show-icon class="load-alert"
       message="部分旧采样未记录采样周期，卡时为估算值；新采样使用实际记录的周期计算。" />
 
-    <a-row :gutter="14" class="report-kpis">
-      <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
+    <a-row :gutter="[16, 16]" class="report-kpis kpi-row">
+      <a-col :xs="12" :md="8"><a-card class="report-kpi-card">
         <a-statistic title="GPU 运行卡时" :value="report?.total_gpu_hours ?? '—'" />
       </a-card></a-col>
-      <a-col :span="8" :xs="12"><a-card class="report-kpi-card">
+      <a-col :xs="12" :md="8"><a-card class="report-kpi-card">
         <a-statistic title="空占卡时" :value="report?.total_idle_gpu_hours ?? '—'" />
       </a-card></a-col>
-      <a-col :span="8" :xs="24"><a-card class="report-kpi-card report-kpi-card--ratio">
+      <a-col :xs="24" :md="8"><a-card class="report-kpi-card report-kpi-card--ratio">
         <a-statistic title="空占占比" :value="idleRatio ?? '—'" :suffix="idleRatio == null ? '' : '%'" />
       </a-card></a-col>
     </a-row>
@@ -43,7 +43,7 @@
       <a-table class="desktop-only" :data-source="report?.servers || []" :loading="loading" :pagination="false" size="small" :scroll="{ x: 1000, y: 560 }" row-key="server_id">
         <a-table-column title="服务器" :width="180" ellipsis>
           <template #default="{ record: row }">
-            <a-button type="link" size="small" class="table-link" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
+            <a-button type="link" size="small" class="table-link" :title="row.server_name" @click="$router.push(`/servers/${row.server_id}`)">{{ row.server_name }}</a-button>
           </template>
         </a-table-column>
         <a-table-column title="标签" :width="150">
@@ -67,7 +67,7 @@
         <a-table-column data-index="success_rate" title="采集成功率 %" :width="130" :sorter="numberSorter('success_rate')" />
       </a-table>
 
-      <a-spin class="mobile-only" :spinning="loading">
+      <a-spin wrapper-class-name="mobile-only" :spinning="loading">
         <div v-if="report?.servers?.length" class="mobile-card-list">
           <article v-for="row in report.servers" :key="row.server_id" class="mobile-data-card report-server-card">
             <div class="mobile-data-card__head">
@@ -190,17 +190,18 @@ onUnmounted(() => reportRequests.dispose())
 </script>
 
 <style scoped>
-.report-toolbar { margin-bottom: 0; }
 .load-alert { margin-top: 12px; }
 .table-link { height: auto; padding: 0; }
 .report-tag-filter { width: 160px; }
-.report-kpis { margin-top: 14px; margin-bottom: 14px; }
+.report-kpis { margin-bottom: 16px; }
 .report-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
+.report-card-head > span { white-space: normal; overflow-wrap: anywhere; }
 .report-card-head > span:last-child {
   color: var(--csub);
   font-size: 12px;
@@ -231,8 +232,6 @@ onUnmounted(() => reportRequests.dispose())
   .report-toolbar :deep(.ant-radio-button-wrapper) { flex: 1; text-align: center; }
   .report-tag-filter { width: 100%; }
   .report-toolbar > .ant-btn { flex: 1; margin-left: 0; }
-  .report-kpis .ant-col { margin-bottom: 10px; }
-  .report-kpis { margin-bottom: 4px; }
   .report-kpi-card :deep(.ant-card-body) { padding: 13px 8px; }
   .report-kpi-card :deep(.ant-statistic-title) { font-size: 12px; }
   .report-kpi-card :deep(.ant-statistic-content) { font-size: 20px; }
