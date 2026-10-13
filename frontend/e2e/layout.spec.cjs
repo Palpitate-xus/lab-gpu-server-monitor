@@ -37,6 +37,7 @@ async function sameRow(page, selector, count) {
 }
 
 test('all routes render without runtime errors or viewport overflow', async ({ page }, info) => {
+  test.setTimeout(60000); // This case navigates every route, optionally capturing screenshots.
   const auth = await isolate(page, info.project.use.colorScheme);
   const errors = [], failedAssets = [];
   page.on('pageerror', error => errors.push(error.message));

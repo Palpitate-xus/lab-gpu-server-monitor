@@ -11,7 +11,7 @@ module.exports = defineConfig({
   fullyParallel: true,
   workers: 2,
   retries: 0,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  reporter: [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'test-results/layout-summary.json' }]],
   use: {
     baseURL: 'http://127.0.0.1:4179',
     browserName: 'chromium',
