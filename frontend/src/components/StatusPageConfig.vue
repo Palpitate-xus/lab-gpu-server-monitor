@@ -184,6 +184,8 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
+  white-space: normal;
 }
 .status-config-head small {
   color: var(--csub);
@@ -194,6 +196,7 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .status-config-form { max-width: 760px; }
 .history-days-control {
@@ -208,6 +211,7 @@ onMounted(load)
   flex-wrap: wrap;
   gap: 8px;
 }
+.status-config-actions :deep(.ant-form-item-control) { margin-inline-start: 116px; }
 .status-config-actions :deep(.ant-btn + .ant-btn) { margin-left: 0; }
 
 @media (max-width: 768px) {
@@ -222,6 +226,7 @@ onMounted(load)
     line-height: 1.4;
   }
   .status-config-form :deep(.ant-form-item-control) { margin-left: 0 !important; }
+  .status-config-actions :deep(.ant-form-item-control) { margin-inline-start: 0 !important; }
   .status-config-form :deep(.ant-radio-group) { display: flex; flex-wrap: wrap; row-gap: 5px; }
   .history-days-control { max-width: 100%; }
   .sp-inline-hint { width: 100%; margin: 5px 0 0; }
