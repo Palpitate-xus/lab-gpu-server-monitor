@@ -219,11 +219,13 @@ onMounted(load)
   .status-config-head { align-items: flex-start; flex-direction: column; gap: 10px; }
   .status-config-head__actions { width: 100%; justify-content: space-between; }
   .status-config-form :deep(.ant-form-item) { display: block; }
+  .status-config-form :deep(.ant-form-item-row) { display: block; }
   .status-config-form :deep(.ant-form-item-label) {
     width: auto !important;
     height: auto;
     padding: 0 0 6px;
     line-height: 1.4;
+    text-align: left;
   }
   .status-config-form :deep(.ant-form-item-control) { margin-left: 0 !important; }
   .status-config-actions :deep(.ant-form-item-control) { margin-inline-start: 0 !important; }
