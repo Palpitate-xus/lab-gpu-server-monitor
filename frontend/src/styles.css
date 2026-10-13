@@ -1,5 +1,12 @@
 * { box-sizing: border-box; }
 
+:root {
+  --ui-space-xs: 8px;
+  --ui-space-sm: 12px;
+  --ui-space: 16px;
+  --ui-space-lg: 24px;
+}
+
 html, body, #app {
   height: 100%;
   margin: 0;
@@ -8,6 +15,8 @@ html, body, #app {
   background: var(--cbg, #f5f5f5);
   color: var(--ctext, rgba(0, 0, 0, 0.88));
 }
+
+#app > .ant-app { height: 100%; min-height: 100%; }
 
 /* The application shell follows Ant Design's neutral background hierarchy. */
 .layout { height: 100%; background: var(--cbg, #f5f5f5); }
@@ -51,7 +60,33 @@ html, body, #app {
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .gpu-card { margin-bottom: 12px; }
-.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar { display: flex; gap: var(--ui-space-xs); align-items: center; flex-wrap: wrap; margin-bottom: var(--ui-space); min-height: 32px; }
+.toolbar-group { display: flex; gap: var(--ui-space-xs); align-items: center; flex-wrap: wrap; min-width: 0; }
+.toolbar-meta { color: var(--csub); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Stretch native cards inside each responsive row, including wrapped labels. */
+.kpi-row > .ant-col { display: flex; min-width: 0; }
+.kpi-row > .ant-col > .ant-card { width: 100%; height: 100%; }
+.kpi-row > .ant-col > .ant-card > .ant-card-body { height: 100%; }
+
+/* A link button inside an ellipsis cell must not paint over the next column. */
+.ant-table-cell .table-link,
+.ant-table-cell .server-link {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.mobile-data-card__title .table-link {
+  display: block;
+  width: 100%;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
 
 .mobile-only { display: none !important; }
 .table-scroll-hint {
@@ -77,15 +112,16 @@ html, body, #app {
   gap: 10px;
   margin-bottom: 10px;
 }
-.mobile-data-card__title { min-width: 0; font-weight: 650; }
+.mobile-data-card__title { min-width: 0; flex: 1; font-weight: 600; overflow-wrap: anywhere; }
 .mobile-data-card__meta {
   display: grid;
-  grid-template-columns: minmax(86px, auto) 1fr;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
   gap: 7px 12px;
   color: var(--ctext, rgba(0, 0, 0, 0.88));
   font-size: 13px;
 }
 .mobile-data-card__meta > span:nth-child(odd) { color: var(--csub, rgba(0, 0, 0, 0.45)); }
+.mobile-data-card__meta > span:nth-child(even) { min-width: 0; overflow-wrap: anywhere; }
 .mobile-data-card__actions {
   display: flex;
   flex-wrap: wrap;
@@ -127,7 +163,7 @@ html, body, #app {
 @media (max-width: 768px) {
   .layout .app-sider { display: none; }
   .layout .app-content { padding: 10px; }
-  .layout .app-content > .cockpit { padding: 8px 0 20px; }
+  .layout .app-content > .cockpit { padding: 0; }
   .toolbar { gap: 8px; }
   .desktop-only { display: none !important; }
   .mobile-only { display: block !important; }
@@ -141,12 +177,14 @@ html, body, #app {
     text-align: left;
   }
   .responsive-dialog .responsive-form .ant-form-item-control { max-width: 100%; }
+  .responsive-dialog .ant-modal-body { max-height: calc(100dvh - 220px); overflow-y: auto; }
 }
 
 @media (max-width: 640px) {
   .responsive-dialog {
     width: calc(100vw - 24px) !important;
     max-width: calc(100vw - 24px) !important;
-    margin-top: 5vh !important;
+    top: 16px;
+    margin-top: 0 !important;
   }
 }
