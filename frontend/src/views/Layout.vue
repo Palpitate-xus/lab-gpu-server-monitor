@@ -246,10 +246,12 @@ onUnmounted(() => clearInterval(alertTimer))
   padding-top: 8px;
   border-inline-end: 0;
 }
-.menu-count { margin-left: auto; }
+.app-menu :deep(.ant-menu-title-content),
+.drawer-menu :deep(.ant-menu-title-content) { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.menu-count { margin-inline-start: auto; flex: 0 0 auto; }
 .app-header {
   height: 64px;
-  padding: 0 20px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -291,6 +293,7 @@ onUnmounted(() => clearInterval(alertTimer))
   padding: 16px;
   overflow-y: auto;
 }
+.layout > :deep(.ant-layout) { min-width: 0; min-height: 0; }
 .mobile-menu-btn { display: none; }
 .drawer-brand {
   height: 64px;
@@ -330,6 +333,7 @@ onUnmounted(() => clearInterval(alertTimer))
   flex-direction: column;
   gap: 2px;
 }
+.drawer-user > div { flex: 1; }
 .drawer-user b {
   overflow: hidden;
   text-overflow: ellipsis;
