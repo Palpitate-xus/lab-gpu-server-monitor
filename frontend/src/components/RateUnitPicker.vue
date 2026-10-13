@@ -1,6 +1,6 @@
 <template>
   <a-dropdown :trigger="['click']">
-    <a-button size="small" :title="`单位：${currentLabel}`">
+    <a-button :size="size" :title="`单位：${currentLabel}`">
       <BarChartOutlined />
       <span class="unit-pick-text">{{ currentLabel }}</span>
       <DownOutlined />
@@ -27,6 +27,7 @@ import {
 
 const props = defineProps({
   kind: { type: String, default: 'net' }, // 'net' | 'disk'
+  size: { type: String, default: 'small' },
 })
 const emit = defineEmits(['change'])
 
