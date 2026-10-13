@@ -7,7 +7,7 @@
       <a-button class="change-password-button" @click="pwdDlg = true">修改我的密码</a-button>
     </div>
 
-    <a-row :gutter="[12, 12]" class="users-summary" aria-label="用户概况">
+    <a-row :gutter="[16, 16]" class="users-summary kpi-row" aria-label="用户概况">
       <a-col :span="8"><a-card size="small"><a-statistic title="全部用户" :value="users.length" /></a-card></a-col>
       <a-col :span="8"><a-card size="small"><a-statistic title="已启用" :value="activeUserCount" /></a-card></a-col>
       <a-col :span="8"><a-card size="small"><a-statistic title="管理员" :value="adminCount" /></a-card></a-col>
@@ -64,7 +64,7 @@
         </a-table-column>
       </a-table>
 
-      <a-spin class="mobile-only" :spinning="loading">
+      <a-spin wrapper-class-name="mobile-only" :spinning="loading">
         <div v-if="users.length" class="mobile-card-list">
           <article v-for="row in users" :key="row.id" class="mobile-data-card user-mobile-card">
             <div class="mobile-data-card__head">
@@ -360,11 +360,9 @@ onMounted(load)
 <style scoped>
 .users-toolbar__spacer { flex: 1; }
 .users-summary {
-  max-width: 520px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
-.users-summary :deep(.ant-statistic-content) { font-size: 22px; }
-.table-actions { display: flex; gap: 8px; }
+.table-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .user-mobile-card__username {
   display: block;
   margin-top: 2px;
