@@ -507,11 +507,13 @@ onMounted(() => { load(); loadLogs(); loadChannels(); loadThresholds() })
   .settings-card :deep(.ant-card-body),
   .settings-log-card :deep(.ant-card-body) { padding: 14px 12px; }
   .settings-form :deep(.ant-form-item) { display: block; }
+  .settings-form :deep(.ant-form-item-row) { display: block; }
   .settings-form :deep(.ant-form-item-label) {
     width: auto !important;
     height: auto;
     padding: 0 0 6px;
     line-height: 1.4;
+    text-align: left;
   }
   .settings-form :deep(.ant-form-item-control) { margin-left: 0 !important; }
   .settings-form-actions :deep(.ant-form-item-control) { margin-inline-start: 0 !important; }
