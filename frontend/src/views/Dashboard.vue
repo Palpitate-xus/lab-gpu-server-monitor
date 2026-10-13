@@ -20,7 +20,7 @@
       <span v-if="lastUpdate" class="last-update">上次采集：{{ fmtTime(lastUpdate) }}</span>
     </div>
 
-    <a-row :gutter="[16, 16]">
+    <a-row :gutter="[16, 16]" class="kpi-row dashboard-kpis">
       <a-col :xs="12" :lg="6">
         <a-card>
           <a-statistic title="在线服务器" :value="`${stats.servers_online || 0}/${stats.servers_total || 0}`" />
@@ -35,9 +35,8 @@
       </a-col>
       <a-col :xs="12" :lg="6">
         <a-card>
-          <a-statistic title="GPU 显存" :value="fmtSizeMB(stats.gpu_mem_used_mb)">
-            <template #suffix><span class="stat-suffix">/ {{ fmtSizeMB(stats.gpu_mem_total_mb) }}</span></template>
-          </a-statistic>
+          <a-statistic title="GPU 显存" :value="fmtSizeMB(stats.gpu_mem_used_mb)" />
+          <div class="stat-sub">总计 {{ fmtSizeMB(stats.gpu_mem_total_mb) }} · 已用 {{ gpuMemPct }}%</div>
           <a-progress :percent="gpuMemPct" :show-info="false" size="small" />
         </a-card>
       </a-col>
@@ -67,7 +66,7 @@
         </a-table-column>
         <a-table-column data-index="server_name" title="名称" :width="150" ellipsis>
           <template #default="{ record: row }">
-            <a-button type="link" size="small" class="server-link" @click.stop="goDetail(row)">
+            <a-button type="link" size="small" class="server-link" :title="row.server_name" @click.stop="goDetail(row)">
               {{ row.server_name }}
             </a-button>
           </template>
@@ -112,7 +111,7 @@
         </a-table-column>
       </a-table>
 
-      <a-spin class="mobile-only dashboard-mobile-list" :spinning="loading">
+      <a-spin wrapper-class-name="mobile-only dashboard-mobile-list" :spinning="loading">
         <div v-if="rows.length" class="mobile-card-list">
           <article
             v-for="row in rows"
@@ -323,7 +322,8 @@ onUnmounted(() => {
 .load-alert { margin-bottom: 12px; }
 .last-update { color: var(--csub); font-size: 13px; }
 .stat-sub { margin-top: 6px; }
-.stat-suffix { font-size: 14px; color: var(--csub); }
+.dashboard-kpis :deep(.ant-statistic-content) { font-variant-numeric: tabular-nums; }
+.dashboard-kpis .stat-sub { min-height: 22px; }
 .server-card { margin-top: 16px; }
 .server-link { padding: 0; }
 .secondary-text { color: var(--csub); }
