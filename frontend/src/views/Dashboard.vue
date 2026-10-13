@@ -323,6 +323,7 @@ onUnmounted(() => {
 .last-update { color: var(--csub); font-size: 13px; }
 .stat-sub { margin-top: 6px; }
 .dashboard-kpis :deep(.ant-statistic-content) { font-variant-numeric: tabular-nums; }
+.dashboard-kpis :deep(.ant-card-body) { min-height: 160px; }
 .dashboard-kpis .stat-sub { min-height: 22px; }
 .server-card { margin-top: 16px; }
 .server-link { padding: 0; }
@@ -354,6 +355,10 @@ onUnmounted(() => {
 .dashboard-resource-grid b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .dashboard-resource-grid :deep(.ant-progress) { margin-top: 6px; }
 .dashboard-gpu-memory { margin-top: 10px; color: var(--csub); font: 11px ui-monospace, monospace; }
+@media (max-width: 768px) {
+  .dashboard-kpis :deep(.ant-card-body) { min-height: 150px; padding: 16px 12px; }
+  .dashboard-kpis :deep(.ant-statistic-content) { font-size: 22px; }
+}
 
 @media (max-width: 768px) {
   .dashboard-toolbar > span { flex-basis: 100%; order: 3; }
